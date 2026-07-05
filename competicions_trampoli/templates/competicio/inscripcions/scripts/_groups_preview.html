@@ -1,0 +1,1328 @@
+(function () {
+  'use strict';
+
+  const API = window.InscripcionsApp;
+  if (!API || !document.getElementById('panel-grups')) return;
+
+  const groupsFromSortUrl = "{% url 'inscripcions_groups_from_sort' competicio.id %}";
+  const showAlert = typeof window.showAlert === 'function' ? window.showAlert : API.showAlert;
+  const showWorkspaceActionConfirm = typeof window.showWorkspaceActionConfirm === 'function'
+    ? window.showWorkspaceActionConfirm
+    : async (options = {}) => {
+      const message = String(options.body || 'Vols continuar?');
+      return typeof window.showConfirm === 'function' ? !!(await window.showConfirm(message)) : window.confirm(message);
+    };
+  const postJson = typeof window.postJson === 'function' ? window.postJson : API.postJson;
+  const getCurrentInscripcioFilters = typeof window.getCurrentInscripcioFilters === 'function'
+    ? window.getCurrentInscripcioFilters
+    : API.getCurrentInscripcioFilters;
+  const getCurrentGroupByCodes = typeof window.getCurrentGroupByCodes === 'function'
+    ? window.getCurrentGroupByCodes
+    : API.getCurrentGroupByCodes;
+  const createPreviewBadge = typeof window.createGroupPreviewBadge === 'function'
+    ? window.createGroupPreviewBadge
+    : function (text, variant) {
+      const badge = document.createElement('span');
+      badge.className = 'group-preview-badge badge badge-light border';
+      if (variant && variant !== 'neutral') badge.classList.add(`is-${variant}`);
+      badge.textContent = String(text || '');
+      return badge;
+    };
+
+  const groupBucketSelectionState = {
+    mode: 'all',
+    availableKeys: [],
+    selectedKeys: new Set(),
+  };
+  let groupBucketViewFilters = {
+    q: '',
+    selected_state: 'all',
+    kind: 'all',
+    sort: 'count_desc',
+  };
+  let currentGroupsAutoContext = null;
+  let lastConfirmableGroupPreview = null;
+  let groupPreviewConfirmBusy = false;
+
+  function getGroupsAutoContextElements() {
+    return {
+      source: document.getElementById('groups-auto-context-source'),
+      detectedGroups: document.getElementById('groups-detected-group-fields'),
+      detectedSorts: document.getElementById('groups-detected-sort-fields'),
+      detectedWorkspace: document.getElementById('groups-detected-workspace-fields'),
+      resolutionLabel: document.getElementById('groups-resolution-label'),
+      resolutionStatus: document.getElementById('groups-resolution-status'),
+      bucketsCount: document.getElementById('groups-buckets-count'),
+      bucketsSelectionSummary: document.getElementById('groups-buckets-selection-summary'),
+      bucketsGrid: document.getElementById('groups-buckets-grid'),
+      bucketsEmpty: document.getElementById('groups-buckets-empty'),
+    };
+  }
+
+  function setGroupsAutoContextMessage(message) {
+    const els = getGroupsAutoContextElements();
+    if (!els.bucketsEmpty) return;
+    els.bucketsEmpty.textContent = message || '';
+    els.bucketsEmpty.classList.toggle('d-none', !message);
+  }
+
+  function setGroupsBucketSelectionNote(message) {
+    const note = document.getElementById('groups-buckets-selection-note');
+    if (!note) return;
+    note.textContent = message || '';
+    note.classList.toggle('d-none', !message);
+  }
+
+  function normalizeSearchText(value) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  function selectedOptionValues(selectEl) {
+    return Array.from(selectEl?.selectedOptions || [])
+      .map((option) => String(option?.value || '').trim())
+      .filter(Boolean);
+  }
+
+  function normalizeGroupBucketViewFilters(raw) {
+    const data = raw && typeof raw === 'object' ? raw : {};
+    const selectedState = String(data.selected_state || 'all').trim() || 'all';
+    const kind = String(data.kind || 'all').trim() || 'all';
+    const sort = String(data.sort || 'count_desc').trim() || 'count_desc';
+    return {
+      q: String(data.q || '').trim(),
+      selected_state: ['all', 'selected', 'unselected'].includes(selectedState) ? selectedState : 'all',
+      kind: ['all', 'tabs', 'sort', 'workspace', 'combined'].includes(kind) ? kind : 'all',
+      sort: ['count_desc', 'count_asc', 'label'].includes(sort) ? sort : 'count_desc',
+    };
+  }
+
+  function readGroupBucketViewFilters() {
+    return normalizeGroupBucketViewFilters({
+      q: document.getElementById('groups-buckets-filter-q')?.value || '',
+      selected_state: document.getElementById('groups-buckets-filter-selected-state')?.value || 'all',
+      kind: document.getElementById('groups-buckets-filter-kind')?.value || 'all',
+      sort: document.getElementById('groups-buckets-filter-sort')?.value || 'count_desc',
+    });
+  }
+
+  function getWorkspaceBucketFields() {
+    return selectedOptionValues(document.getElementById('groups-workspace-bucket-fields'));
+  }
+
+  function updateWorkspaceBucketFieldsPickerUi() {
+    const select = document.getElementById('groups-workspace-bucket-fields');
+    const summary = document.getElementById('groups-workspace-bucket-fields-summary');
+    if (!select) return;
+    const selected = Array.from(select.selectedOptions || []);
+    const selectedValues = new Set(selected.map((option) => String(option.value || '').trim()));
+    document.querySelectorAll('.js-groups-workspace-bucket-choice').forEach((choice) => {
+      choice.checked = selectedValues.has(String(choice.value || '').trim());
+    });
+    if (summary) {
+      if (!selected.length) summary.textContent = 'Qualsevol';
+      else if (selected.length <= 2) summary.textContent = selected.map((option) => String(option.textContent || option.value || '').trim()).join(', ');
+      else summary.textContent = `${selected.length} criteris`;
+    }
+  }
+
+  function setWorkspaceBucketFieldValue(value, checked) {
+    const select = document.getElementById('groups-workspace-bucket-fields');
+    if (!select) return;
+    const cleanValue = String(value || '').trim();
+    Array.from(select.options || []).forEach((option) => {
+      if (String(option.value || '').trim() === cleanValue) option.selected = !!checked;
+    });
+    updateWorkspaceBucketFieldsPickerUi();
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function clearWorkspaceBucketFields() {
+    const select = document.getElementById('groups-workspace-bucket-fields');
+    if (!select) return;
+    Array.from(select.options || []).forEach((option) => {
+      option.selected = false;
+    });
+    updateWorkspaceBucketFieldsPickerUi();
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function groupsBucketUiStorageKey() {
+    if (typeof getUiStateKey !== 'function') return '';
+    return `${getUiStateKey()}:groups-bucket-ui`;
+  }
+
+  function saveGroupsBucketUiState() {
+    const key = groupsBucketUiStorageKey();
+    if (!key || typeof sessionStorage === 'undefined') return;
+    try {
+      sessionStorage.setItem(key, JSON.stringify({
+        workspace_bucket_fields: getWorkspaceBucketFields(),
+        bucket_view_filters: normalizeGroupBucketViewFilters(groupBucketViewFilters),
+      }));
+    } catch (_err) {}
+  }
+
+  function restoreGroupsBucketUiState() {
+    const key = groupsBucketUiStorageKey();
+    if (!key || typeof sessionStorage === 'undefined') return;
+    let saved = {};
+    try {
+      saved = JSON.parse(sessionStorage.getItem(key) || '{}') || {};
+    } catch (_err) {
+      saved = {};
+    }
+    const fieldsSelect = document.getElementById('groups-workspace-bucket-fields');
+    const selectedFields = new Set((Array.isArray(saved.workspace_bucket_fields) ? saved.workspace_bucket_fields : []).map((value) => String(value || '').trim()).filter(Boolean));
+    if (fieldsSelect && selectedFields.size) {
+      Array.from(fieldsSelect.options || []).forEach((option) => {
+        option.selected = selectedFields.has(String(option.value || '').trim());
+      });
+    }
+    updateWorkspaceBucketFieldsPickerUi();
+    groupBucketViewFilters = normalizeGroupBucketViewFilters(saved.bucket_view_filters);
+    const q = document.getElementById('groups-buckets-filter-q');
+    if (q) q.value = String(groupBucketViewFilters.q || '');
+    const selectedState = document.getElementById('groups-buckets-filter-selected-state');
+    if (selectedState) selectedState.value = String(groupBucketViewFilters.selected_state || 'all');
+    const kind = document.getElementById('groups-buckets-filter-kind');
+    if (kind) kind.value = String(groupBucketViewFilters.kind || 'all');
+    const sort = document.getElementById('groups-buckets-filter-sort');
+    if (sort) sort.value = String(groupBucketViewFilters.sort || 'count_desc');
+  }
+
+  function setGroupsBucketSelectionMode(mode) {
+    groupBucketSelectionState.mode = ['all', 'none', 'custom'].includes(mode) ? mode : 'none';
+  }
+
+  function getSelectedGroupBucketKeys() {
+    const available = new Set(groupBucketSelectionState.availableKeys || []);
+    if (!available.size) return [];
+    if (groupBucketSelectionState.mode === 'none') return [];
+    if (groupBucketSelectionState.mode === 'all') return Array.from(available);
+    return Array.from(groupBucketSelectionState.selectedKeys || []).filter((key) => available.has(key));
+  }
+
+  function applyGroupBucketSelectionToDom() {
+    const selectedKeys = new Set(getSelectedGroupBucketKeys());
+    document.querySelectorAll('.js-group-bucket-check').forEach((el) => {
+      el.checked = selectedKeys.has(String(el.value || ''));
+    });
+  }
+
+  function setGroupBucketSelection(checked) {
+    if (checked) {
+      setGroupsBucketSelectionMode('all');
+      groupBucketSelectionState.selectedKeys = new Set(groupBucketSelectionState.availableKeys || []);
+    } else {
+      setGroupsBucketSelectionMode('none');
+      groupBucketSelectionState.selectedKeys = new Set();
+    }
+    applyGroupBucketSelectionToDom();
+    setGroupsBucketSelectionNote('');
+  }
+
+  function setVisibleGroupBucketSelection(checked) {
+    const visibleKeys = getVisibleGroupBuckets()
+      .map((bucket) => String(bucket?.key || '').trim())
+      .filter(Boolean);
+    if (!visibleKeys.length) return;
+    const selected = new Set(getSelectedGroupBucketKeys());
+    visibleKeys.forEach((key) => {
+      if (checked) selected.add(key);
+      else selected.delete(key);
+    });
+    groupBucketSelectionState.selectedKeys = selected;
+    groupBucketSelectionState.mode = selected.size === 0
+      ? 'none'
+      : (selected.size === groupBucketSelectionState.availableKeys.length ? 'all' : 'custom');
+    applyGroupBucketSelectionToDom();
+    setGroupsBucketSelectionNote(checked ? `${visibleKeys.length} bloc(s) visible(s) marcats.` : `${visibleKeys.length} bloc(s) visible(s) desmarcats.`);
+  }
+
+  function updateGroupBucketSelectionForContext(buckets) {
+    const availableKeys = (Array.isArray(buckets) ? buckets : [])
+      .map((bucket) => String(bucket?.key || '').trim())
+      .filter(Boolean);
+    const availableSet = new Set(availableKeys);
+    const previousKeys = new Set(groupBucketSelectionState.selectedKeys || []);
+    groupBucketSelectionState.availableKeys = availableKeys;
+
+    if (groupBucketSelectionState.mode === 'all') {
+      groupBucketSelectionState.selectedKeys = new Set(availableKeys);
+      setGroupsBucketSelectionNote('');
+      return;
+    }
+
+    if (groupBucketSelectionState.mode === 'none') {
+      groupBucketSelectionState.selectedKeys = new Set();
+      setGroupsBucketSelectionNote('');
+      return;
+    }
+
+    const survivingKeys = Array.from(previousKeys).filter((key) => availableSet.has(key));
+    groupBucketSelectionState.selectedKeys = new Set(survivingKeys);
+    if (previousKeys.size > 0 && survivingKeys.length === 0 && availableKeys.length > 0) {
+      setGroupsBucketSelectionNote('Els blocs marcats ja no existeixen en el context actual.');
+    } else {
+      setGroupsBucketSelectionNote('');
+    }
+  }
+
+  function renderDetectedGroupFields(fields) {
+    const wrap = getGroupsAutoContextElements().detectedGroups;
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const rows = Array.isArray(fields) ? fields : [];
+    if (!rows.length) {
+      const empty = document.createElement('span');
+      empty.className = 'text-muted';
+      empty.textContent = 'cap';
+      wrap.appendChild(empty);
+      return;
+    }
+    rows.forEach((field) => {
+      const badge = document.createElement('span');
+      badge.className = 'badge badge-info';
+      badge.textContent = String(field?.label || field?.code || '');
+      wrap.appendChild(badge);
+    });
+  }
+
+  function renderDetectedSortFields(fields) {
+    const wrap = getGroupsAutoContextElements().detectedSorts;
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const rows = Array.isArray(fields) ? fields : [];
+    if (!rows.length) {
+      const empty = document.createElement('span');
+      empty.className = 'text-muted';
+      empty.textContent = 'cap';
+      wrap.appendChild(empty);
+      return;
+    }
+    rows.forEach((field) => {
+      const badge = document.createElement('span');
+      badge.className = 'badge badge-primary';
+      const priority = Number(field?.priority || 0);
+      badge.textContent = `${priority > 0 ? `#${priority} ` : ''}${String(field?.label || field?.code || '')}`;
+      wrap.appendChild(badge);
+    });
+  }
+
+  function renderDetectedWorkspaceFields(fields) {
+    const wrap = getGroupsAutoContextElements().detectedWorkspace;
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const rows = Array.isArray(fields) ? fields : [];
+    if (!rows.length) {
+      const empty = document.createElement('span');
+      empty.className = 'text-muted';
+      empty.textContent = 'cap';
+      wrap.appendChild(empty);
+      return;
+    }
+    rows.forEach((field) => {
+      const badge = document.createElement('span');
+      badge.className = 'badge badge-secondary';
+      badge.textContent = String(field?.label || field?.code || '');
+      wrap.appendChild(badge);
+    });
+  }
+
+  function describeGroupsResolutionLabel(layersUsed) {
+    const layers = Array.isArray(layersUsed) ? layersUsed : [];
+    if (layers.includes('workspace')) return 'Buckets manuals';
+    return 'Sense criteris de bucket';
+  }
+
+  function describeGroupsSourceScope(context) {
+    const scope = String(context?.source_scope || '').trim().toLowerCase();
+    const targetScope = String(context?.target_scope || '').trim().toLowerCase();
+    if (scope === 'competition_all') return 'Tota la competicio';
+    if (targetScope === 'selected' || scope === 'selected') return 'Seleccio activa';
+    if (targetScope === 'filtered' || scope === 'filtered') return 'Univers filtrat';
+    return 'Univers actiu';
+  }
+
+  function describeGroupsSourceScopeInSentence(context) {
+    const label = describeGroupsSourceScope(context);
+    if (label === 'Tota la competicio') return 'tota la competicio';
+    if (label === 'Seleccio activa') return 'la seleccio activa';
+    if (label === 'Univers filtrat') return "l'univers filtrat";
+    return "l'univers actiu";
+  }
+
+  function describeGroupsResolutionStatus(context) {
+    const sourceTotal = Number(context?.source_total || 0);
+    const bucketsTotal = Number(context?.buckets_total || 0);
+    const layersUsed = Array.isArray(context?.layers_used) ? context.layers_used : [];
+    const sourceLabel = describeGroupsSourceScopeInSentence(context);
+    if (!sourceTotal) return `No hi ha inscripcions disponibles a ${sourceLabel}.`;
+    if (!bucketsTotal) return `Selecciona criteris de bucket per dividir ${sourceLabel} en blocs.`;
+    if (layersUsed.includes('workspace')) return `Blocs proposats sobre ${sourceLabel} a partir dels criteris de bucket seleccionats.`;
+    return `Blocs proposats sobre ${sourceLabel}.`;
+  }
+
+  function createBucketMetricBadge(text, variant = 'light') {
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    if (variant === 'primary') badge.className += ' badge-primary';
+    else if (variant === 'secondary') badge.className += ' badge-secondary';
+    else badge.className += ' badge-light border';
+    badge.textContent = String(text || '');
+    return badge;
+  }
+
+  function groupBucketMatchesViewFilters(bucket, filters = groupBucketViewFilters, activeKeySet = new Set(getSelectedGroupBucketKeys())) {
+    const current = normalizeGroupBucketViewFilters(filters);
+    const key = String(bucket?.key || '').trim();
+    const isSelected = activeKeySet.has(key);
+    const kinds = Array.isArray(bucket?.kinds) ? bucket.kinds.map((kind) => String(kind || '').trim()).filter(Boolean) : [];
+    if (current.selected_state === 'selected' && !isSelected) return false;
+    if (current.selected_state === 'unselected' && isSelected) return false;
+    if (current.kind === 'combined' && kinds.length <= 1) return false;
+    if (current.kind !== 'all' && current.kind !== 'combined' && !kinds.includes(current.kind)) return false;
+    if (current.q) {
+      const sourceText = (Array.isArray(bucket?.sources) ? bucket.sources : [])
+        .map((source) => [
+          source?.label,
+          source?.value_label,
+          source?.field_code,
+          source?.kind,
+        ].filter(Boolean).join(' '))
+        .join(' ');
+      const haystack = normalizeSearchText([
+        bucket?.label,
+        sourceText,
+        kinds.join(' '),
+      ].filter(Boolean).join(' '));
+      if (!haystack.includes(normalizeSearchText(current.q))) return false;
+    }
+    return true;
+  }
+
+  function sortVisibleGroupBuckets(buckets, filters = groupBucketViewFilters) {
+    const current = normalizeGroupBucketViewFilters(filters);
+    const rows = Array.isArray(buckets) ? [...buckets] : [];
+    rows.sort((a, b) => {
+      const countDiff = Number(a?.global_count || a?.count || 0) - Number(b?.global_count || b?.count || 0);
+      if (current.sort === 'count_asc' && countDiff !== 0) return countDiff;
+      if (current.sort === 'count_desc' && countDiff !== 0) return -countDiff;
+      const labelA = String(a?.label || a?.key || '').trim();
+      const labelB = String(b?.label || b?.key || '').trim();
+      return labelA.localeCompare(labelB, 'ca');
+    });
+    return rows;
+  }
+
+  function getVisibleGroupBuckets() {
+    const buckets = Array.isArray(currentGroupsAutoContext?.buckets) ? currentGroupsAutoContext.buckets : [];
+    const selected = new Set(getSelectedGroupBucketKeys());
+    groupBucketViewFilters = readGroupBucketViewFilters();
+    return sortVisibleGroupBuckets(
+      buckets.filter((bucket) => groupBucketMatchesViewFilters(bucket, groupBucketViewFilters, selected)),
+      groupBucketViewFilters,
+    );
+  }
+
+  function createGroupBucketNode(bucket) {
+    const key = String(bucket?.key || '').trim();
+    const label = document.createElement('label');
+    label.className = 'tab-select-item';
+
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.className = 'js-group-bucket-check';
+    input.value = key;
+    input.checked = getSelectedGroupBucketKeys().includes(key);
+    label.appendChild(input);
+
+    const text = document.createElement('span');
+    text.className = 'tab-label small';
+    text.title = String(bucket?.label || key);
+    text.textContent = String(bucket?.label || key);
+    label.appendChild(text);
+
+    label.appendChild(createBucketMetricBadge(`Origen: ${Number(bucket?.global_count || bucket?.count || 0)}`));
+    return label;
+  }
+
+  function updateGroupsStrategyButtonsState(context = null) {
+    const selectionCount = Number(context?.selection_count || 0);
+    const bucketsTotal = Number(context?.buckets_total || 0);
+    const markedBuckets = getSelectedGroupBucketKeys().length;
+    const visibleBuckets = getVisibleGroupBuckets().length;
+    const hasSelection = selectionCount > 0;
+
+    [
+      'btn-groups-create-count',
+      'btn-groups-preview-count',
+      'btn-groups-create-size',
+      'btn-groups-preview-size',
+      'btn-groups-create-range-balanced',
+      'btn-groups-preview-range-balanced',
+      'btn-groups-create-count-range',
+      'btn-groups-preview-count-range',
+    ].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = !hasSelection;
+    });
+
+    ['btn-groups-create-per-bucket', 'btn-groups-preview-per-bucket'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = !hasSelection || bucketsTotal === 0 || markedBuckets === 0;
+    });
+
+    ['btn-groups-buckets-all', 'btn-groups-buckets-none'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = bucketsTotal === 0;
+    });
+
+    ['btn-groups-buckets-visible-all', 'btn-groups-buckets-visible-none'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = visibleBuckets === 0;
+    });
+
+    ['btn-groups-buckets-add', 'btn-groups-buckets-remove', 'btn-groups-buckets-set'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = bucketsTotal === 0 || markedBuckets === 0;
+    });
+  }
+
+  function renderGroupsAutoContext(context) {
+    const els = getGroupsAutoContextElements();
+    const data = context && typeof context === 'object' ? context : {};
+    const buckets = Array.isArray(data.buckets) ? data.buckets : [];
+    currentGroupsAutoContext = data;
+    updateGroupBucketSelectionForContext(buckets);
+    const visibleBuckets = getVisibleGroupBuckets();
+
+    if (els.source) els.source.textContent = describeGroupsSourceScope(data);
+    renderDetectedGroupFields(data.detected_group_fields);
+    renderDetectedSortFields(data.detected_sort_fields);
+    renderDetectedWorkspaceFields(data.detected_workspace_fields);
+
+    if (els.resolutionLabel) els.resolutionLabel.textContent = describeGroupsResolutionLabel(data.layers_used);
+    if (els.resolutionStatus) els.resolutionStatus.textContent = describeGroupsResolutionStatus(data);
+    if (els.bucketsCount) els.bucketsCount.textContent = `Blocs proposats sobre ${describeGroupsSourceScopeInSentence(data)}: ${visibleBuckets.length} visibles de ${Number(data.buckets_total || 0)}`;
+    if (els.bucketsSelectionSummary) {
+      els.bucketsSelectionSummary.textContent = `Seleccio activa: ${Number(data.selection_count || 0)}`;
+    }
+    if (els.bucketsGrid) {
+      els.bucketsGrid.innerHTML = '';
+      visibleBuckets.forEach((bucket) => els.bucketsGrid.appendChild(createGroupBucketNode(bucket)));
+      els.bucketsGrid.classList.toggle('d-none', visibleBuckets.length === 0);
+    }
+
+    updateGroupsStrategyButtonsState(data);
+    setGroupsAutoContextMessage(
+      buckets.length
+        ? (visibleBuckets.length ? '' : 'Cap bloc proposat coincideix amb els filtres de buckets.')
+        : 'Selecciona criteris de bucket per crear blocs manuals.'
+    );
+    applyGroupBucketSelectionToDom();
+  }
+
+  function readIntInput(id, minValue = 1) {
+    const el = document.getElementById(id);
+    const n = Number(el?.value || 0);
+    if (!Number.isFinite(n) || n < minValue) return null;
+    return Math.trunc(n);
+  }
+
+  function getGroupsFallbackMode() {
+    return document.getElementById('groups-fallback')?.value || 'all_filtered';
+  }
+
+  function getGroupsWorkspaceState() {
+    if (!window.__groupsWorkspaceApi || typeof window.__groupsWorkspaceApi.getState !== 'function') return null;
+    return window.__groupsWorkspaceApi.getState();
+  }
+
+  function getMainSelectedInscripcioIds() {
+    if (window.__inscripcionsSelectionApi && typeof window.__inscripcionsSelectionApi.getSelectedIds === 'function') {
+      return window.__inscripcionsSelectionApi.getSelectedIds().map(String).filter(Boolean);
+    }
+    if (typeof window.getSelectedInscripcioIds === 'function') {
+      return window.getSelectedInscripcioIds().map(String).filter(Boolean);
+    }
+    return [];
+  }
+
+  function buildGroupsPayload(strategy, extraPayload = {}) {
+    const workspaceState = getGroupsWorkspaceState();
+    const filters = workspaceState?.filters && typeof workspaceState.filters === 'object'
+      ? workspaceState.filters
+      : getCurrentInscripcioFilters();
+    const selectedIds = Array.isArray(workspaceState?.selectedIds)
+      ? workspaceState.selectedIds
+      : getMainSelectedInscripcioIds();
+    return Object.assign({
+      resolution_mode: 'auto',
+      strategy,
+      fallback_mode: getGroupsFallbackMode(),
+      scope: 'selected',
+      selected_ids: selectedIds,
+      filters,
+      sort_context_filters: getCurrentInscripcioFilters(),
+      group_by: getCurrentGroupByCodes(),
+      workspace_bucket_fields: getWorkspaceBucketFields(),
+      selected_keys: getSelectedGroupBucketKeys(),
+      bucket_selection_mode: groupBucketSelectionState.mode === 'none' ? 'none' : 'custom',
+    }, extraPayload || {});
+  }
+
+  async function refreshGroupsAutoContext() {
+    if (!window.__groupsWorkspaceApi || typeof window.__groupsWorkspaceApi.resolveAutoContext !== 'function') {
+      return null;
+    }
+    const workspaceState = getGroupsWorkspaceState();
+    try {
+      const data = await window.__groupsWorkspaceApi.resolveAutoContext({
+        fallback_mode: getGroupsFallbackMode(),
+        group_by: getCurrentGroupByCodes(),
+        sort_context_filters: getCurrentInscripcioFilters(),
+        workspace_filters: workspaceState?.filters || {},
+        selected_ids: Array.isArray(workspaceState?.selectedIds) ? workspaceState.selectedIds : [],
+        workspace_bucket_fields: getWorkspaceBucketFields(),
+        source_scope: 'selected',
+      });
+      renderGroupsAutoContext(data);
+      return data;
+    } catch (_err) {
+      currentGroupsAutoContext = null;
+      updateGroupsStrategyButtonsState(null);
+      setGroupsAutoContextMessage("No s'ha pogut resoldre el context automatic dels grups.");
+      setGroupsBucketSelectionNote('');
+      renderDetectedGroupFields([]);
+      renderDetectedSortFields([]);
+      renderDetectedWorkspaceFields([]);
+      const els = getGroupsAutoContextElements();
+      if (els.bucketsCount) els.bucketsCount.textContent = "Blocs proposats sobre l'univers actiu: 0";
+      if (els.bucketsSelectionSummary) els.bucketsSelectionSummary.textContent = 'Seleccio activa: 0';
+      if (els.bucketsGrid) {
+        els.bucketsGrid.innerHTML = '';
+        els.bucketsGrid.classList.add('d-none');
+      }
+      if (els.resolutionStatus) {
+        els.resolutionStatus.textContent = "No s'ha pogut resoldre el context automatic dels grups.";
+      }
+      return null;
+    }
+  }
+
+  async function applySelectedGroupBuckets(selectionMode) {
+    const bucketKeys = getSelectedGroupBucketKeys();
+    if (!bucketKeys.length) {
+      showAlert('Marca com a minim un bloc proposat.');
+      return false;
+    }
+    if (!window.__groupsWorkspaceApi || typeof window.__groupsWorkspaceApi.applyAutoContextSelection !== 'function') {
+      showAlert("No s'ha pogut accedir al gestor de grups.");
+      return false;
+    }
+
+    const workspaceState = getGroupsWorkspaceState();
+    try {
+      const data = await window.__groupsWorkspaceApi.applyAutoContextSelection({
+        bucket_keys: bucketKeys,
+        selection_mode: selectionMode,
+        selected_ids: Array.isArray(workspaceState?.selectedIds) ? workspaceState.selectedIds : [],
+        sort_context_filters: getCurrentInscripcioFilters(),
+        workspace_filters: workspaceState?.filters || {},
+        group_by: getCurrentGroupByCodes(),
+        workspace_bucket_fields: getWorkspaceBucketFields(),
+        source_scope: 'selected',
+      });
+      if (typeof window.__groupsWorkspaceApi.setSelection === 'function') {
+        window.__groupsWorkspaceApi.setSelection(Array.isArray(data?.selected_ids) ? data.selected_ids : [], {
+          skipPreviewDirty: false,
+        });
+      }
+      const updatedCount = Number(data?.selection_count || 0);
+      setGroupsBucketSelectionNote(
+        selectionMode === 'remove'
+          ? `Seleccio actualitzada: ${updatedCount} inscripcions despres de treure ${Number(data?.buckets_applied || 0)} bloc(s).`
+          : selectionMode === 'set'
+            ? `Seleccio substituida pels ${Number(data?.buckets_applied || 0)} bloc(s) marcats: ${updatedCount} inscripcions.`
+            : `Seleccio ampliada amb ${Number(data?.buckets_applied || 0)} bloc(s): ${updatedCount} inscripcions.`
+      );
+      return true;
+    } catch (err) {
+      showAlert(`No s'ha pogut actualitzar la seleccio des del context automatic.\n${err.message || err}`);
+      return false;
+    }
+  }
+
+  function getGroupPreviewElements() {
+    return {
+      root: document.getElementById('groups-preview'),
+      status: document.getElementById('groups-preview-status'),
+      intentLabel: document.getElementById('groups-preview-intent-label'),
+      summary: document.getElementById('groups-preview-summary'),
+      existingWrap: document.getElementById('groups-preview-existing-wrap'),
+      existingMeta: document.getElementById('groups-preview-existing-meta'),
+      existingList: document.getElementById('groups-preview-existing-list'),
+      plannedWrap: document.getElementById('groups-preview-planned-wrap'),
+      plannedMeta: document.getElementById('groups-preview-planned-meta'),
+      list: document.getElementById('groups-preview-list'),
+      confirm: document.getElementById('btn-groups-preview-confirm'),
+      clear: document.getElementById('btn-groups-preview-clear'),
+    };
+  }
+
+  function updateGroupPreviewConfirmUi() {
+    const els = getGroupPreviewElements();
+    const root = els.root;
+    const intent = lastConfirmableGroupPreview;
+    const dirty = !!(root && root.dataset.dirty === '1');
+    const hasPreview = !!(root && root.dataset.hasPreview === '1');
+    const loading = !!(root && root.dataset.loading === '1');
+
+    if (els.intentLabel) {
+      const label = String(intent?.label || '').trim();
+      els.intentLabel.textContent = dirty && label ? `${label} - desactualitzada` : label;
+      els.intentLabel.classList.toggle('d-none', !label);
+    }
+
+    if (els.confirm) {
+      const canShow = hasPreview && !!intent && !!intent.canConfirm;
+      const buttonLabel = String(intent?.buttonLabel || 'Confirmar aquesta creacio').trim() || 'Confirmar aquesta creacio';
+      els.confirm.textContent = buttonLabel;
+      els.confirm.disabled = !canShow || dirty || loading || groupPreviewConfirmBusy;
+      els.confirm.classList.toggle('d-none', !canShow);
+    }
+  }
+
+  function clearGroupPreviewConfirmIntent() {
+    lastConfirmableGroupPreview = null;
+    groupPreviewConfirmBusy = false;
+    updateGroupPreviewConfirmUi();
+  }
+
+  function setGroupPreviewConfirmIntent(intent) {
+    if (!intent || typeof intent.execute !== 'function' || !intent.canConfirm) {
+      clearGroupPreviewConfirmIntent();
+      return;
+    }
+    lastConfirmableGroupPreview = {
+      label: String(intent.label || '').trim(),
+      buttonLabel: String(intent.buttonLabel || 'Confirmar aquesta creacio').trim(),
+      canConfirm: true,
+      execute: intent.execute,
+    };
+    updateGroupPreviewConfirmUi();
+  }
+
+  function setGroupPreviewStatus(message, variant = 'muted') {
+    const status = getGroupPreviewElements().status;
+    if (!status) return;
+    status.textContent = message || '';
+    status.style.color = variant === 'warning' ? '#b45309' : (variant === 'info' ? '#1d4ed8' : '#64748b');
+  }
+
+  function clearGroupPreview(statusText) {
+    const els = getGroupPreviewElements();
+    if (!els.root) return;
+    els.root.dataset.hasPreview = '0';
+    els.root.dataset.dirty = '0';
+    els.root.dataset.loading = '0';
+    if (els.summary) {
+      els.summary.innerHTML = '';
+      els.summary.classList.add('d-none');
+    }
+    if (els.existingList) els.existingList.innerHTML = '';
+    if (els.existingWrap) els.existingWrap.classList.add('d-none');
+    if (els.existingMeta) els.existingMeta.textContent = '';
+    if (els.list) els.list.innerHTML = '';
+    if (els.plannedWrap) els.plannedWrap.classList.add('d-none');
+    if (els.plannedMeta) els.plannedMeta.textContent = '';
+    if (els.clear) els.clear.classList.add('d-none');
+    setGroupPreviewStatus(
+      statusText || "Encara no s'ha calculat cap previsualitzacio amb aquesta configuracio.",
+      'muted'
+    );
+    clearGroupPreviewConfirmIntent();
+  }
+
+  function markGroupPreviewDirty() {
+    const els = getGroupPreviewElements();
+    if (!els.root || els.root.dataset.hasPreview !== '1') return;
+    els.root.dataset.dirty = '1';
+    setGroupPreviewStatus('La configuracio ha canviat. Torna a previsualitzar per actualitzar el resultat.', 'warning');
+    updateGroupPreviewConfirmUi();
+  }
+
+  function setGroupPreviewLoading(loading) {
+    const els = getGroupPreviewElements();
+    if (!els.root) return;
+    els.root.dataset.loading = loading ? '1' : '0';
+    if (loading) setGroupPreviewStatus('Calculant la previsualitzacio dels grups...', 'info');
+    updateGroupPreviewConfirmUi();
+  }
+
+  function describeGroupStrategy(strategy) {
+    switch (strategy) {
+      case 'count':
+        return 'X grups';
+      case 'size_fixed':
+        return 'Mida fixa';
+      case 'size_balanced':
+        return 'Mida equilibrada';
+      case 'range_balanced':
+        return 'Forquilla equilibrada';
+      case 'count_with_range':
+        return 'X grups amb forquilla';
+      case 'per_bucket':
+        return '1 grup per bloc';
+      default:
+        return 'Configuracio actual';
+    }
+  }
+
+  function createGroupPreviewCard(group, kind = 'planned') {
+    const previewKind = String(group?.preview_kind || (kind === 'existing' ? 'existing' : 'created')).trim().toLowerCase();
+    const impactKind = String(group?.impact_kind || '').trim().toLowerCase();
+    const card = document.createElement('div');
+    card.className = 'group-preview-card';
+    if (previewKind === 'created') card.classList.add('is-created');
+    else if (impactKind === 'removed') card.classList.add('is-removed');
+    else if (impactKind === 'reduced') card.classList.add('is-reduced');
+    else if (kind === 'existing') card.classList.add('is-existing');
+
+    const head = document.createElement('div');
+    head.className = 'group-preview-card-head';
+
+    const headText = document.createElement('div');
+    headText.className = 'group-preview-card-copy';
+    const title = document.createElement('p');
+    title.className = 'group-preview-card-title';
+    const preferredGroupName = String(group?.group_label || group?.suggested_name || '').trim();
+    title.textContent = preferredGroupName || `Grup ${group?.group_num || '?'}`;
+    headText.appendChild(title);
+
+    const groupNum = String(group?.group_num || '').trim();
+    if (groupNum && preferredGroupName) {
+      const groupRef = document.createElement('p');
+      groupRef.className = 'group-preview-card-subtitle';
+      groupRef.textContent = `Grup ${groupNum}`;
+      headText.appendChild(groupRef);
+    }
+
+    const subtitle = document.createElement('p');
+    subtitle.className = 'group-preview-card-subtitle';
+    const sourceCount = Array.isArray(group?.sources) ? group.sources.length : 0;
+    subtitle.textContent = `${sourceCount} ${sourceCount === 1 ? 'bloc origen implicat' : 'blocs origen implicats'}`;
+    headText.appendChild(subtitle);
+
+    const movingMembersCount = Number(group?.moving_members_count || 0);
+    const remainingMembersCount = Number(group?.remaining_members_count || 0);
+    let impactText = '';
+    let impactVariant = '';
+    if (previewKind === 'created') {
+      impactText = `Creat amb ${Number(group?.members_count || 0)} integrants`;
+      impactVariant = 'created';
+    } else if (impactKind === 'removed') {
+      impactText = `Surten ${movingMembersCount}, el grup quedara buit`;
+      impactVariant = 'removed';
+    } else if (impactKind === 'reduced') {
+      impactText = `Surten ${movingMembersCount}, en queden ${remainingMembersCount}`;
+      impactVariant = 'reduced';
+    }
+    if (impactText) {
+      const impact = document.createElement('p');
+      impact.className = 'group-preview-card-impact';
+      if (impactVariant) impact.classList.add(`is-${impactVariant}`);
+      impact.textContent = impactText;
+      headText.appendChild(impact);
+    }
+    head.appendChild(headText);
+
+    const badges = document.createElement('div');
+    badges.className = 'group-preview-card-badges';
+    if (previewKind === 'created') badges.appendChild(createPreviewBadge('Creat', 'created'));
+    else if (impactKind === 'removed') badges.appendChild(createPreviewBadge('Queda buit', 'removed'));
+    else if (impactKind === 'reduced') badges.appendChild(createPreviewBadge('Es redueix', 'reduced'));
+
+    const sourceKinds = new Set();
+    (Array.isArray(group?.sources) ? group.sources : []).forEach((sourceRow) => {
+      (Array.isArray(sourceRow?.kinds) ? sourceRow.kinds : []).forEach((kindName) => {
+        if (kindName) sourceKinds.add(String(kindName));
+      });
+    });
+    if (sourceKinds.has('tabs') && sourceKinds.has('sort')) badges.appendChild(createPreviewBadge('Combinat'));
+    else if (sourceKinds.has('tabs')) badges.appendChild(createPreviewBadge('Agrupacio'));
+    else if (sourceKinds.has('sort')) badges.appendChild(createPreviewBadge('Ordenacio'));
+    badges.appendChild(createPreviewBadge(`${Number(group?.members_count || 0)} integrants`));
+    head.appendChild(badges);
+    card.appendChild(head);
+
+    const sourcesWrap = document.createElement('div');
+    sourcesWrap.className = 'group-preview-sources';
+    const sources = Array.isArray(group?.sources) ? group.sources : [];
+    if (sources.length) {
+      sources.forEach((sourceRow) => {
+        const row = document.createElement('div');
+        row.className = 'group-preview-source-row';
+
+        const label = document.createElement('div');
+        label.className = 'group-preview-source-label';
+        label.textContent = String(sourceRow?.label || 'Sense bloc');
+        row.appendChild(label);
+
+        const count = document.createElement('span');
+        count.className = 'group-preview-source-count';
+        const totalCount = Number(sourceRow?.count || 0);
+        const movingCount = Number(sourceRow?.moving_count || 0);
+        const remainingCount = Number(sourceRow?.remaining_count || 0);
+        if (movingCount > 0) {
+          count.classList.add('is-impact');
+          count.textContent = `${totalCount} totals | surten ${movingCount} | queden ${remainingCount}`;
+        } else {
+          count.textContent = `${totalCount}`;
+        }
+        row.appendChild(count);
+        sourcesWrap.appendChild(row);
+      });
+    } else {
+      const empty = document.createElement('div');
+      empty.className = 'small text-muted';
+      empty.textContent = 'Sense composicio detallada disponible.';
+      sourcesWrap.appendChild(empty);
+    }
+    card.appendChild(sourcesWrap);
+
+    const movingMemberNames = Array.isArray(group?.moving_member_names_preview) ? group.moving_member_names_preview.filter(Boolean) : [];
+    const memberNames = Array.isArray(group?.member_names_preview) ? group.member_names_preview.filter(Boolean) : [];
+    const namesToShow = movingMemberNames.length ? movingMemberNames : memberNames;
+    const namesRemaining = movingMemberNames.length
+      ? Number(group?.moving_member_names_remaining || 0)
+      : Number(group?.member_names_remaining || 0);
+    const namesLabel = movingMemberNames.length ? 'Surten:' : "Exemple d'integrants:";
+    if (namesToShow.length) {
+      const members = document.createElement('div');
+      members.className = 'group-preview-members';
+      const suffix = namesRemaining > 0 ? ` +${namesRemaining} mes` : '';
+      const strong = document.createElement('strong');
+      strong.textContent = namesLabel;
+      members.appendChild(strong);
+      members.appendChild(document.createTextNode(` ${namesToShow.join(', ')}${suffix}`));
+      card.appendChild(members);
+    }
+
+    return card;
+  }
+
+  function renderGroupPreviewSection(wrap, meta, list, groups, kind) {
+    if (!wrap || !list) return;
+    const rows = Array.isArray(groups) ? groups : [];
+    list.innerHTML = '';
+    rows.forEach((group) => {
+      list.appendChild(createGroupPreviewCard(group, kind));
+    });
+    wrap.classList.toggle('d-none', rows.length === 0);
+    if (meta) {
+      const membersTotal = rows.reduce((acc, row) => acc + Number(row?.members_count || 0), 0);
+      meta.textContent = rows.length ? `${rows.length} grups, ${membersTotal} integrants` : '';
+    }
+  }
+
+  function renderGroupPreview(preview, strategy) {
+    const els = getGroupPreviewElements();
+    if (!els.root) return;
+
+    const previewData = preview && typeof preview === 'object' ? preview : {};
+    const groups = Array.isArray(previewData.groups) ? previewData.groups : [];
+    const existingGroups = Array.isArray(previewData.existing_groups) ? previewData.existing_groups : [];
+    els.root.dataset.hasPreview = '1';
+    els.root.dataset.dirty = '0';
+
+    if (els.summary) {
+      els.summary.innerHTML = '';
+      if (Number(previewData.selection_count || 0) > 0) {
+        els.summary.appendChild(createPreviewBadge(`${Number(previewData.selection_count || 0)} seleccionades`));
+      }
+      els.summary.appendChild(createPreviewBadge(`${Number(previewData.existing_groups_total || existingGroups.length || 0)} grups actuals`));
+      els.summary.appendChild(createPreviewBadge(`${Number(previewData.existing_members_total || 0)} integrants actuals`));
+      els.summary.appendChild(createPreviewBadge(`${Number(previewData.groups_total || groups.length || 0)} grups previstos`));
+      els.summary.appendChild(createPreviewBadge(`${Number(previewData.members_total || 0)} integrants previstos`));
+      if (Number(previewData.size_min || 0) > 0 || Number(previewData.size_max || 0) > 0) {
+        els.summary.appendChild(createPreviewBadge(`Mida ${Number(previewData.size_min || 0)}-${Number(previewData.size_max || 0)}`));
+      }
+      els.summary.appendChild(createPreviewBadge(`${Number(previewData.buckets_applied || 0)} blocs origen`));
+      if (Number(previewData.effective_bucket_count || 0) > 0) {
+        els.summary.appendChild(createPreviewBadge(`${Number(previewData.effective_bucket_count || 0)} blocs resolts`));
+      }
+
+      if (existingGroups.some((group) => String(group?.impact_kind || '').trim().toLowerCase() === 'reduced')) {
+        els.summary.appendChild(createPreviewBadge('Groc: es redueix', 'reduced'));
+      }
+      if (existingGroups.some((group) => String(group?.impact_kind || '').trim().toLowerCase() === 'removed')) {
+        els.summary.appendChild(createPreviewBadge('Vermell: queda buit', 'removed'));
+      }
+      if (groups.some((group) => String(group?.preview_kind || '').trim().toLowerCase() === 'created')) {
+        els.summary.appendChild(createPreviewBadge('Verd: grup nou', 'created'));
+      }
+      if (previewData.used_fallback) {
+        els.summary.appendChild(createPreviewBadge('Amb fallback'));
+      }
+      els.summary.classList.remove('d-none');
+    }
+
+    renderGroupPreviewSection(els.existingWrap, els.existingMeta, els.existingList, existingGroups, 'existing');
+    renderGroupPreviewSection(els.plannedWrap, els.plannedMeta, els.list, groups, 'planned');
+
+    if (els.clear) els.clear.classList.remove('d-none');
+
+    const baseMessage = groups.length
+      ? `Previsualitzacio calculada amb l'estrategia "${describeGroupStrategy(strategy)}".`
+      : 'No es generen grups nous amb aquesta configuracio.';
+    const fallbackMessage = previewData.used_fallback ? " S'ha aplicat un fallback per resoldre la particio." : '';
+    setGroupPreviewStatus(`${baseMessage}${fallbackMessage}`, groups.length ? 'info' : 'muted');
+    updateGroupPreviewConfirmUi();
+  }
+
+  async function previewGroups(strategy, extraPayload = {}) {
+    const payload = buildGroupsPayload(strategy, Object.assign({}, extraPayload || {}, { preview_only: true }));
+    if (!(payload.selected_ids || []).length) {
+      clearGroupPreview('Selecciona com a minim una inscripcio.');
+      showAlert('Selecciona com a minim una inscripcio.');
+      return false;
+    }
+
+    setGroupPreviewLoading(true);
+    try {
+      const data = await postJson(groupsFromSortUrl, payload);
+      const resolvedStrategy = data?.strategy || strategy;
+      const previewData = Object.assign({}, data?.preview || {}, {
+        selection_count: (payload.selected_ids || []).length,
+      });
+      renderGroupPreview(previewData, resolvedStrategy);
+      const plannedGroups = Array.isArray(previewData.groups) ? previewData.groups : [];
+      if (plannedGroups.length) {
+        const confirmPayload = Object.assign({}, payload);
+        delete confirmPayload.preview_only;
+        setGroupPreviewConfirmIntent({
+          label: `Previsualitzacio de: ${describeGroupStrategy(resolvedStrategy)}`,
+          buttonLabel: 'Confirmar aquesta creacio',
+          canConfirm: true,
+          execute: () => makeGroupsFromPayload(confirmPayload, { skipConfirm: true }),
+        });
+      } else {
+        clearGroupPreviewConfirmIntent();
+      }
+      return true;
+    } catch (err) {
+      clearGroupPreview("No s'ha pogut calcular la previsualitzacio amb aquesta configuracio.");
+      showAlert(`No s'ha pogut calcular la previsualitzacio.\n${err.message || err}`);
+      return false;
+    } finally {
+      setGroupPreviewLoading(false);
+    }
+  }
+
+  async function makeGroupsFromPayload(payload, options = {}) {
+    if (!(payload.selected_ids || []).length) {
+      showAlert('Selecciona com a minim una inscripcio.');
+      return false;
+    }
+    if (!options?.skipConfirm) {
+      const ok = await showWorkspaceActionConfirm({
+        title: 'Crear grups',
+        body: `Crear grups amb ${Number((payload.selected_ids || []).length)} inscripcio(ns) seleccionades?`,
+        confirmLabel: 'Crear',
+        tone: 'primary',
+      });
+      if (!ok) return false;
+    }
+
+    try {
+      const data = await postJson(groupsFromSortUrl, payload);
+      if (!data || !data.ok) {
+        showAlert("No s'han pogut crear grups amb aquesta configuracio.");
+        return false;
+      }
+      clearGroupPreviewConfirmIntent();
+      await API.refreshLightMutation({ includeActivePanel: false });
+      if (window.__groupsWorkspaceApi && typeof window.__groupsWorkspaceApi.refresh === 'function') {
+        await window.__groupsWorkspaceApi.refresh();
+      }
+      if (String(payload.strategy || 'per_bucket') === 'per_bucket') {
+        const createdCount = Number(data.groups_created || 0);
+        const appliedBuckets = Number(data.buckets_applied || 0);
+        const successMessage = createdCount === 1
+          ? 'S\'ha creat 1 grup per bloc.'
+          : `S'han creat ${createdCount} grups per bloc.`;
+        clearGroupPreview(`${successMessage} El workspace s'ha actualitzat.`);
+        showAlert(appliedBuckets > 0
+          ? `${successMessage}\nBlocs aplicats: ${appliedBuckets}.`
+          : successMessage);
+      } else {
+        clearGroupPreview("Grups creats. El workspace s'ha actualitzat.");
+      }
+      return true;
+    } catch (err) {
+      showAlert(`No s'han pogut crear grups.\n${err.message || err}`);
+      return false;
+    }
+  }
+
+  async function makeGroups(strategy, extraPayload = {}) {
+    return makeGroupsFromPayload(buildGroupsPayload(strategy, extraPayload));
+  }
+
+  function bindPreviewDirtyHandlers(selectors, eventName) {
+    selectors.forEach((selector) => {
+      document.querySelectorAll(selector).forEach((el) => {
+        el.addEventListener(eventName, () => markGroupPreviewDirty());
+      });
+    });
+  }
+
+  function initGroupsPanel() {
+    const btnAll = document.getElementById('btn-groups-buckets-all');
+    if (btnAll) {
+      btnAll.addEventListener('click', () => {
+        setGroupBucketSelection(true);
+        updateGroupsStrategyButtonsState(currentGroupsAutoContext);
+      });
+    }
+
+    const btnNone = document.getElementById('btn-groups-buckets-none');
+    if (btnNone) {
+      btnNone.addEventListener('click', () => {
+        setGroupBucketSelection(false);
+        updateGroupsStrategyButtonsState(currentGroupsAutoContext);
+      });
+    }
+
+    const btnVisibleAll = document.getElementById('btn-groups-buckets-visible-all');
+    if (btnVisibleAll) {
+      btnVisibleAll.addEventListener('click', () => {
+        setVisibleGroupBucketSelection(true);
+        updateGroupsStrategyButtonsState(currentGroupsAutoContext);
+      });
+    }
+
+    const btnVisibleNone = document.getElementById('btn-groups-buckets-visible-none');
+    if (btnVisibleNone) {
+      btnVisibleNone.addEventListener('click', () => {
+        setVisibleGroupBucketSelection(false);
+        updateGroupsStrategyButtonsState(currentGroupsAutoContext);
+      });
+    }
+
+    const btnAdd = document.getElementById('btn-groups-buckets-add');
+    if (btnAdd) btnAdd.addEventListener('click', async () => { await applySelectedGroupBuckets('add'); });
+
+    const btnRemove = document.getElementById('btn-groups-buckets-remove');
+    if (btnRemove) btnRemove.addEventListener('click', async () => { await applySelectedGroupBuckets('remove'); });
+
+    const btnSet = document.getElementById('btn-groups-buckets-set');
+    if (btnSet) btnSet.addEventListener('click', async () => { await applySelectedGroupBuckets('set'); });
+
+    const bucketsGrid = document.getElementById('groups-buckets-grid');
+    if (bucketsGrid) {
+      bucketsGrid.addEventListener('change', (event) => {
+        const checkbox = event.target.closest('.js-group-bucket-check');
+        if (!checkbox) return;
+        const key = String(checkbox.value || '').trim();
+        const selected = new Set(getSelectedGroupBucketKeys());
+        if (checkbox.checked && key) selected.add(key);
+        else if (key) selected.delete(key);
+        setGroupsBucketSelectionMode('custom');
+        groupBucketSelectionState.selectedKeys = selected;
+        if (selected.size === 0) setGroupsBucketSelectionMode('none');
+        else if (selected.size === groupBucketSelectionState.availableKeys.length) setGroupsBucketSelectionMode('all');
+        setGroupsBucketSelectionNote('');
+        updateGroupsStrategyButtonsState(currentGroupsAutoContext);
+      });
+    }
+
+    const bucketFilterQ = document.getElementById('groups-buckets-filter-q');
+    if (bucketFilterQ) {
+      bucketFilterQ.addEventListener('input', () => {
+        groupBucketViewFilters = readGroupBucketViewFilters();
+        saveGroupsBucketUiState();
+        renderGroupsAutoContext(currentGroupsAutoContext);
+      });
+    }
+    ['groups-buckets-filter-selected-state', 'groups-buckets-filter-kind', 'groups-buckets-filter-sort'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('change', () => {
+          groupBucketViewFilters = readGroupBucketViewFilters();
+          saveGroupsBucketUiState();
+          renderGroupsAutoContext(currentGroupsAutoContext);
+        });
+      }
+    });
+
+    const workspaceBucketFields = document.getElementById('groups-workspace-bucket-fields');
+    if (workspaceBucketFields) {
+      workspaceBucketFields.addEventListener('change', async () => {
+        updateWorkspaceBucketFieldsPickerUi();
+        markGroupPreviewDirty();
+        saveGroupsBucketUiState();
+        await refreshGroupsAutoContext();
+      });
+    }
+
+    document.querySelectorAll('.js-groups-workspace-bucket-choice').forEach((choice) => {
+      choice.addEventListener('change', () => {
+        setWorkspaceBucketFieldValue(choice.value, choice.checked);
+      });
+    });
+
+    document.getElementById('btn-groups-workspace-bucket-fields-clear')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      clearWorkspaceBucketFields();
+    });
+
+    document.addEventListener('click', (event) => {
+      if (event.target.closest('[data-groups-auto-context-criteria]')) return;
+      document.querySelectorAll('[data-groups-auto-context-criteria] details[open]').forEach((details) => {
+        details.removeAttribute('open');
+      });
+    });
+
+    document.addEventListener('inscripcions:group-creation-context-changed', async () => {
+      await refreshGroupsAutoContext();
+    });
+
+    const strategyConfig = [
+      ['btn-groups-create-count', 'count', () => ({ group_count: readIntInput('groups-group-count', 1) }), "Introdueix un nombre de grups valid."],
+      ['btn-groups-preview-count', 'count', () => ({ group_count: readIntInput('groups-group-count', 1) }), "Introdueix un nombre de grups valid.", true],
+      ['btn-groups-create-per-bucket', 'per_bucket', () => ({}), ''],
+      ['btn-groups-preview-per-bucket', 'per_bucket', () => ({}), '', true],
+    ];
+
+    strategyConfig.forEach(([id, strategy, readArgs, errorMessage, previewOnly]) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      btn.addEventListener('click', async () => {
+        const args = readArgs();
+        if (Object.values(args).some((value) => value === null)) {
+          if (errorMessage) showAlert(errorMessage);
+          return;
+        }
+        if (previewOnly) await previewGroups(strategy, args);
+        else await makeGroups(strategy, args);
+      });
+    });
+
+    const btnCreateSize = document.getElementById('btn-groups-create-size');
+    if (btnCreateSize) {
+      btnCreateSize.addEventListener('click', async () => {
+        const size = readIntInput('groups-group-size', 2);
+        if (!size) return void showAlert('Introdueix una mida valida (>=2).');
+        const mode = document.getElementById('groups-group-size-mode')?.value || 'fixed';
+        await makeGroups(mode === 'balanced' ? 'size_balanced' : 'size_fixed', { group_size: size });
+      });
+    }
+
+    const btnPreviewSize = document.getElementById('btn-groups-preview-size');
+    if (btnPreviewSize) {
+      btnPreviewSize.addEventListener('click', async () => {
+        const size = readIntInput('groups-group-size', 2);
+        if (!size) return void showAlert('Introdueix una mida valida (>=2).');
+        const mode = document.getElementById('groups-group-size-mode')?.value || 'fixed';
+        await previewGroups(mode === 'balanced' ? 'size_balanced' : 'size_fixed', { group_size: size });
+      });
+    }
+
+    const bindRangeStrategy = (buttonId, strategy, previewOnly) => {
+      const btn = document.getElementById(buttonId);
+      if (!btn) return;
+      btn.addEventListener('click', async () => {
+        const minSize = readIntInput('groups-group-min-size', 1);
+        const maxSize = readIntInput('groups-group-max-size', 1);
+        if (!minSize || !maxSize || minSize > maxSize) {
+          showAlert('Forquilla invalida: comprova minim i maxim.');
+          return;
+        }
+        const payload = { min_size: minSize, max_size: maxSize };
+        if (strategy === 'count_with_range') {
+          const groupCount = readIntInput('groups-group-count-range', 1);
+          if (!groupCount) {
+            showAlert('Introdueix un nombre de grups valid.');
+            return;
+          }
+          payload.group_count = groupCount;
+        }
+        if (previewOnly) await previewGroups(strategy, payload);
+        else await makeGroups(strategy, payload);
+      });
+    };
+
+    bindRangeStrategy('btn-groups-create-range-balanced', 'range_balanced', false);
+    bindRangeStrategy('btn-groups-preview-range-balanced', 'range_balanced', true);
+    bindRangeStrategy('btn-groups-create-count-range', 'count_with_range', false);
+    bindRangeStrategy('btn-groups-preview-count-range', 'count_with_range', true);
+
+    const btnPreviewConfirm = document.getElementById('btn-groups-preview-confirm');
+    if (btnPreviewConfirm) {
+      btnPreviewConfirm.addEventListener('click', async () => {
+        const els = getGroupPreviewElements();
+        if (!lastConfirmableGroupPreview || !lastConfirmableGroupPreview.canConfirm) return;
+        if (!els.root || els.root.dataset.hasPreview !== '1' || els.root.dataset.dirty === '1') return;
+        if (groupPreviewConfirmBusy) return;
+        try {
+          groupPreviewConfirmBusy = true;
+          updateGroupPreviewConfirmUi();
+          await lastConfirmableGroupPreview.execute();
+        } finally {
+          groupPreviewConfirmBusy = false;
+          updateGroupPreviewConfirmUi();
+        }
+      });
+    }
+
+    const btnPreviewClear = document.getElementById('btn-groups-preview-clear');
+    if (btnPreviewClear) btnPreviewClear.addEventListener('click', () => clearGroupPreview());
+
+    bindPreviewDirtyHandlers([
+      '#groups-group-count',
+      '#groups-group-size',
+      '#groups-group-size-mode',
+      '#groups-group-min-size',
+      '#groups-group-max-size',
+      '#groups-group-count-range',
+    ], 'change');
+    bindPreviewDirtyHandlers([
+      '#groups-group-count',
+      '#groups-group-size',
+      '#groups-group-min-size',
+      '#groups-group-max-size',
+      '#groups-group-count-range',
+    ], 'input');
+
+    restoreGroupsBucketUiState();
+    updateWorkspaceBucketFieldsPickerUi();
+    clearGroupPreview();
+    updateGroupsStrategyButtonsState(null);
+    refreshGroupsAutoContext();
+  }
+
+  window.setGroupPreviewStatus = setGroupPreviewStatus;
+  window.clearGroupPreview = clearGroupPreview;
+  window.markGroupPreviewDirty = markGroupPreviewDirty;
+  window.renderGroupPreview = renderGroupPreview;
+  window.__groupsPreviewApi = {
+    setConfirmIntent: setGroupPreviewConfirmIntent,
+    clearConfirmIntent: clearGroupPreviewConfirmIntent,
+  };
+
+  window.initGroupsPanel = function () {
+    const root = document.getElementById('groups-preview');
+    if (window.__groupsPanelInitialized && window.__groupsPanelRoot === root) return window.__groupsPreviewApi;
+    window.__groupsPanelInitialized = true;
+    window.__groupsPanelRoot = root;
+    initGroupsPanel();
+    return window.__groupsPreviewApi;
+  };
+})();

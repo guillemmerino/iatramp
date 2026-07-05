@@ -1,0 +1,4297 @@
+window.initTeamsWorkspace = async function () {
+  const teamWorkspaceShell = document.getElementById('team-workspace-shell');
+  if (!teamWorkspaceShell) return null;
+  if (window.__teamWorkspaceInitialized && window.__teamWorkspaceRoot === teamWorkspaceShell) {
+    return window.__teamWorkspaceApi || null;
+  }
+  window.__teamWorkspaceInitialized = true;
+  window.__teamWorkspaceRoot = teamWorkspaceShell;
+
+  const workspaceUrl = "{% url 'inscripcions_equips_workspace' competicio.id %}";
+  const previewUrl = "{% url 'inscripcions_equips_preview' competicio.id %}";
+  const autoCreateUrl = "{% url 'inscripcions_equips_auto_create' competicio.id %}";
+  const createManualUrl = "{% url 'inscripcions_equips_create_manual' competicio.id %}";
+  const assignUrl = "{% url 'inscripcions_equips_assign' competicio.id %}";
+  const unassignUrl = "{% url 'inscripcions_equips_unassign' competicio.id %}";
+  const deleteEmptyUrl = "{% url 'inscripcions_equips_delete_empty' competicio.id %}";
+  const ctxCreateUrl = "{% url 'inscripcions_equip_context_create' competicio.id %}";
+  const ctxRenameUrlTpl = "{% url 'inscripcions_equip_context_rename' competicio.id '__context__' %}";
+  const ctxDeleteUrlTpl = "{% url 'inscripcions_equip_context_delete' competicio.id '__context__' %}";
+  const ctxSourcesSaveUrl = "{% url 'inscripcions_equip_context_sources_save' competicio.id %}";
+  const renameUrlTpl = "{% url 'inscripcions_equips_rename' competicio.id 999999 %}";
+  const deleteUrlTpl = "{% url 'inscripcions_equips_delete' competicio.id 999999 %}";
+
+  const state = {
+    contextCode: getSelectedTeamContextCode(),
+    filters: Object.assign({ assignment_state: 'all', equip_ids: [], categories: [], subcategories: [], entitats: [] }, getCurrentInscripcioFilters()),
+    boardFilters: {
+      q: '',
+      categories: [],
+      subcategories: [],
+      entitats: [],
+      members_state: 'all',
+    },
+    boardFiltersExpanded: false,
+    compactScope: 'selected',
+    selectedIds: new Set((typeof getSelectedInscripcioIds === 'function' ? getSelectedInscripcioIds() : []).map(String).filter(Boolean)),
+    candidatePage: 1,
+    candidatePageSize: 40,
+    memberPageSize: 10,
+    selectedTeamId: '',
+    selectedTeamDetail: null,
+    selectedTeamMembersPage: 1,
+    selectedRightPaneTab: 'preview',
+    detailMemberFilters: {
+      q: '',
+      entitats: [],
+      native_state: 'all',
+    },
+    editingTeamIds: new Set(),
+    dragBusy: false,
+    sortables: [],
+    lastWorkspace: null,
+    filterTimer: null,
+    resolvedBucketSignature: '',
+    resolvedBuckets: [],
+    selectedBucketKeys: new Set(),
+    autoContext: null,
+    bucketSelectionMode: 'all',
+    autoBucketsExpanded: false,
+    autoBucketViewFilters: {
+      q: '',
+      selected_state: 'all',
+      sort: 'count_desc',
+    },
+    contextDetailsOpen: false,
+  };
+
+  const editable = () => typeof canEditInscripcions !== 'undefined' && !!canEditInscripcions;
+  const ids = () => Array.from(state.selectedIds).filter(Boolean);
+  const selectedBucketKeys = () => (
+    Array.from(state.selectedBucketKeys || [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  );
+  const selectedOptionValues = (selectEl) => (
+    Array.from(selectEl?.selectedOptions || [])
+      .map((option) => String(option?.value || '').trim())
+      .filter(Boolean)
+  );
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value);
+  };
+  const dirtyPreview = () => markTeamPreviewDirty();
+  const mainSelectionApi = () => (
+    window.__inscripcionsSelectionApi && typeof window.__inscripcionsSelectionApi.getSelectedIds === 'function'
+      ? window.__inscripcionsSelectionApi
+      : null
+  );
+  const getExternalSelectionIds = () => {
+    const api = mainSelectionApi();
+    if (!api) return [];
+    return (api.getSelectedIds() || []).map(String).filter(Boolean);
+  };
+  const getSavedUiState = () => {
+    if (typeof getUiStateKey !== 'function') return {};
+    try {
+      return JSON.parse(sessionStorage.getItem(getUiStateKey()) || '{}') || {};
+    } catch (_err) {
+      return {};
+    }
+  };
+  const normalizeSearchText = (value) => String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+  const initialsForLabel = (value) => {
+    const parts = String(value || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (!parts.length) return '?';
+    return parts.slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join('');
+  };
+  const teamGroupBandPalette = [
+    { accent: '#2563eb', bg: '#dbeafe' },
+    { accent: '#0f766e', bg: '#ccfbf1' },
+    { accent: '#b45309', bg: '#ffedd5' },
+    { accent: '#be123c', bg: '#ffe4e6' },
+    { accent: '#7c3aed', bg: '#ede9fe' },
+    { accent: '#0e7490', bg: '#cffafe' },
+    { accent: '#b91c1c', bg: '#fee2e2' },
+    { accent: '#4d7c0f', bg: '#ecfccb' },
+  ];
+  const teamGroupBandIndexFromDisplayNum = (displayNum) => {
+    const clean = Number.parseInt(displayNum, 10);
+    return Number.isFinite(clean) ? clean % 8 : null;
+  };
+  const teamGroupPaletteForCandidate = (item) => {
+    const bandIndex = teamGroupBandIndexFromDisplayNum(item?.group_num);
+    return bandIndex === null ? { accent: '#94a3b8', bg: '#f1f5f9' } : teamGroupBandPalette[bandIndex];
+  };
+  const uniqueSortedStrings = (values) => Array.from(new Set(
+    (Array.isArray(values) ? values : [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b, 'ca'));
+  const normalizeBoardFilters = (raw) => {
+    const data = raw && typeof raw === 'object' ? raw : {};
+    const membersState = String(data.members_state || 'all').trim() || 'all';
+    return {
+      q: String(data.q || '').trim(),
+      categories: uniqueSortedStrings(data.categories),
+      subcategories: uniqueSortedStrings(data.subcategories),
+      entitats: uniqueSortedStrings(data.entitats),
+      members_state: ['all', 'with_members', 'empty'].includes(membersState) ? membersState : 'all',
+    };
+  };
+  const normalizeAutoBucketViewFilters = (raw) => {
+    const data = raw && typeof raw === 'object' ? raw : {};
+    const selectedState = String(data.selected_state || 'all').trim() || 'all';
+    const sort = String(data.sort || 'count_desc').trim() || 'count_desc';
+    return {
+      q: String(data.q || '').trim(),
+      selected_state: ['all', 'selected', 'unselected'].includes(selectedState) ? selectedState : 'all',
+      sort: ['count_desc', 'count_asc', 'label_asc'].includes(sort) ? sort : 'count_desc',
+    };
+  };
+  const normalizeDetailMemberFilters = (raw) => {
+    const data = raw && typeof raw === 'object' ? raw : {};
+    const nativeState = String(data.native_state || 'all').trim() || 'all';
+    return {
+      q: String(data.q || '').trim(),
+      entitats: uniqueSortedStrings(data.entitats),
+      native_state: ['all', 'with_native', 'without_native'].includes(nativeState) ? nativeState : 'all',
+    };
+  };
+  const saveWorkspaceState = (extra = {}) => {
+    if (typeof saveUiState !== 'function') return;
+    saveUiState({
+      teamWorkspaceState: {
+        contextCode: state.contextCode,
+        filters: { ...state.filters },
+        boardFilters: { ...state.boardFilters },
+        boardFiltersExpanded: !!state.boardFiltersExpanded,
+        compactScope: state.compactScope,
+        candidatePage: state.candidatePage,
+        selectedTeamId: state.selectedTeamId,
+        selectedTeamMembersPage: state.selectedTeamMembersPage,
+        selectedRightPaneTab: state.selectedRightPaneTab,
+        detailMemberFilters: { ...state.detailMemberFilters },
+        autoBucketsExpanded: !!state.autoBucketsExpanded,
+        autoBucketViewFilters: { ...state.autoBucketViewFilters },
+        contextDetailsOpen: !!state.contextDetailsOpen,
+        ...extra,
+      },
+    });
+  };
+  const restoreWorkspaceState = () => {
+    const saved = getSavedUiState().teamWorkspaceState || {};
+    if (!saved || typeof saved !== 'object') return;
+    if (saved.contextCode) state.contextCode = String(saved.contextCode || 'native').trim() || 'native';
+    if (saved.filters && typeof saved.filters === 'object') {
+      state.filters = Object.assign({}, state.filters, saved.filters);
+    }
+    if (saved.boardFilters && typeof saved.boardFilters === 'object') {
+      state.boardFilters = normalizeBoardFilters(saved.boardFilters);
+    }
+    if (Object.prototype.hasOwnProperty.call(saved, 'boardFiltersExpanded')) {
+      state.boardFiltersExpanded = !!saved.boardFiltersExpanded;
+    }
+    if (saved.compactScope) state.compactScope = String(saved.compactScope || '') === 'filtered' ? 'filtered' : 'selected';
+    if (saved.candidatePage) state.candidatePage = Math.max(1, Number(saved.candidatePage) || 1);
+    if (saved.selectedTeamId) state.selectedTeamId = String(saved.selectedTeamId || '').trim();
+    if (saved.selectedTeamMembersPage) state.selectedTeamMembersPage = Math.max(1, Number(saved.selectedTeamMembersPage) || 1);
+    if (saved.selectedRightPaneTab === 'detail' || saved.selectedRightPaneTab === 'preview') {
+      state.selectedRightPaneTab = saved.selectedRightPaneTab;
+    }
+    if (saved.detailMemberFilters && typeof saved.detailMemberFilters === 'object') {
+      state.detailMemberFilters = normalizeDetailMemberFilters(saved.detailMemberFilters);
+    }
+    if (Object.prototype.hasOwnProperty.call(saved, 'autoBucketsExpanded')) {
+      state.autoBucketsExpanded = !!saved.autoBucketsExpanded;
+    }
+    if (saved.autoBucketViewFilters && typeof saved.autoBucketViewFilters === 'object') {
+      state.autoBucketViewFilters = normalizeAutoBucketViewFilters(saved.autoBucketViewFilters);
+    }
+  };
+  const getSelectedTeamPartitionFields = () => (
+    selectedOptionValues(document.getElementById('team-auto-fields'))
+      .map((code) => String(code || '').trim())
+      .filter(Boolean)
+  );
+  function updateTeamPartitionFieldsPickerUi() {
+    const select = document.getElementById('team-auto-fields');
+    const choices = Array.from(document.querySelectorAll('.js-team-field'));
+    const selectedValues = new Set(getSelectedTeamPartitionFields());
+    choices.forEach((choice) => {
+      choice.checked = selectedValues.has(String(choice.value || '').trim());
+    });
+    const selected = Array.from(select?.selectedOptions || []);
+    const summary = document.getElementById('team-auto-fields-summary');
+    const chipline = document.getElementById('team-auto-selected-fields');
+    if (summary) {
+      if (!selected.length) summary.textContent = 'Qualsevol';
+      else if (selected.length <= 2) {
+        summary.textContent = selected
+          .map((option) => String(option.textContent || option.value || '').trim())
+          .join(', ');
+      } else {
+        summary.textContent = `${selected.length} criteris`;
+      }
+    }
+    if (chipline) {
+      chipline.innerHTML = '';
+      if (!selected.length) {
+        const empty = document.createElement('span');
+        empty.className = 'text-muted';
+        empty.textContent = 'cap';
+        chipline.appendChild(empty);
+      } else {
+        selected.forEach((option) => {
+          const badge = document.createElement('span');
+          badge.className = 'badge badge-secondary';
+          badge.textContent = String(option.textContent || option.value || '').trim();
+          chipline.appendChild(badge);
+        });
+      }
+    }
+  }
+  function setTeamPartitionFieldValue(value, checked) {
+    const select = document.getElementById('team-auto-fields');
+    if (!select) return;
+    const cleanValue = String(value || '').trim();
+    Array.from(select.options || []).forEach((option) => {
+      if (String(option.value || '').trim() === cleanValue) option.selected = !!checked;
+    });
+    updateTeamPartitionFieldsPickerUi();
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function clearTeamPartitionFields() {
+    const select = document.getElementById('team-auto-fields');
+    if (select) {
+      Array.from(select.options || []).forEach((option) => {
+        option.selected = false;
+      });
+    }
+    updateTeamPartitionFieldsPickerUi();
+    select?.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  const buildBucketSignature = (fields = getSelectedTeamPartitionFields()) => JSON.stringify({
+    contextCode: String(state.contextCode || 'native'),
+    fields: [...fields],
+    selectedIds: ids(),
+  });
+  const currentAutoContext = () => (state.autoContext && typeof state.autoContext === 'object' ? state.autoContext : null);
+  const getActiveBucketKeys = () => {
+    const available = new Set((Array.isArray(state.resolvedBuckets) ? state.resolvedBuckets : [])
+      .map((bucket) => String(bucket?.key || '').trim())
+      .filter(Boolean));
+    if (!available.size) return [];
+    if (state.bucketSelectionMode === 'none') return [];
+    if (state.bucketSelectionMode === 'all') return Array.from(available);
+    return selectedBucketKeys().filter((key) => available.has(key));
+  };
+  const teamPreviewApi = () => (
+    window.__teamPreviewApi
+    && typeof window.__teamPreviewApi.setConfirmIntent === 'function'
+    && typeof window.__teamPreviewApi.clearConfirmIntent === 'function'
+      ? window.__teamPreviewApi
+      : null
+  );
+  const resetPreview = () => clearTeamPreview("Canvis aplicats. Torna a previsualitzar per revisar l'estat actual.");
+  const actionUrl = (tpl, id) => String(tpl || '').replace('999999', String(id || '0'));
+  const postAssign = (equipId, inscripcioIds) => postJson(assignUrl, {
+    context_code: state.contextCode,
+    equip_id: equipId,
+    inscripcio_ids: (inscripcioIds || []).map(String).filter(Boolean),
+  });
+  const postUnassign = (inscripcioIds) => postJson(unassignUrl, {
+    context_code: state.contextCode,
+    inscripcio_ids: (inscripcioIds || []).map(String).filter(Boolean),
+  });
+  let lastConfirmableTeamPreview = null;
+  let teamPreviewConfirmBusy = false;
+
+  function getTeamMemberUnassignModalElements() {
+    return {
+      backdrop: document.getElementById('team-member-unassign-backdrop'),
+      confirmModal: document.getElementById('team-member-unassign-confirm-modal'),
+      confirmBody: document.getElementById('team-member-unassign-confirm-body'),
+      confirmAccept: document.getElementById('team-member-unassign-confirm-accept'),
+      confirmCancelButtons: Array.from(document.querySelectorAll('[data-team-member-unassign-cancel]')),
+      successModal: document.getElementById('team-member-unassign-success-modal'),
+      successBody: document.getElementById('team-member-unassign-success-body'),
+      successClose: document.getElementById('team-member-unassign-success-close'),
+      successAccept: document.getElementById('team-member-unassign-success-accept'),
+    };
+  }
+
+  function setTeamMemberUnassignModalVisible(kind, visible) {
+    const els = getTeamMemberUnassignModalElements();
+    const activeModal = kind === 'success' ? els.successModal : els.confirmModal;
+    const inactiveModal = kind === 'success' ? els.confirmModal : els.successModal;
+    if (!els.backdrop || !activeModal) return false;
+    if (els.backdrop.parentElement !== document.body) document.body.appendChild(els.backdrop);
+    if (activeModal.parentElement !== document.body) document.body.appendChild(activeModal);
+    if (inactiveModal) {
+      inactiveModal.classList.remove('is-visible');
+      inactiveModal.setAttribute('aria-hidden', 'true');
+    }
+    els.backdrop.classList.toggle('is-visible', !!visible);
+    els.backdrop.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    activeModal.classList.toggle('is-visible', !!visible);
+    activeModal.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    document.body.classList.toggle('team-member-unassign-modal-open', !!visible);
+    if (visible) {
+      window.setTimeout(() => {
+        const focusTarget = kind === 'success' ? els.successAccept : els.confirmAccept;
+        (focusTarget || activeModal).focus?.();
+      }, 0);
+    }
+    return true;
+  }
+
+  function hideTeamMemberUnassignModals() {
+    const els = getTeamMemberUnassignModalElements();
+    [els.confirmModal, els.successModal].forEach((modal) => {
+      if (!modal) return;
+      modal.classList.remove('is-visible');
+      modal.setAttribute('aria-hidden', 'true');
+    });
+    if (els.backdrop) {
+      els.backdrop.classList.remove('is-visible');
+      els.backdrop.setAttribute('aria-hidden', 'true');
+    }
+    document.body.classList.remove('team-member-unassign-modal-open');
+  }
+
+  function showTeamMemberUnassignConfirm(memberName, teamName) {
+    const cleanMemberName = String(memberName || 'Aquesta inscripcio').trim();
+    const cleanTeamName = String(teamName || 'aquest equip').trim();
+    const els = getTeamMemberUnassignModalElements();
+    if (!els.backdrop || !els.confirmModal || !els.confirmAccept) {
+      return typeof showConfirm === 'function'
+        ? showConfirm(`Treure ${cleanMemberName} de l'equip ${cleanTeamName}?`)
+        : Promise.resolve(window.confirm(`Treure ${cleanMemberName} de l'equip ${cleanTeamName}?`));
+    }
+    if (els.confirmBody) {
+      els.confirmBody.textContent = `Vols treure ${cleanMemberName} de l'equip ${cleanTeamName}? La inscripcio quedara sense equip en el context actual.`;
+    }
+    return new Promise((resolve) => {
+      let done = false;
+      const cleanup = (accepted) => {
+        if (done) return;
+        done = true;
+        els.confirmAccept.removeEventListener('click', accept);
+        els.backdrop?.removeEventListener('click', cancel);
+        document.removeEventListener('keydown', onKeydown);
+        els.confirmCancelButtons.forEach((button) => button.removeEventListener('click', cancel));
+        hideTeamMemberUnassignModals();
+        resolve(!!accepted);
+      };
+      const accept = () => cleanup(true);
+      const cancel = () => cleanup(false);
+      const onKeydown = (event) => {
+        if (event.key === 'Escape') cleanup(false);
+      };
+      els.confirmAccept.addEventListener('click', accept);
+      els.backdrop?.addEventListener('click', cancel);
+      document.addEventListener('keydown', onKeydown);
+      els.confirmCancelButtons.forEach((button) => button.addEventListener('click', cancel));
+      if (!setTeamMemberUnassignModalVisible('confirm', true)) cleanup(false);
+    });
+  }
+
+  function showTeamMemberUnassignSuccess(memberName) {
+    const cleanMemberName = String(memberName || 'La inscripcio').trim();
+    const els = getTeamMemberUnassignModalElements();
+    if (!els.backdrop || !els.successModal || !els.successAccept) {
+      return typeof showAlert === 'function'
+        ? Promise.resolve(showAlert(`${cleanMemberName} ha quedat sense equip en el context actual.`))
+        : Promise.resolve(window.alert(`${cleanMemberName} ha quedat sense equip en el context actual.`));
+    }
+    if (els.successBody) {
+      els.successBody.textContent = `${cleanMemberName} ha quedat sense equip en el context actual.`;
+    }
+    return new Promise((resolve) => {
+      let done = false;
+      const cleanup = () => {
+        if (done) return;
+        done = true;
+        els.successAccept.removeEventListener('click', close);
+        els.successClose?.removeEventListener('click', close);
+        els.backdrop?.removeEventListener('click', close);
+        document.removeEventListener('keydown', onKeydown);
+        hideTeamMemberUnassignModals();
+        resolve(true);
+      };
+      const close = () => cleanup();
+      const onKeydown = (event) => {
+        if (event.key === 'Escape' || event.key === 'Enter') cleanup();
+      };
+      els.successAccept.addEventListener('click', close);
+      els.successClose?.addEventListener('click', close);
+      els.backdrop?.addEventListener('click', close);
+      document.addEventListener('keydown', onKeydown);
+      if (!setTeamMemberUnassignModalVisible('success', true)) cleanup();
+    });
+  }
+
+  function getTeamActionModalElements() {
+    return {
+      backdrop: document.getElementById('team-action-backdrop'),
+      confirmModal: document.getElementById('team-action-confirm-modal'),
+      confirmKicker: document.getElementById('team-action-confirm-kicker'),
+      confirmTitle: document.getElementById('team-action-confirm-title'),
+      confirmBody: document.getElementById('team-action-confirm-body'),
+      confirmAccept: document.getElementById('team-action-confirm-accept'),
+      confirmCancelButtons: Array.from(document.querySelectorAll('[data-team-action-cancel]')),
+      successModal: document.getElementById('team-action-success-modal'),
+      successTitle: document.getElementById('team-action-success-title'),
+      successBody: document.getElementById('team-action-success-body'),
+      successClose: document.getElementById('team-action-success-close'),
+      successAccept: document.getElementById('team-action-success-accept'),
+    };
+  }
+
+  function setTeamActionModalVisible(kind, visible, tone = 'warning') {
+    const els = getTeamActionModalElements();
+    const activeModal = kind === 'success' ? els.successModal : els.confirmModal;
+    const inactiveModal = kind === 'success' ? els.confirmModal : els.successModal;
+    if (!els.backdrop || !activeModal) return false;
+    if (els.backdrop.parentElement !== document.body) document.body.appendChild(els.backdrop);
+    if (activeModal.parentElement !== document.body) document.body.appendChild(activeModal);
+    [activeModal, inactiveModal].forEach((modal) => {
+      if (!modal) return;
+      modal.classList.remove('is-warning', 'is-success', 'is-danger');
+    });
+    activeModal.classList.add(kind === 'success' ? 'is-success' : `is-${tone || 'warning'}`);
+    if (inactiveModal) {
+      inactiveModal.classList.remove('is-visible');
+      inactiveModal.setAttribute('aria-hidden', 'true');
+    }
+    els.backdrop.classList.toggle('is-visible', !!visible);
+    els.backdrop.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    activeModal.classList.toggle('is-visible', !!visible);
+    activeModal.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    document.body.classList.toggle('team-action-modal-open', !!visible);
+    if (visible) {
+      window.setTimeout(() => {
+        const focusTarget = kind === 'success' ? els.successAccept : els.confirmAccept;
+        (focusTarget || activeModal).focus?.();
+      }, 0);
+    }
+    return true;
+  }
+
+  function hideTeamActionModals() {
+    const els = getTeamActionModalElements();
+    [els.confirmModal, els.successModal].forEach((modal) => {
+      if (!modal) return;
+      modal.classList.remove('is-visible');
+      modal.setAttribute('aria-hidden', 'true');
+    });
+    if (els.backdrop) {
+      els.backdrop.classList.remove('is-visible');
+      els.backdrop.setAttribute('aria-hidden', 'true');
+    }
+    document.body.classList.remove('team-action-modal-open');
+  }
+
+  function showTeamActionConfirm(options = {}) {
+    const title = String(options.title || 'Confirmar accio').trim();
+    const body = String(options.body || 'Vols continuar?').trim();
+    const confirmLabel = String(options.confirmLabel || 'Confirmar').trim();
+    const kicker = String(options.kicker || 'Confirmacio').trim();
+    const tone = String(options.tone || 'warning').trim();
+    const buttonClass = tone === 'danger' ? 'btn-danger' : tone === 'primary' ? 'btn-primary' : 'btn-warning';
+    const els = getTeamActionModalElements();
+    if (!els.backdrop || !els.confirmModal || !els.confirmAccept) {
+      return typeof showConfirm === 'function'
+        ? showConfirm(body)
+        : Promise.resolve(window.confirm(body));
+    }
+    if (els.confirmKicker) els.confirmKicker.textContent = kicker;
+    if (els.confirmTitle) els.confirmTitle.textContent = title;
+    if (els.confirmBody) els.confirmBody.textContent = body;
+    els.confirmAccept.textContent = confirmLabel;
+    els.confirmAccept.className = `btn btn-sm ${buttonClass}`;
+    return new Promise((resolve) => {
+      let done = false;
+      const cleanup = (accepted) => {
+        if (done) return;
+        done = true;
+        els.confirmAccept.removeEventListener('click', accept);
+        els.backdrop?.removeEventListener('click', cancel);
+        document.removeEventListener('keydown', onKeydown);
+        els.confirmCancelButtons.forEach((button) => button.removeEventListener('click', cancel));
+        hideTeamActionModals();
+        resolve(!!accepted);
+      };
+      const accept = () => cleanup(true);
+      const cancel = () => cleanup(false);
+      const onKeydown = (event) => {
+        if (event.key === 'Escape') cleanup(false);
+      };
+      els.confirmAccept.addEventListener('click', accept);
+      els.backdrop?.addEventListener('click', cancel);
+      document.addEventListener('keydown', onKeydown);
+      els.confirmCancelButtons.forEach((button) => button.addEventListener('click', cancel));
+      if (!setTeamActionModalVisible('confirm', true, tone)) cleanup(false);
+    });
+  }
+
+  function showTeamActionSuccess(options = {}) {
+    const title = String(options.title || 'Accio completada').trim();
+    const body = String(options.body || "Els canvis s'han aplicat correctament.").trim();
+    const els = getTeamActionModalElements();
+    if (!els.backdrop || !els.successModal || !els.successAccept) {
+      return typeof showAlert === 'function'
+        ? Promise.resolve(showAlert(body))
+        : Promise.resolve(window.alert(body));
+    }
+    if (els.successTitle) els.successTitle.textContent = title;
+    if (els.successBody) els.successBody.textContent = body;
+    return new Promise((resolve) => {
+      let done = false;
+      const cleanup = () => {
+        if (done) return;
+        done = true;
+        els.successAccept.removeEventListener('click', close);
+        els.successClose?.removeEventListener('click', close);
+        els.backdrop?.removeEventListener('click', close);
+        document.removeEventListener('keydown', onKeydown);
+        hideTeamActionModals();
+        resolve(true);
+      };
+      const close = () => cleanup();
+      const onKeydown = (event) => {
+        if (event.key === 'Escape' || event.key === 'Enter') cleanup();
+      };
+      els.successAccept.addEventListener('click', close);
+      els.successClose?.addEventListener('click', close);
+      els.backdrop?.addEventListener('click', close);
+      document.addEventListener('keydown', onKeydown);
+      if (!setTeamActionModalVisible('success', true, 'success')) cleanup();
+    });
+  }
+
+  function getTeamPreviewElements() {
+    return {
+      root: document.getElementById('team-preview'),
+      status: document.getElementById('team-preview-status'),
+      intentLabel: document.getElementById('team-preview-intent-label'),
+      selection: document.getElementById('team-preview-selection-summary'),
+      summary: document.getElementById('team-preview-summary'),
+      existingWrap: document.getElementById('team-preview-existing-wrap'),
+      existingMeta: document.getElementById('team-preview-existing-meta'),
+      existingList: document.getElementById('team-preview-existing-list'),
+      plannedWrap: document.getElementById('team-preview-planned-wrap'),
+      plannedMeta: document.getElementById('team-preview-planned-meta'),
+      plannedList: document.getElementById('team-preview-list'),
+      confirm: document.getElementById('btn-team-preview-confirm'),
+      clear: document.getElementById('btn-team-preview-clear'),
+    };
+  }
+
+  function updateTeamPreviewConfirmUi() {
+    const els = getTeamPreviewElements();
+    const intent = lastConfirmableTeamPreview;
+    const dirty = !!(els.root && els.root.dataset.dirty === '1');
+    const hasPreview = !!(els.root && els.root.dataset.hasPreview === '1');
+    const loading = !!(els.root && els.root.dataset.loading === '1');
+
+    if (els.intentLabel) {
+      const label = String(intent?.label || '').trim();
+      els.intentLabel.textContent = dirty && label ? `${label} - desactualitzada` : label;
+      els.intentLabel.classList.toggle('d-none', !label);
+    }
+
+    if (els.confirm) {
+      const canShow = hasPreview && !!intent && !!intent.canConfirm;
+      els.confirm.textContent = String(intent?.buttonLabel || 'Confirmar aquesta creacio').trim() || 'Confirmar aquesta creacio';
+      els.confirm.disabled = !canShow || dirty || loading || teamPreviewConfirmBusy;
+      els.confirm.classList.toggle('d-none', !canShow);
+    }
+  }
+
+  function clearTeamPreviewConfirmIntent() {
+    lastConfirmableTeamPreview = null;
+    teamPreviewConfirmBusy = false;
+    updateTeamPreviewConfirmUi();
+  }
+
+  function setTeamPreviewConfirmIntent(intent) {
+    if (!intent || typeof intent.execute !== 'function' || !intent.canConfirm) {
+      clearTeamPreviewConfirmIntent();
+      return;
+    }
+    lastConfirmableTeamPreview = {
+      label: String(intent.label || '').trim(),
+      buttonLabel: String(intent.buttonLabel || 'Confirmar aquesta creacio').trim() || 'Confirmar aquesta creacio',
+      canConfirm: true,
+      execute: intent.execute,
+    };
+    updateTeamPreviewConfirmUi();
+  }
+
+  function setTeamPreviewStatus(message, variant = 'muted') {
+    const status = getTeamPreviewElements().status;
+    if (!status) return;
+    status.textContent = String(message || '');
+    status.style.color = variant === 'warning'
+      ? '#b45309'
+      : (variant === 'info' ? '#1d4ed8' : '#64748b');
+  }
+
+  function clearTeamPreview(statusText) {
+    const els = getTeamPreviewElements();
+    if (!els.root) return;
+    els.root.dataset.hasPreview = '0';
+    els.root.dataset.dirty = '0';
+    els.root.dataset.loading = '0';
+    if (els.selection) {
+      els.selection.innerHTML = '';
+      els.selection.classList.add('d-none');
+    }
+    if (els.summary) {
+      els.summary.innerHTML = '';
+      els.summary.classList.add('d-none');
+    }
+    if (els.existingList) els.existingList.innerHTML = '';
+    if (els.existingWrap) els.existingWrap.classList.add('d-none');
+    if (els.existingMeta) els.existingMeta.textContent = '';
+    if (els.plannedList) els.plannedList.innerHTML = '';
+    if (els.plannedWrap) els.plannedWrap.classList.add('d-none');
+    if (els.plannedMeta) els.plannedMeta.textContent = '';
+    if (els.clear) els.clear.classList.add('d-none');
+    setTeamPreviewStatus(
+      statusText || "Encara no s'ha calculat cap previsualitzacio amb aquesta configuracio.",
+      'muted'
+    );
+    clearTeamPreviewConfirmIntent();
+  }
+
+  function markTeamPreviewDirty() {
+    const els = getTeamPreviewElements();
+    if (!els.root || els.root.dataset.hasPreview !== '1') return;
+    els.root.dataset.dirty = '1';
+    setTeamPreviewStatus('La configuracio ha canviat. Torna a previsualitzar per actualitzar el resultat.', 'warning');
+    clearTeamPreviewConfirmIntent();
+  }
+
+  function setTeamPreviewLoading(loading) {
+    const els = getTeamPreviewElements();
+    if (!els.root) return;
+    els.root.dataset.loading = loading ? '1' : '0';
+    if (loading) setTeamPreviewStatus('Calculant la previsualitzacio dels equips...', 'info');
+    updateTeamPreviewConfirmUi();
+  }
+
+  function createTeamPreviewCard(team, kind = 'planned') {
+    const card = document.createElement('div');
+    card.className = 'group-preview-card';
+
+    if (kind === 'existing') {
+      const impactKind = String(team?.impact_kind || '').trim().toLowerCase();
+      if (impactKind === 'removed') card.classList.add('is-removed');
+      else if (impactKind === 'reduced') card.classList.add('is-reduced');
+      else if (impactKind === 'incoming') card.classList.add('is-incoming');
+      else card.classList.add('is-existing');
+    } else if (team?.will_create) {
+      card.classList.add('is-created');
+    } else if (team?.will_reassign) {
+      card.classList.add('is-reduced');
+    } else {
+      card.classList.add('is-existing');
+    }
+
+    const head = document.createElement('div');
+    head.className = 'group-preview-card-head';
+
+    const textWrap = document.createElement('div');
+    textWrap.className = 'group-preview-card-copy';
+    const title = document.createElement('p');
+    title.className = 'group-preview-card-title';
+    title.textContent = String(team?.team_name || team?.nom_suggerit || 'Equip');
+    textWrap.appendChild(title);
+
+    const subtitle = document.createElement('p');
+    subtitle.className = 'group-preview-card-subtitle';
+    if (kind === 'existing') {
+      subtitle.textContent = `${Number(team?.current_members_context || 0)} integrants actuals al context`;
+    } else {
+      const values = Array.isArray(team?.values) ? team.values.filter(Boolean) : [];
+      subtitle.textContent = values.length ? `Particio: ${values.join(' | ')}` : 'Sense valors de particio';
+    }
+    textWrap.appendChild(subtitle);
+
+    const impact = document.createElement('p');
+    impact.className = 'group-preview-card-impact';
+    if (kind === 'existing') {
+      const impactKind = String(team?.impact_kind || '').trim().toLowerCase();
+      if (impactKind === 'removed') {
+        impact.classList.add('is-removed');
+        impact.textContent = `Perdra ${Number(team?.outgoing_count || 0)} i quedara buit`;
+      } else if (impactKind === 'reduced') {
+        impact.classList.add('is-reduced');
+        impact.textContent = `Perdra ${Number(team?.outgoing_count || 0)} i en quedaran ${Number(team?.remaining_members_context || 0)}`;
+      } else if (impactKind === 'incoming') {
+        impact.classList.add('is-created');
+        impact.textContent = `Rebra ${Number(team?.incoming_count || 0)} participants`;
+      } else {
+        impact.textContent = `Mantindra ${Number(team?.keep_count || 0)} participants afectats`;
+      }
+    } else if (team?.will_create) {
+      impact.classList.add('is-created');
+      impact.textContent = `Es creara amb ${Number(team?.count || 0)} integrants`;
+    } else if (Number(team?.current_other_count || 0) > 0 && Number(team?.skipped_reassign_count || 0) > 0) {
+      impact.classList.add('is-reduced');
+      impact.textContent = `Hi ha ${Number(team?.skipped_reassign_count || 0)} membres amb equip diferent que no es reassignaran`;
+    } else if (team?.will_reassign) {
+      impact.classList.add('is-reduced');
+      impact.textContent = `Reassignara ${Number(team?.current_other_count || 0)} participants`;
+    } else if (team?.will_keep) {
+      impact.textContent = `Mantindra ${Number(team?.current_same_count || 0)} participants ja alineats`;
+    } else {
+      impact.textContent = `Assignara ${Number(team?.current_none_count || 0)} participants sense equip`;
+    }
+    textWrap.appendChild(impact);
+    head.appendChild(textWrap);
+
+    const badges = document.createElement('div');
+    badges.className = 'group-preview-card-badges';
+    if (kind === 'existing') {
+      const impactKind = String(team?.impact_kind || '').trim().toLowerCase();
+      if (impactKind === 'removed') badges.appendChild(createGroupPreviewBadge('Queda buit', 'removed'));
+      else if (impactKind === 'reduced') badges.appendChild(createGroupPreviewBadge('Es redueix', 'reduced'));
+      else if (impactKind === 'incoming') badges.appendChild(createGroupPreviewBadge('Rep membres', 'incoming'));
+      else badges.appendChild(createGroupPreviewBadge('Es mante'));
+      if (Number(team?.incoming_count || 0) > 0) {
+        badges.appendChild(createGroupPreviewBadge(`+${Number(team?.incoming_count || 0)} entren`, 'incoming'));
+      }
+      if (Number(team?.outgoing_count || 0) > 0) {
+        badges.appendChild(createGroupPreviewBadge(`-${Number(team?.outgoing_count || 0)} surten`, impactKind === 'removed' ? 'removed' : 'reduced'));
+      }
+    } else {
+      badges.appendChild(createGroupPreviewBadge(`${Number(team?.count || 0)} integrants`));
+      if (team?.will_create) {
+        badges.appendChild(createGroupPreviewBadge('Equip nou', 'created'));
+      } else {
+        badges.appendChild(createGroupPreviewBadge(`Existeix: ${String(team?.existing_team_name || team?.nom_suggerit || '')}`));
+      }
+      if (team?.will_reassign) {
+        badges.appendChild(createGroupPreviewBadge(`Reassigna ${Number(team?.current_other_count || 0)}`, 'reduced'));
+      }
+      if (team?.will_keep) {
+        badges.appendChild(createGroupPreviewBadge(`Ja hi son ${Number(team?.current_same_count || 0)}`));
+      }
+    }
+    head.appendChild(badges);
+    card.appendChild(head);
+
+    const sourcesWrap = document.createElement('div');
+    sourcesWrap.className = 'group-preview-sources';
+
+    const primaryRow = document.createElement('div');
+    primaryRow.className = 'group-preview-source-row';
+    const primaryLabel = document.createElement('div');
+    primaryLabel.className = 'group-preview-source-label';
+    primaryLabel.textContent = kind === 'existing' ? 'Afectacio al context actual' : 'Impacte previst sobre la particio';
+    primaryRow.appendChild(primaryLabel);
+    const primaryCount = document.createElement('span');
+    primaryCount.className = 'group-preview-source-count is-impact';
+    primaryCount.textContent = kind === 'existing'
+      ? `Entren ${Number(team?.incoming_count || 0)} | Surten ${Number(team?.outgoing_count || 0)} | Es queden ${Number(team?.keep_count || 0)}`
+      : `Sense equip ${Number(team?.current_none_count || 0)} | Mateix equip ${Number(team?.current_same_count || 0)} | Altres equips ${Number(team?.current_other_count || 0)}`;
+    primaryRow.appendChild(primaryCount);
+    sourcesWrap.appendChild(primaryRow);
+
+    if (kind !== 'existing' && Number(team?.skipped_reassign_count || 0) > 0) {
+      const blockedRow = document.createElement('div');
+      blockedRow.className = 'group-preview-source-row';
+      const blockedLabel = document.createElement('div');
+      blockedLabel.className = 'group-preview-source-label';
+      blockedLabel.textContent = 'Participants mantinguts al seu equip actual';
+      blockedRow.appendChild(blockedLabel);
+      const blockedCount = document.createElement('span');
+      blockedCount.className = 'group-preview-source-count is-impact';
+      blockedCount.textContent = `${Number(team?.skipped_reassign_count || 0)} no es mouran`;
+      blockedRow.appendChild(blockedCount);
+      sourcesWrap.appendChild(blockedRow);
+    }
+    card.appendChild(sourcesWrap);
+
+    const sampleNames = Array.isArray(team?.member_samples) ? team.member_samples.filter(Boolean) : [];
+    const sampleRemaining = Number(team?.member_samples_remaining || 0);
+    if (sampleNames.length) {
+      const members = document.createElement('div');
+      members.className = 'group-preview-members';
+      const suffix = sampleRemaining > 0 ? ` +${sampleRemaining} mes` : '';
+      const strong = document.createElement('strong');
+      strong.textContent = "Mostra d'integrants:";
+      members.appendChild(strong);
+      members.appendChild(document.createTextNode(` ${sampleNames.join(', ')}${suffix}`));
+      card.appendChild(members);
+    }
+
+    return card;
+  }
+
+  function renderTeamPreviewSection(wrap, meta, list, rows, kind) {
+    if (!wrap || !list) return;
+    const items = Array.isArray(rows) ? rows : [];
+    list.innerHTML = '';
+    items.forEach((item) => list.appendChild(createTeamPreviewCard(item, kind)));
+    wrap.classList.toggle('d-none', items.length === 0);
+    if (meta) {
+      const peopleCount = items.reduce((acc, row) => acc + Number(row?.count || row?.incoming_count || row?.current_members_context || 0), 0);
+      meta.textContent = items.length ? `${items.length} equips | ${peopleCount} registres destacats` : '';
+    }
+  }
+
+  function renderTeamPreview(data) {
+    const els = getTeamPreviewElements();
+    if (!els.root) return;
+    if (!data || !data.ok) {
+      clearTeamPreview("No s'ha pogut calcular la previsualitzacio.");
+      return;
+    }
+    clearTeamPreviewConfirmIntent();
+
+    const plannedTeams = Array.isArray(data.preview) ? data.preview : [];
+    const existingSummary = data.existing_summary && typeof data.existing_summary === 'object' ? data.existing_summary : {};
+    const affectedTeams = Array.isArray(existingSummary.affected_teams) ? existingSummary.affected_teams : [];
+    const selectionSummary = data.selection_summary && typeof data.selection_summary === 'object' ? data.selection_summary : {};
+
+    els.root.dataset.hasPreview = '1';
+    els.root.dataset.dirty = '0';
+
+    if (els.selection) {
+      els.selection.innerHTML = '';
+      els.selection.appendChild(createGroupPreviewBadge(selectionSummary.label || `${Number(data.total_inscripcions || 0)} registrades`));
+      if (selectionSummary.filters_active) els.selection.appendChild(createGroupPreviewBadge('Amb filtres actius'));
+      if (selectionSummary.mode === 'selected') els.selection.appendChild(createGroupPreviewBadge('Nomes seleccionades'));
+      else if (selectionSummary.mode === 'filtered') els.selection.appendChild(createGroupPreviewBadge('Subset filtrat'));
+      else els.selection.appendChild(createGroupPreviewBadge('Totes les visibles'));
+      els.selection.appendChild(
+        createGroupPreviewBadge(
+          selectionSummary.replace_existing ? 'Reassignant equips existents' : 'Respectant equips existents',
+          selectionSummary.replace_existing ? 'reduced' : 'incoming'
+        )
+      );
+      els.selection.classList.remove('d-none');
+    }
+
+    if (els.summary) {
+      els.summary.innerHTML = '';
+      els.summary.appendChild(createGroupPreviewBadge(`${Number(data.total_equips || plannedTeams.length || 0)} equips previstos`));
+      els.summary.appendChild(createGroupPreviewBadge(`${Number(data.total_inscripcions || 0)} inscripcions afectades`));
+      els.summary.appendChild(createGroupPreviewBadge(`${Number(existingSummary.teams_with_members || 0)} equips actuals amb membres`));
+      els.summary.appendChild(createGroupPreviewBadge(`${Number(existingSummary.assigned_total || 0)} assignacions actuals`));
+      if (Number(data?.bucket_summary?.selected_count || 0) > 0) {
+        els.summary.appendChild(createGroupPreviewBadge(`${Number(data.bucket_summary.selected_count || 0)} buckets actius`));
+      }
+      if (plannedTeams.some((team) => !!team?.will_create)) {
+        els.summary.appendChild(createGroupPreviewBadge('Es crearan equips nous', 'created'));
+      }
+      if (plannedTeams.some((team) => !!team?.will_reassign)) {
+        els.summary.appendChild(createGroupPreviewBadge('Hi ha reassignacions', 'reduced'));
+      }
+      if (affectedTeams.some((team) => String(team?.impact_kind || '').trim().toLowerCase() === 'removed')) {
+        els.summary.appendChild(createGroupPreviewBadge('Alguns equips poden quedar buits', 'removed'));
+      }
+      els.summary.classList.remove('d-none');
+    }
+
+    renderTeamPreviewSection(els.existingWrap, els.existingMeta, els.existingList, affectedTeams, 'existing');
+    renderTeamPreviewSection(els.plannedWrap, els.plannedMeta, els.plannedList, plannedTeams, 'planned');
+
+    if (els.clear) els.clear.classList.remove('d-none');
+
+    setTeamPreviewStatus(
+      plannedTeams.length
+        ? `Previsualitzacio calculada per al context "${String(data.context_code || 'native')}"`
+        : 'No es generen equips amb aquesta configuracio.',
+      plannedTeams.length ? 'info' : 'muted'
+    );
+    updateTeamPreviewConfirmUi();
+  }
+
+  function openWorkspaceCard() {
+    if (typeof getExpandedGroupCardId === 'function' && typeof setExpandedGroupCard === 'function') {
+      if (getExpandedGroupCardId() !== 'teams-main-card') {
+        setExpandedGroupCard('teams-main-card');
+      }
+      if (typeof saveWorkspaceState === 'function') saveWorkspaceState({ expandedGroupCardId: 'teams-main-card' });
+      return;
+    }
+    const btn = document.querySelector('[data-expand-target="teams-main-card"]');
+    if (btn && btn.getAttribute('aria-expanded') !== 'true') btn.click();
+  }
+
+  function renderCompactActionState() {
+    const note = document.getElementById('team-compact-actions-note');
+    const createBtn = document.getElementById('btn-team-compact-create');
+    const assignBtn = document.getElementById('btn-team-compact-assign');
+    const unassignBtn = document.getElementById('btn-team-compact-unassign');
+    const selectedCount = ids().length;
+    const filteredCount = Number(state.lastWorkspace?.summary?.filtered_count || 0);
+    const scopeCount = state.compactScope === 'filtered' ? filteredCount : selectedCount;
+
+    if (createBtn) createBtn.disabled = scopeCount <= 0;
+    if (assignBtn) assignBtn.disabled = scopeCount <= 0;
+    if (unassignBtn) unassignBtn.disabled = scopeCount <= 0;
+    if (!note) return;
+
+    if (!scopeCount) {
+      note.textContent = state.compactScope === 'filtered'
+        ? `No hi ha cap inscripcio dins del subconjunt filtrat actual (${filteredCount}).`
+        : 'Selecciona inscripcions al modal o importa la seleccio del llistat per fer accions rapides.';
+      return;
+    }
+    note.textContent = state.compactScope === 'filtered'
+      ? `Aquestes accions treballaran sobre ${filteredCount} inscripcions filtrades al context actual.`
+      : `Aquestes accions treballaran sobre ${selectedCount} inscripcions seleccionades al context actual.`;
+  }
+
+  function setCompactScope(mode, options = {}) {
+    state.compactScope = String(mode || '') === 'filtered' ? 'filtered' : 'selected';
+    const compact = document.getElementById('team-compact-scope');
+    if (compact) compact.value = state.compactScope;
+    renderCompactActionState();
+    if (!options.skipSave) saveWorkspaceState();
+    if (!options.skipDirty) dirtyPreview();
+  }
+
+  async function applyContextChange(nextCode) {
+    const normalized = String(nextCode || 'native').trim() || 'native';
+    state.contextCode = normalized;
+    const workspaceSelect = document.getElementById('team-workspace-context-select');
+    if (workspaceSelect) workspaceSelect.value = normalized;
+    const compactSelect = document.getElementById('team-compact-context');
+    if (compactSelect) compactSelect.value = normalized;
+    state.selectedIds = new Set(getExternalSelectionIds());
+    state.selectedTeamId = '';
+    state.selectedTeamDetail = null;
+    state.selectedTeamMembersPage = 1;
+    state.selectedRightPaneTab = 'preview';
+    state.editingTeamIds = new Set();
+    state.candidatePage = 1;
+    setContextDetailsOpen(false);
+    clearTeamPreview();
+    renderCompactActionState();
+    await refreshWorkspace({ resetPage: true, clearSelection: true });
+  }
+
+  async function resolveCompactActionIds() {
+    if (state.compactScope === 'filtered') return await resolveFilteredCandidateIds();
+    return ids();
+  }
+
+  async function ensureCompactManualSelection() {
+    const targetIds = await resolveCompactActionIds();
+    if (!Array.isArray(targetIds) || !targetIds.length) {
+      showAlert('Selecciona com a minim una inscripcio dins del workspace.');
+      return null;
+    }
+    return targetIds;
+  }
+
+  function renderSelectionState(options = {}) {
+    if (state.lastWorkspace) renderCandidates(state.lastWorkspace);
+    updateSelectionSummary();
+    renderCompactActionState();
+    if (!options.skipDirty) dirtyPreview();
+    refreshAutoContext().catch(() => {});
+  }
+
+  function applySelectionChange(selectionIds, mode, options = {}) {
+    const rows = Array.isArray(selectionIds) ? selectionIds.map(String).filter(Boolean) : [];
+    if (mode === 'set') state.selectedIds = new Set(rows);
+    if (mode === 'add') rows.forEach((id) => state.selectedIds.add(id));
+    if (mode === 'remove') rows.forEach((id) => state.selectedIds.delete(id));
+    if (mode === 'clear') state.selectedIds = new Set();
+    renderSelectionState(options);
+    if (!options.skipSave) saveWorkspaceState();
+    if (!options.skipSyncToMain) {
+      const api = mainSelectionApi();
+      if (api) {
+        if (mode === 'set') api.set(ids(), { source: 'team_workspace' });
+        else if (mode === 'add') api.add(rows, { source: 'team_workspace' });
+        else if (mode === 'remove') api.remove(rows, { source: 'team_workspace' });
+        else if (mode === 'clear') api.clear({ source: 'team_workspace' });
+      }
+    }
+  }
+
+  function syncExternalSelection(externalIds, options = {}) {
+    const rows = Array.isArray(externalIds) ? externalIds.map(String).filter(Boolean) : [];
+    applySelectionChange(rows, 'set', { ...options, skipSyncToMain: true });
+  }
+
+  function destroySortables() {
+    (state.sortables || []).forEach((sortable) => {
+      try {
+        sortable?.destroy?.();
+      } catch (_) {}
+    });
+    state.sortables = [];
+    clearDragTargets();
+    document.body.classList.remove('dragging');
+    teamWorkspaceShell.classList.remove('is-team-dragging');
+  }
+
+  function clearDragTargets() {
+    document
+      .querySelectorAll('.team-context-drop-target.is-drag-target')
+      .forEach((node) => node.classList.remove('is-drag-target'));
+  }
+
+  function markDragTarget(target) {
+    clearDragTargets();
+    const node = target?.closest?.('.team-context-team-card') || target?.closest?.('.team-context-drop-target');
+    if (node) node.classList.add('is-drag-target');
+  }
+
+  function setContextDetailsOpen(isOpen) {
+    state.contextDetailsOpen = !!isOpen;
+    const details = document.getElementById('team-workspace-context-details');
+    const toggle = document.getElementById('btn-team-workspace-context-toggle');
+    if (details) details.classList.toggle('d-none', !isOpen);
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      toggle.textContent = isOpen ? 'Amagar gestio del context' : 'Gestionar context';
+    }
+    saveWorkspaceState();
+  }
+
+  function cloneTeamDetail(team) {
+    if (!team || typeof team !== 'object') return null;
+    return {
+      ...team,
+      members: Array.isArray(team.members) ? team.members.map((member) => ({ ...member })) : [],
+    };
+  }
+
+  function syncTargetTeamSelectors() {
+    const selectedId = String(state.selectedTeamId || '').trim();
+    if (!selectedId) return;
+    ['team-workspace-existing-select', 'team-compact-target-team'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const allowed = new Set(Array.from(el.options || []).map((option) => String(option.value || '')));
+      if (allowed.has(selectedId)) el.value = selectedId;
+    });
+  }
+
+  function getCurrentSelectedTeamSummary(workspace = state.lastWorkspace) {
+    const selectedId = String(state.selectedTeamId || '').trim();
+    if (!selectedId) return null;
+    const teams = Array.isArray(workspace?.teams) ? workspace.teams : [];
+    return teams.find((team) => String(team?.id || '').trim() === selectedId) || null;
+  }
+
+  function syncSelectedTeamDetail(workspace = state.lastWorkspace) {
+    const selectedId = String(state.selectedTeamId || '').trim();
+    if (!selectedId) {
+      state.selectedTeamDetail = null;
+      state.selectedTeamMembersPage = 1;
+      state.editingTeamIds = new Set();
+      return null;
+    }
+    const current = getCurrentSelectedTeamSummary(workspace);
+    if (!current) {
+      state.selectedTeamId = '';
+      state.selectedTeamDetail = null;
+      state.selectedTeamMembersPage = 1;
+      state.editingTeamIds = new Set();
+      return null;
+    }
+    state.selectedTeamDetail = cloneTeamDetail(current);
+    return state.selectedTeamDetail;
+  }
+
+  function scrollSelectedTeamCardIntoView(teamId) {
+    const cleanId = String(teamId || state.selectedTeamId || '').trim();
+    if (!cleanId) return;
+    const node = document.querySelector(`[data-team-card-id="${CSS.escape(cleanId)}"]`);
+    if (node && typeof node.scrollIntoView === 'function') {
+      node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+
+  function updateRightPaneTabUi() {
+    const card = document.getElementById('team-right-pane-card');
+    const detailView = document.getElementById('team-right-pane-detail');
+    const previewView = document.getElementById('team-right-pane-preview');
+    const detailBtn = document.getElementById('btn-team-right-tab-detail');
+    const previewBtn = document.getElementById('btn-team-right-tab-preview');
+    const activeTab = state.selectedRightPaneTab === 'detail' ? 'detail' : 'preview';
+
+    if (card) card.classList.toggle('is-preview-active', activeTab === 'preview');
+    if (detailView) detailView.classList.toggle('d-none', activeTab !== 'detail');
+    if (previewView) previewView.classList.toggle('d-none', activeTab !== 'preview');
+    if (detailBtn) {
+      detailBtn.classList.toggle('is-active', activeTab === 'detail');
+      detailBtn.setAttribute('aria-selected', activeTab === 'detail' ? 'true' : 'false');
+    }
+    if (previewBtn) {
+      previewBtn.classList.toggle('is-active', activeTab === 'preview');
+      previewBtn.setAttribute('aria-selected', activeTab === 'preview' ? 'true' : 'false');
+    }
+  }
+
+  function setRightPaneTab(tab) {
+    state.selectedRightPaneTab = tab === 'detail' ? 'detail' : 'preview';
+    updateRightPaneTabUi();
+    saveWorkspaceState();
+  }
+
+  function detailMemberMatchesFilters(member, filters = state.detailMemberFilters) {
+    const current = normalizeDetailMemberFilters(filters);
+    const nativeTeam = String(member?.native_team_name || '').trim();
+    if (current.native_state === 'with_native' && !nativeTeam) return false;
+    if (current.native_state === 'without_native' && nativeTeam) return false;
+    if (current.entitats.length && !current.entitats.includes(String(member?.entitat || '').trim())) return false;
+    if (current.q) {
+      const haystack = normalizeSearchText([
+        member?.nom,
+        member?.entitat,
+        member?.categoria,
+        member?.subcategoria,
+        nativeTeam,
+      ].filter(Boolean).join(' '));
+      if (!haystack.includes(normalizeSearchText(current.q))) return false;
+    }
+    return true;
+  }
+
+  function detailMemberFiltersAreActive(filters = state.detailMemberFilters) {
+    const current = normalizeDetailMemberFilters(filters);
+    return !!(current.q || current.entitats.length || current.native_state !== 'all');
+  }
+
+  function buildDetailMemberFilterOptions(members) {
+    return {
+      entitats: uniqueSortedStrings((Array.isArray(members) ? members : []).map((member) => member?.entitat)),
+    };
+  }
+
+  function setDetailMemberFiltersToDom(filters, options) {
+    const data = normalizeDetailMemberFilters(filters);
+    const q = document.getElementById('team-detail-member-q');
+    if (q) q.value = data.q;
+    fillSelect(document.getElementById('team-detail-filter-entitat'), options?.entitats || [], data.entitats || [], 'Totes');
+    const nativeState = document.getElementById('team-detail-filter-native-state');
+    if (nativeState) nativeState.value = data.native_state || 'all';
+  }
+
+  function readDetailMemberFilters() {
+    return normalizeDetailMemberFilters({
+      q: document.getElementById('team-detail-member-q')?.value || '',
+      entitats: selectedOptionValues(document.getElementById('team-detail-filter-entitat')),
+      native_state: document.getElementById('team-detail-filter-native-state')?.value || 'all',
+    });
+  }
+
+  function teamDetailFilterSummaryLabel(selectEl) {
+    if (!selectEl) return 'Qualsevol';
+    const selectedOptions = Array.from(selectEl.selectedOptions || [])
+      .filter((option) => String(option.value || '').trim() && String(option.value || '').trim() !== 'all');
+    if (!selectEl.multiple) {
+      const selected = selectEl.options[selectEl.selectedIndex];
+      return selected && selectEl.value && selectEl.value !== 'all'
+        ? String(selected.textContent || '').trim()
+        : 'Tots';
+    }
+    if (selectedOptions.length === 1) return String(selectedOptions[0].textContent || '').trim();
+    if (selectedOptions.length > 1) return `${selectedOptions.length} seleccionades`;
+    return 'Qualsevol';
+  }
+
+  function renderTeamDetailFilterActiveChips() {
+    const wrap = document.getElementById('team-detail-filter-active-chips');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    let activeCount = 0;
+    const filters = [
+      { id: 'team-detail-filter-entitat', label: 'Entitat' },
+      { id: 'team-detail-filter-native-state', label: 'Base' },
+    ];
+    if (state.detailMemberFilters.q) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'groups-filter-chip';
+      chip.setAttribute('data-team-detail-filter-search-clear', '1');
+      chip.textContent = `Cerca: ${state.detailMemberFilters.q} x`;
+      frag.appendChild(chip);
+      activeCount += 1;
+    }
+    filters.forEach((filter) => {
+      const selectEl = document.getElementById(filter.id);
+      if (!selectEl) return;
+      const selected = selectEl.multiple
+        ? Array.from(selectEl.selectedOptions || [])
+        : Array.from(selectEl.selectedOptions || []).filter((option) => String(option.value || '') !== 'all');
+      selected.forEach((option) => {
+        const value = String(option.value || '').trim();
+        if (!value || value === 'all') return;
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'groups-filter-chip';
+        chip.setAttribute('data-team-detail-filter-chip-select', filter.id);
+        chip.setAttribute('data-team-detail-filter-chip-value', value);
+        chip.textContent = `${filter.label}: ${String(option.textContent || value).trim()} x`;
+        frag.appendChild(chip);
+        activeCount += 1;
+      });
+    });
+    wrap.classList.toggle('is-empty', activeCount === 0);
+    wrap.appendChild(frag);
+  }
+
+  function renderTeamDetailFilterPopovers() {
+    document.querySelectorAll('[data-team-detail-filter-popover]').forEach((popover) => {
+      const selectId = String(popover.getAttribute('data-select-id') || '').trim();
+      const selectEl = document.getElementById(selectId);
+      if (!selectEl) return;
+      const summary = popover.querySelector('[data-filter-summary]');
+      if (summary) summary.textContent = teamDetailFilterSummaryLabel(selectEl);
+      popover.classList.toggle('is-active', selectEl.multiple ? selectedOptionValues(selectEl).length > 0 : String(selectEl.value || 'all') !== 'all');
+      const optionsWrap = popover.querySelector(`[data-filter-options-for="${selectId}"]`);
+      if (!optionsWrap) return;
+      optionsWrap.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      Array.from(selectEl.options || []).forEach((option) => {
+        const value = String(option.value || '').trim();
+        if (selectEl.multiple && !value) return;
+        const label = document.createElement('label');
+        label.className = 'groups-filter-option';
+        const input = document.createElement('input');
+        input.type = selectEl.multiple ? 'checkbox' : 'radio';
+        input.className = 'js-team-detail-filter-choice';
+        input.name = `team-detail-filter-choice-${selectId}`;
+        input.value = value;
+        input.checked = !!option.selected;
+        input.setAttribute('data-select-id', selectId);
+        const text = document.createElement('span');
+        text.textContent = String(option.textContent || value || 'Tots').trim();
+        label.appendChild(input);
+        label.appendChild(text);
+        frag.appendChild(label);
+      });
+      if (!frag.childNodes.length) {
+        const empty = document.createElement('div');
+        empty.className = 'groups-filter-empty';
+        empty.textContent = 'Sense opcions disponibles.';
+        frag.appendChild(empty);
+      }
+      optionsWrap.appendChild(frag);
+    });
+    renderTeamDetailFilterActiveChips();
+  }
+
+  function setTeamDetailFilterValue(selectId, value, checked) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+    const cleanValue = String(value || '').trim();
+    if (selectEl.multiple) {
+      Array.from(selectEl.options || []).forEach((option) => {
+        if (String(option.value || '').trim() === cleanValue) option.selected = !!checked;
+      });
+    } else {
+      selectEl.value = cleanValue || 'all';
+    }
+  }
+
+  function clearTeamDetailFilter(selectId, value = null) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+    const cleanValue = value === null ? null : String(value || '').trim();
+    if (selectEl.multiple) {
+      Array.from(selectEl.options || []).forEach((option) => {
+        if (cleanValue === null || String(option.value || '').trim() === cleanValue) option.selected = false;
+      });
+    } else {
+      selectEl.value = 'all';
+    }
+  }
+
+  function clearAllTeamDetailFilters() {
+    const q = document.getElementById('team-detail-member-q');
+    if (q) q.value = '';
+    clearTeamDetailFilter('team-detail-filter-entitat');
+    clearTeamDetailFilter('team-detail-filter-native-state');
+    state.detailMemberFilters = normalizeDetailMemberFilters();
+    state.selectedTeamMembersPage = 1;
+    saveWorkspaceState();
+    renderDetailPane();
+    setupDnd();
+  }
+
+  function renderDetailPane() {
+    const empty = document.getElementById('team-detail-empty');
+    const panel = document.getElementById('team-detail-panel');
+    const title = document.getElementById('team-detail-title');
+    const meta = document.getElementById('team-detail-meta');
+    const summary = document.getElementById('team-detail-summary');
+    const actions = document.getElementById('team-detail-actions');
+    const editor = document.getElementById('team-detail-editor');
+    const nameNote = document.getElementById('team-detail-name-note');
+    const membersList = document.getElementById('team-detail-members-list');
+    const pager = document.getElementById('team-detail-members-pager');
+    const membersToolbar = document.getElementById('team-detail-members-toolbar');
+    const filterCount = document.getElementById('team-detail-filter-count');
+    if (!empty || !panel || !title || !meta || !summary || !actions || !editor || !nameNote || !membersList || !pager) return;
+
+    const team = syncSelectedTeamDetail();
+    const teamId = String(team?.id || state.selectedTeamId || '').trim();
+    if (!teamId || !team) {
+      empty.classList.remove('d-none');
+      panel.classList.add('d-none');
+      empty.textContent = "Selecciona un equip del board per veure'n el detall sense deformar la graella.";
+      membersList.innerHTML = '';
+      if (membersToolbar) membersToolbar.classList.add('d-none');
+      pager.innerHTML = '';
+      pager.classList.add('d-none');
+      return;
+    }
+
+    const members = Array.isArray(team.members) ? team.members : [];
+    const totalMembers = members.length;
+    const detailFiltersActive = detailMemberFiltersAreActive();
+    const filteredMembers = members.filter((member) => detailMemberMatchesFilters(member));
+    const visibleMembersTotal = filteredMembers.length;
+    const totalPages = Math.max(1, Math.ceil(visibleMembersTotal / Number(state.memberPageSize || 10)));
+    const currentPage = Math.min(Math.max(Number(state.selectedTeamMembersPage || 1), 1), totalPages);
+    const startIndex = (currentPage - 1) * Number(state.memberPageSize || 10);
+    const visibleMembers = filteredMembers.slice(startIndex, startIndex + Number(state.memberPageSize || 10));
+    const editing = state.editingTeamIds.has(teamId);
+    const nativeMembers = members.filter((member) => !!String(member?.native_team_name || '').trim()).length;
+    const entitatsTotal = uniqueSortedStrings(members.map((member) => member?.entitat)).length;
+
+    state.selectedTeamMembersPage = currentPage;
+    empty.classList.add('d-none');
+    panel.classList.remove('d-none');
+
+    title.textContent = String(team?.nom || 'Equip');
+    meta.textContent = [
+      `${totalMembers} membres en aquest context`,
+      state.contextCode === 'native' ? 'Context Base' : `Context ${state.contextCode}`,
+    ].filter(Boolean).join(' | ');
+
+    summary.innerHTML = '';
+    const addMetric = (label, value, options = {}) => {
+      const item = document.createElement('div');
+      item.className = `groups-detail-metric${options.status ? ' groups-detail-metric-status' : ''}`;
+      const copy = document.createElement('div');
+      const valueNode = document.createElement('span');
+      valueNode.className = 'groups-detail-metric-value';
+      valueNode.textContent = String(value);
+      const labelNode = document.createElement('span');
+      labelNode.className = 'groups-detail-metric-label';
+      labelNode.textContent = label;
+      copy.appendChild(valueNode);
+      copy.appendChild(labelNode);
+      item.appendChild(copy);
+      summary.appendChild(item);
+      return item;
+    };
+    addMetric('membres', totalMembers);
+    addMetric('entitats', entitatsTotal || '-');
+    addMetric('estat', totalMembers ? 'Amb membres' : 'Buit', { status: true });
+    addMetric('context', state.contextCode === 'native' ? 'Base' : state.contextCode, { status: true });
+    if (state.contextCode !== 'native') {
+      addMetric('equip base', nativeMembers ? `${nativeMembers} amb base` : 'Sense base', { status: true });
+    }
+
+    actions.innerHTML = '';
+
+    const refresh = document.createElement('button');
+    refresh.type = 'button';
+    refresh.className = 'btn btn-sm btn-outline-dark';
+    refresh.setAttribute('data-team-open', teamId);
+    refresh.textContent = 'Refrescar detall';
+    actions.appendChild(refresh);
+
+    const actionsMenu = document.createElement('details');
+    actionsMenu.className = 'groups-existing-actions-menu groups-detail-actions-menu team-detail-actions-menu';
+    const menuTrigger = document.createElement('summary');
+    menuTrigger.className = 'groups-existing-actions-trigger';
+    menuTrigger.setAttribute('aria-label', "Accions de l'equip");
+    menuTrigger.textContent = '...';
+    actionsMenu.appendChild(menuTrigger);
+    const popover = document.createElement('div');
+    popover.className = 'groups-existing-actions-popover groups-detail-actions-popover';
+    actionsMenu.appendChild(popover);
+    actions.appendChild(actionsMenu);
+
+    const assign = document.createElement('button');
+    assign.type = 'button';
+    assign.className = 'groups-existing-action-item';
+    assign.setAttribute('data-team-assign-to', teamId);
+    assign.textContent = 'Assignar seleccio';
+    assign.disabled = !editable();
+    popover.appendChild(assign);
+
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.className = 'groups-existing-action-item';
+    rename.setAttribute('data-team-rename', teamId);
+    rename.textContent = editing ? 'Renombrant...' : 'Renombrar';
+    rename.disabled = !editable();
+    popover.appendChild(rename);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'groups-existing-action-item groups-existing-action-danger';
+    remove.setAttribute('data-team-delete', teamId);
+    remove.textContent = 'Eliminar equip';
+    remove.disabled = !editable();
+    popover.appendChild(remove);
+
+    editor.innerHTML = '';
+    editor.classList.toggle('d-none', !editing);
+    if (editing) {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'form-control form-control-sm';
+      input.style.minWidth = '220px';
+      input.style.maxWidth = '320px';
+      input.value = String(team?.nom || '');
+      input.setAttribute('data-team-name-input', teamId);
+      input.placeholder = "Nom de l'equip";
+      editor.appendChild(input);
+
+      const save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'btn btn-sm btn-primary';
+      save.setAttribute('data-team-save-name', teamId);
+      save.textContent = 'Desar';
+      editor.appendChild(save);
+
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'btn btn-sm btn-light';
+      cancel.setAttribute('data-team-cancel-name', teamId);
+      cancel.textContent = 'Cancelar';
+      editor.appendChild(cancel);
+    }
+
+    nameNote.textContent = team?.nom
+      ? `Nom actual: ${team.nom}`
+      : 'Sense observacions';
+
+    if (membersToolbar) {
+      membersToolbar.classList.toggle('d-none', !members.length && !detailFiltersActive);
+      setDetailMemberFiltersToDom(state.detailMemberFilters, buildDetailMemberFilterOptions(members));
+      state.detailMemberFilters = readDetailMemberFilters();
+      renderTeamDetailFilterPopovers();
+    }
+    if (filterCount) {
+      filterCount.textContent = detailFiltersActive
+        ? `${visibleMembersTotal} de ${totalMembers} membres`
+        : `${totalMembers} membres`;
+    }
+
+    membersList.innerHTML = '';
+    membersList.dataset.teamId = teamId;
+    membersList.dataset.memberSource = '1';
+    if (visibleMembers.length) {
+      visibleMembers.forEach((member) => membersList.appendChild(teamMemberRow(member)));
+    } else {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'team-context-drop-placeholder';
+      placeholder.textContent = detailFiltersActive
+        ? "Cap membre de l'equip coincideix amb els filtres del detall."
+        : (editable()
+        ? "Aquest equip es buit. Pots deixar-hi una inscripcio directament sobre la targeta."
+        : 'Aquest equip no te membres en aquest context.');
+      membersList.appendChild(placeholder);
+    }
+
+    pager.innerHTML = '';
+    pager.classList.toggle('d-none', totalPages <= 1);
+    if (totalPages > 1) {
+      const summaryLabel = document.createElement('div');
+      summaryLabel.className = 'small text-muted';
+      summaryLabel.textContent = `Mostrant ${startIndex + 1}-${Math.min(startIndex + visibleMembers.length, visibleMembersTotal)} de ${visibleMembersTotal}`;
+      pager.appendChild(summaryLabel);
+
+      const controls = document.createElement('div');
+      controls.className = 'd-flex align-items-center flex-wrap';
+      controls.style.gap = '8px';
+
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.className = 'btn btn-sm btn-outline-secondary';
+      prevBtn.setAttribute('data-team-members-page', String(Math.max(1, currentPage - 1)));
+      prevBtn.textContent = 'Anterior';
+      prevBtn.disabled = currentPage <= 1;
+      controls.appendChild(prevBtn);
+
+      const pageLabel = document.createElement('span');
+      pageLabel.className = 'small text-muted';
+      pageLabel.textContent = `Pagina ${currentPage} de ${totalPages}`;
+      controls.appendChild(pageLabel);
+
+      const nextBtn = document.createElement('button');
+      nextBtn.type = 'button';
+      nextBtn.className = 'btn btn-sm btn-outline-secondary';
+      nextBtn.setAttribute('data-team-members-page', String(Math.min(totalPages, currentPage + 1)));
+      nextBtn.textContent = 'Seguent';
+      nextBtn.disabled = currentPage >= totalPages;
+      controls.appendChild(nextBtn);
+
+      pager.appendChild(controls);
+    }
+  }
+
+  async function selectTeam(teamId, options = {}) {
+    const cleanId = String(teamId || '').trim();
+    if (!cleanId) return null;
+    const opts = options || {};
+    openWorkspaceCard();
+    if (cleanId !== String(state.selectedTeamId || '')) {
+      state.detailMemberFilters = normalizeDetailMemberFilters();
+    }
+    state.selectedTeamId = cleanId;
+    if (opts.resetPage !== false) {
+      state.selectedTeamMembersPage = Math.max(1, Number(opts.page || 1) || 1);
+    } else if (opts.page) {
+      state.selectedTeamMembersPage = Math.max(1, Number(opts.page || 1) || 1);
+    }
+    if (opts.openEditor === true) state.editingTeamIds = new Set([cleanId]);
+    else if (opts.openEditor === false) state.editingTeamIds.delete(cleanId);
+    syncSelectedTeamDetail();
+    syncTargetTeamSelectors();
+    setRightPaneTab('detail');
+    renderTeams(state.lastWorkspace);
+    setupDnd();
+    saveWorkspaceState();
+    if (opts.scroll !== false) {
+      requestAnimationFrame(() => scrollSelectedTeamCardIntoView(cleanId));
+    }
+    return state.selectedTeamDetail;
+  }
+
+  function teamFilterLabelFor(selectId) {
+    const popover = document.querySelector(`[data-team-filter-popover][data-select-id="${selectId}"]`);
+    return String(popover?.getAttribute('data-filter-label') || '').trim() || 'Filtre';
+  }
+
+  function triggerTeamFilterChange(selectEl) {
+    if (!selectEl) return;
+    selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function clearTeamFilter(selectId) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+    if (selectEl.multiple) {
+      Array.from(selectEl.options).forEach((option) => { option.selected = false; });
+    } else {
+      selectEl.value = selectId === 'team-filter-assignment-state' ? 'all' : '';
+    }
+    renderTeamFilterPopovers();
+    renderTeamFilterActiveChips();
+    triggerTeamFilterChange(selectEl);
+  }
+
+  function renderTeamFilterPopovers() {
+    document.querySelectorAll('[data-team-filter-popover]').forEach((popover) => {
+      const selectId = String(popover.getAttribute('data-select-id') || '').trim();
+      const selectEl = document.getElementById(selectId);
+      const optionsWrap = popover.querySelector(`[data-filter-options-for="${selectId}"]`);
+      const summary = popover.querySelector('[data-filter-summary]');
+      if (!selectEl || !optionsWrap) return;
+
+      const selectedOptions = Array.from(selectEl.selectedOptions || [])
+        .filter((option) => String(option.value || '').trim() && String(option.value || '').trim() !== 'all');
+      popover.classList.toggle('is-active', selectedOptions.length > 0 || (!selectEl.multiple && selectEl.value && selectEl.value !== 'all'));
+
+      if (summary) {
+        if (!selectEl.multiple) {
+          const selected = selectEl.options[selectEl.selectedIndex];
+          summary.textContent = selected && selectEl.value && selectEl.value !== 'all'
+            ? String(selected.textContent || '').trim()
+            : (selectId === 'team-filter-assignment-state' ? 'Totes' : 'Qualsevol');
+        } else if (selectedOptions.length === 1) {
+          summary.textContent = String(selectedOptions[0].textContent || '').trim();
+        } else if (selectedOptions.length > 1) {
+          summary.textContent = `${selectedOptions.length} seleccionades`;
+        } else {
+          summary.textContent = 'Qualsevol';
+        }
+      }
+
+      optionsWrap.innerHTML = '';
+      const options = Array.from(selectEl.options || []);
+      if (!options.length || (selectEl.multiple && options.every((option) => !String(option.value || '').trim()))) {
+        const empty = document.createElement('div');
+        empty.className = 'groups-filter-empty';
+        empty.textContent = 'Sense opcions disponibles.';
+        optionsWrap.appendChild(empty);
+        return;
+      }
+
+      options.forEach((option) => {
+        const value = String(option.value || '').trim();
+        if (selectEl.multiple && !value) return;
+        const label = document.createElement('label');
+        label.className = 'groups-filter-option';
+
+        const input = document.createElement('input');
+        input.type = selectEl.multiple ? 'checkbox' : 'radio';
+        input.name = `team-filter-choice-${selectId}`;
+        input.value = value;
+        input.checked = selectEl.multiple ? option.selected : String(selectEl.value || '') === value;
+        input.className = 'js-team-filter-choice';
+        input.setAttribute('data-team-filter-choice', selectId);
+
+        const text = document.createElement('span');
+        text.textContent = String(option.textContent || value || 'Totes').trim();
+
+        label.appendChild(input);
+        label.appendChild(text);
+        optionsWrap.appendChild(label);
+      });
+    });
+  }
+
+  function renderTeamFilterActiveChips() {
+    const wrap = document.getElementById('team-filter-active-chips');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+
+    const q = String(document.getElementById('team-filter-q')?.value || '').trim();
+    if (q) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'groups-filter-chip';
+      chip.setAttribute('data-team-filter-search-clear', '1');
+      chip.textContent = `Cerca: ${q}`;
+      wrap.appendChild(chip);
+    }
+
+    document.querySelectorAll('[data-team-filter-popover]').forEach((popover) => {
+      const selectId = String(popover.getAttribute('data-select-id') || '').trim();
+      const selectEl = document.getElementById(selectId);
+      if (!selectEl) return;
+      const label = teamFilterLabelFor(selectId);
+      Array.from(selectEl.selectedOptions || []).forEach((option) => {
+        const value = String(option.value || '').trim();
+        if (!value || value === 'all') return;
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'groups-filter-chip';
+        chip.setAttribute('data-team-filter-chip-select', selectId);
+        chip.setAttribute('data-team-filter-chip-value', value);
+        chip.textContent = `${label}: ${String(option.textContent || value).trim()}`;
+        wrap.appendChild(chip);
+      });
+    });
+
+    wrap.classList.toggle('is-empty', wrap.children.length === 0);
+  }
+
+  function teamBoardFilterSummaryLabel(selectEl) {
+    if (!selectEl) return 'Qualsevol';
+    const selectedOptions = Array.from(selectEl.selectedOptions || [])
+      .filter((option) => String(option.value || '').trim() && String(option.value || '').trim() !== 'all');
+    if (!selectEl.multiple) {
+      const selected = selectEl.options[selectEl.selectedIndex];
+      return selected && selectEl.value && selectEl.value !== 'all'
+        ? String(selected.textContent || '').trim()
+        : 'Tots';
+    }
+    if (selectedOptions.length === 1) return String(selectedOptions[0].textContent || '').trim();
+    if (selectedOptions.length > 1) return `${selectedOptions.length} seleccionades`;
+    return 'Qualsevol';
+  }
+
+  function renderTeamBoardFilterActiveChips() {
+    const wrap = document.getElementById('team-board-filter-active-chips');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    let activeCount = 0;
+    const filters = [
+      { id: 'team-board-filter-categoria', label: 'Categoria' },
+      { id: 'team-board-filter-subcategoria', label: 'Subcategoria' },
+      { id: 'team-board-filter-entitat', label: 'Entitat' },
+      { id: 'team-board-filter-members-state', label: 'Estat' },
+    ];
+
+    if (state.boardFilters.q) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'groups-filter-chip';
+      chip.setAttribute('data-team-board-filter-search-clear', '1');
+      chip.textContent = `Cerca: ${state.boardFilters.q} x`;
+      frag.appendChild(chip);
+      activeCount += 1;
+    }
+
+    filters.forEach((filter) => {
+      const selectEl = document.getElementById(filter.id);
+      if (!selectEl) return;
+      const selected = selectEl.multiple
+        ? Array.from(selectEl.selectedOptions || [])
+        : Array.from(selectEl.selectedOptions || []).filter((option) => String(option.value || '') !== 'all');
+      selected.forEach((option) => {
+        const value = String(option.value || '').trim();
+        if (!value || value === 'all') return;
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'groups-filter-chip';
+        chip.setAttribute('data-team-board-filter-chip-select', filter.id);
+        chip.setAttribute('data-team-board-filter-chip-value', value);
+        chip.textContent = `${filter.label}: ${String(option.textContent || value).trim()} x`;
+        frag.appendChild(chip);
+        activeCount += 1;
+      });
+    });
+
+    wrap.classList.toggle('is-empty', activeCount === 0);
+    wrap.appendChild(frag);
+  }
+
+  function renderTeamBoardFilterPopovers() {
+    document.querySelectorAll('[data-team-board-filter-popover]').forEach((popover) => {
+      const selectId = String(popover.getAttribute('data-select-id') || '').trim();
+      const selectEl = document.getElementById(selectId);
+      if (!selectEl) return;
+      const summary = popover.querySelector('[data-filter-summary]');
+      if (summary) summary.textContent = teamBoardFilterSummaryLabel(selectEl);
+      popover.classList.toggle('is-active', selectEl.multiple ? selectedOptionValues(selectEl).length > 0 : String(selectEl.value || 'all') !== 'all');
+      const optionsWrap = popover.querySelector(`[data-filter-options-for="${selectId}"]`);
+      if (!optionsWrap) return;
+      optionsWrap.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      Array.from(selectEl.options || []).forEach((option) => {
+        const value = String(option.value || '').trim();
+        if (selectEl.multiple && !value) return;
+        const label = document.createElement('label');
+        label.className = 'groups-filter-option';
+        const input = document.createElement('input');
+        input.type = selectEl.multiple ? 'checkbox' : 'radio';
+        input.className = 'js-team-board-filter-choice';
+        input.name = `team-board-filter-choice-${selectId}`;
+        input.value = value;
+        input.checked = !!option.selected;
+        input.setAttribute('data-select-id', selectId);
+        const text = document.createElement('span');
+        text.textContent = String(option.textContent || value || 'Tots').trim();
+        label.appendChild(input);
+        label.appendChild(text);
+        frag.appendChild(label);
+      });
+      if (!frag.childNodes.length) {
+        const empty = document.createElement('div');
+        empty.className = 'groups-filter-empty';
+        empty.textContent = 'Sense opcions disponibles.';
+        frag.appendChild(empty);
+      }
+      optionsWrap.appendChild(frag);
+    });
+    renderTeamBoardFilterActiveChips();
+  }
+
+  function setTeamBoardFilterValue(selectId, value, checked) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+    const cleanValue = String(value || '').trim();
+    if (selectEl.multiple) {
+      Array.from(selectEl.options || []).forEach((option) => {
+        if (String(option.value || '').trim() === cleanValue) option.selected = !!checked;
+      });
+    } else {
+      selectEl.value = cleanValue || 'all';
+    }
+  }
+
+  function clearTeamBoardFilter(selectId, value = null) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+    const cleanValue = value === null ? null : String(value || '').trim();
+    if (selectEl.multiple) {
+      Array.from(selectEl.options || []).forEach((option) => {
+        if (cleanValue === null || String(option.value || '').trim() === cleanValue) option.selected = false;
+      });
+    } else {
+      selectEl.value = 'all';
+    }
+  }
+
+  function setFiltersToDom(filters) {
+    const data = filters || {};
+    const q = document.getElementById('team-filter-q');
+    if (q) q.value = String(data.q || '');
+    const assignmentState = document.getElementById('team-filter-assignment-state');
+    if (assignmentState) assignmentState.value = String(data.assignment_state || 'all');
+  }
+
+  function readFilters() {
+    return {
+      q: String(document.getElementById('team-filter-q')?.value || '').trim(),
+      categoria: '',
+      subcategoria: '',
+      entitat: '',
+      categories: selectedOptionValues(document.getElementById('team-filter-categoria')),
+      subcategories: selectedOptionValues(document.getElementById('team-filter-subcategoria')),
+      entitats: selectedOptionValues(document.getElementById('team-filter-entitat')),
+      assignment_state: String(document.getElementById('team-filter-assignment-state')?.value || 'all').trim() || 'all',
+      equip_id: '',
+      equip_ids: selectedOptionValues(document.getElementById('team-filter-equip-id')),
+    };
+  }
+
+  function readBoardFilters() {
+    return normalizeBoardFilters({
+      q: document.getElementById('team-board-filter-q')?.value || '',
+      categories: selectedOptionValues(document.getElementById('team-board-filter-categoria')),
+      subcategories: selectedOptionValues(document.getElementById('team-board-filter-subcategoria')),
+      entitats: selectedOptionValues(document.getElementById('team-board-filter-entitat')),
+      members_state: document.getElementById('team-board-filter-members-state')?.value || 'all',
+    });
+  }
+
+  function readAutoBucketViewFilters() {
+    return normalizeAutoBucketViewFilters({
+      q: document.getElementById('team-auto-buckets-filter-q')?.value || '',
+      selected_state: document.getElementById('team-auto-buckets-filter-selected-state')?.value || 'all',
+      sort: document.getElementById('team-auto-buckets-filter-sort')?.value || 'count_desc',
+    });
+  }
+
+  function setBoardFiltersToDom(filters, options) {
+    const data = normalizeBoardFilters(filters);
+    const boardOptions = options || {};
+    const q = document.getElementById('team-board-filter-q');
+    if (q) q.value = String(data.q || '');
+    fillSelect(document.getElementById('team-board-filter-categoria'), boardOptions.categories || [], data.categories || [], 'Totes');
+    fillSelect(document.getElementById('team-board-filter-subcategoria'), boardOptions.subcategories || [], data.subcategories || [], 'Totes');
+    fillSelect(document.getElementById('team-board-filter-entitat'), boardOptions.entitats || [], data.entitats || [], 'Totes');
+    const membersState = document.getElementById('team-board-filter-members-state');
+    if (membersState) membersState.value = String(data.members_state || 'all');
+  }
+
+  function setAutoBucketViewFiltersToDom(filters) {
+    const data = normalizeAutoBucketViewFilters(filters);
+    const q = document.getElementById('team-auto-buckets-filter-q');
+    if (q) q.value = String(data.q || '');
+    const selectedState = document.getElementById('team-auto-buckets-filter-selected-state');
+    if (selectedState) selectedState.value = String(data.selected_state || 'all');
+    const sort = document.getElementById('team-auto-buckets-filter-sort');
+    if (sort) sort.value = String(data.sort || 'count_desc');
+  }
+
+  function enrichTeamBoardData(team) {
+    const members = Array.isArray(team?.members) ? team.members : [];
+    const categories = new Set();
+    const subcategories = new Set();
+    const entitats = new Set();
+    const searchParts = [String(team?.nom || '').trim()];
+    members.forEach((member) => {
+      const nom = String(member?.nom || '').trim();
+      const entitat = String(member?.entitat || '').trim();
+      const categoria = String(member?.categoria || '').trim();
+      const subcategoria = String(member?.subcategoria || '').trim();
+      const nativeTeam = String(member?.native_team_name || '').trim();
+      if (nom) searchParts.push(nom);
+      if (entitat) {
+        entitats.add(entitat);
+        searchParts.push(entitat);
+      }
+      if (categoria) {
+        categories.add(categoria);
+        searchParts.push(categoria);
+      }
+      if (subcategoria) {
+        subcategories.add(subcategoria);
+        searchParts.push(subcategoria);
+      }
+      if (nativeTeam) searchParts.push(nativeTeam);
+    });
+    return {
+      ...team,
+      categories: Array.from(categories).sort((a, b) => a.localeCompare(b, 'ca')),
+      subcategories: Array.from(subcategories).sort((a, b) => a.localeCompare(b, 'ca')),
+      entitats: Array.from(entitats).sort((a, b) => a.localeCompare(b, 'ca')),
+      search_text: searchParts.filter(Boolean).join(' ').trim(),
+    };
+  }
+
+  function buildBoardFilterOptions(teams) {
+    const categories = new Set();
+    const subcategories = new Set();
+    const entitats = new Set();
+    (Array.isArray(teams) ? teams : []).forEach((team) => {
+      (team?.categories || []).forEach((value) => {
+        const clean = String(value || '').trim();
+        if (clean) categories.add(clean);
+      });
+      (team?.subcategories || []).forEach((value) => {
+        const clean = String(value || '').trim();
+        if (clean) subcategories.add(clean);
+      });
+      (team?.entitats || []).forEach((value) => {
+        const clean = String(value || '').trim();
+        if (clean) entitats.add(clean);
+      });
+    });
+    return {
+      categories: Array.from(categories).sort((a, b) => a.localeCompare(b, 'ca')),
+      subcategories: Array.from(subcategories).sort((a, b) => a.localeCompare(b, 'ca')),
+      entitats: Array.from(entitats).sort((a, b) => a.localeCompare(b, 'ca')),
+    };
+  }
+
+  function boardFiltersAreActive(filters = state.boardFilters) {
+    const current = normalizeBoardFilters(filters);
+    return !!(
+      current.q
+      || current.categories.length
+      || current.subcategories.length
+      || current.entitats.length
+      || current.members_state !== 'all'
+    );
+  }
+
+  function setBoardFiltersExpanded(expanded, options = {}) {
+    state.boardFiltersExpanded = !!expanded;
+    if (!options.skipSave) saveWorkspaceState();
+  }
+
+  function setAutoBucketsExpanded(expanded, options = {}) {
+    state.autoBucketsExpanded = !!expanded;
+    const panel = document.getElementById('team-auto-buckets-panel');
+    const toggle = document.getElementById('btn-team-auto-buckets-toggle');
+    if (panel) panel.classList.toggle('d-none', !state.autoBucketsExpanded);
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', state.autoBucketsExpanded ? 'true' : 'false');
+      toggle.textContent = state.autoBucketsExpanded ? 'Amagar buckets resolts' : 'Veure buckets resolts';
+    }
+    if (!options.skipSave) saveWorkspaceState();
+  }
+
+  function teamMatchesBoardFilters(team, filters = state.boardFilters) {
+    const current = normalizeBoardFilters(filters);
+    const membersCount = Number(team?.membres || (Array.isArray(team?.members) ? team.members.length : 0) || 0);
+    if (current.members_state === 'with_members' && membersCount <= 0) return false;
+    if (current.members_state === 'empty' && membersCount > 0) return false;
+    if (current.categories.length && !current.categories.some((value) => (team?.categories || []).includes(value))) return false;
+    if (current.subcategories.length && !current.subcategories.some((value) => (team?.subcategories || []).includes(value))) return false;
+    if (current.entitats.length && !current.entitats.some((value) => (team?.entitats || []).includes(value))) return false;
+    if (current.q) {
+      const haystack = normalizeSearchText([
+        team?.search_text,
+        team?.nom,
+      ].filter(Boolean).join(' '));
+      if (!haystack.includes(normalizeSearchText(current.q))) return false;
+    }
+    return true;
+  }
+
+  function autoBucketMatchesViewFilters(bucket, filters = state.autoBucketViewFilters, activeKeySet = new Set(getActiveBucketKeys())) {
+    const current = normalizeAutoBucketViewFilters(filters);
+    const key = String(bucket?.key || '').trim();
+    const isSelected = activeKeySet.has(key);
+    if (current.selected_state === 'selected' && !isSelected) return false;
+    if (current.selected_state === 'unselected' && isSelected) return false;
+    if (current.q) {
+      const haystack = normalizeSearchText([
+        bucket?.label,
+        ...(Array.isArray(bucket?.values) ? bucket.values : []),
+        ...(Array.isArray(bucket?.member_samples) ? bucket.member_samples : []),
+      ].filter(Boolean).join(' '));
+      if (!haystack.includes(normalizeSearchText(current.q))) return false;
+    }
+    return true;
+  }
+
+  function sortVisibleAutoBuckets(buckets, filters = state.autoBucketViewFilters) {
+    const current = normalizeAutoBucketViewFilters(filters);
+    const rows = Array.isArray(buckets) ? [...buckets] : [];
+    rows.sort((a, b) => {
+      const countDiff = Number(a?.count || 0) - Number(b?.count || 0);
+      if (current.sort === 'count_asc' && countDiff !== 0) return countDiff;
+      if (current.sort === 'count_desc' && countDiff !== 0) return -countDiff;
+      const labelA = String(a?.label || a?.key || '').trim();
+      const labelB = String(b?.label || b?.key || '').trim();
+      return labelA.localeCompare(labelB, 'ca');
+    });
+    return rows;
+  }
+
+  function renderBoardFilterControls(teams) {
+    const options = buildBoardFilterOptions(teams);
+    setBoardFiltersToDom(state.boardFilters, options);
+    state.boardFilters = readBoardFilters();
+    setBoardFiltersExpanded(state.boardFiltersExpanded, { skipSave: true });
+    renderTeamBoardFilterPopovers();
+  }
+
+  function fillSelect(selectEl, items, selectedValue, emptyLabel, mapItem) {
+    if (!selectEl) return;
+    const isMultiple = !!selectEl.multiple;
+    const currentValues = isMultiple
+      ? new Set((Array.isArray(selectedValue) ? selectedValue : []).map((value) => String(value ?? '')).filter(Boolean))
+      : new Set([String(selectedValue ?? '')]);
+    const frag = document.createDocumentFragment();
+    if (!isMultiple) {
+      const first = document.createElement('option');
+      first.value = '';
+      first.textContent = emptyLabel || 'Totes';
+      frag.appendChild(first);
+    }
+    (items || []).forEach((item) => {
+      const mapped = typeof mapItem === 'function' ? mapItem(item) : { value: item, label: item };
+      const option = document.createElement('option');
+      option.value = String(mapped?.value ?? '');
+      option.textContent = String(mapped?.label ?? '');
+      option.selected = currentValues.has(option.value);
+      frag.appendChild(option);
+    });
+    selectEl.innerHTML = '';
+    selectEl.appendChild(frag);
+    const allowed = new Set(Array.from(selectEl.options).map((option) => String(option.value)));
+    if (isMultiple) {
+      Array.from(selectEl.options).forEach((option) => {
+        option.selected = currentValues.has(String(option.value || ''));
+      });
+    } else {
+      const current = Array.from(currentValues)[0] || '';
+      selectEl.value = allowed.has(current) ? current : '';
+    }
+  }
+
+  function renderContextMeta(context, summary, contexts) {
+    const contextMap = (item) => ({
+      value: item?.code,
+      label: item?.nom || item?.code || 'Context',
+    });
+    fillSelect(document.getElementById('team-workspace-context-select'), contexts || [], state.contextCode, '', contextMap);
+    fillSelect(document.getElementById('team-compact-context'), contexts || [], state.contextCode, '', contextMap);
+    const name = String(context?.nom || context?.code || 'Context');
+    setText('team-context-title', name);
+    setText('team-context-title-inline', name);
+    setText('team-context-badge', context?.is_native ? 'Context Base' : `Context ${context?.code || ''}`);
+    setText('team-context-badge-inline', context?.is_native ? 'Context Base' : `Context ${context?.code || ''}`);
+    setText('team-context-description', String(context?.description || '').trim() || "Filtra l'univers del context actiu, construeix la seleccio i aplica operacions sobre ella.");
+    setText('team-manual-context-name', name);
+    setText('team-summary-teams-with-members', Number(summary?.teams_with_members || 0));
+    setText('team-summary-assigned', Number(summary?.assigned_count || 0));
+    setText('team-summary-unassigned', Number(summary?.unassigned_count || 0));
+    setText('team-summary-total', Number(summary?.total_inscripcions || 0));
+    setText('teams-nav-badge', Number(summary?.teams_total || 0));
+    setText('team-context-metric-teams-with-members', Number(summary?.teams_with_members || 0));
+    setText('team-context-metric-assigned', Number(summary?.assigned_count || 0));
+    setText('team-context-metric-unassigned', Number(summary?.unassigned_count || 0));
+    setText('team-context-metric-total', Number(summary?.total_inscripcions || 0));
+    const metrics = document.getElementById('team-compact-summary-metrics');
+    if (metrics) {
+      metrics.innerHTML = '';
+      metrics.appendChild(createGroupPreviewBadge(`${Number(summary?.teams_with_members || 0)} equips actius`));
+      metrics.appendChild(createGroupPreviewBadge(`${Number(summary?.assigned_count || 0)} amb equip`));
+      metrics.appendChild(createGroupPreviewBadge(`${Number(summary?.unassigned_count || 0)} sense equip`));
+    }
+    const contextBanners = document.getElementById('team-quick-context-banners');
+    if (contextBanners) {
+      const totalTeams = Number(summary?.teams_total || 0);
+      const activeTeams = Number(summary?.teams_with_members || 0);
+      const assigned = Number(summary?.assigned_count || 0);
+      contextBanners.innerHTML = '';
+      [
+        `${totalTeams} equips al context: ${name}`,
+        `${activeTeams} amb membres`,
+        `${assigned} inscripcions amb equip`,
+      ].forEach((label) => {
+        const badge = document.createElement('span');
+        badge.className = 'quick-actions-banner';
+        badge.textContent = label;
+        contextBanners.appendChild(badge);
+      });
+    }
+    const renameBtn = document.getElementById('btn-team-workspace-context-rename');
+    const deleteBtn = document.getElementById('btn-team-workspace-context-delete');
+    if (renameBtn) renameBtn.disabled = !!context?.is_native;
+    if (deleteBtn) deleteBtn.disabled = !!context?.is_native;
+    renderCompactActionState();
+  }
+
+  function updateAutoStrategyButtonsState() {
+    const fields = getSelectedTeamPartitionFields();
+    const context = currentAutoContext();
+    const targetCount = Number(context?.target_count || 0);
+    const activeBucketCount = getActiveBucketKeys().length;
+    const hasBuckets = Number(context?.buckets_total || 0) > 0;
+    const hasSelection = ids().length > 0;
+
+    const previewBtn = document.getElementById('btn-team-workspace-preview');
+    if (previewBtn) previewBtn.disabled = !fields.length || !hasSelection || targetCount <= 0;
+
+    const autoBtn = document.getElementById('btn-team-workspace-auto-create');
+    if (autoBtn) autoBtn.disabled = !fields.length || !hasSelection || targetCount <= 0 || activeBucketCount <= 0;
+
+    ['btn-team-auto-buckets-all', 'btn-team-auto-buckets-none', 'btn-team-auto-buckets-set'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = !fields.length || !hasSelection || !hasBuckets;
+    });
+
+    [
+      'btn-team-preview-count',
+      'btn-team-create-count',
+      'btn-team-preview-size',
+      'btn-team-create-size',
+      'btn-team-preview-range-balanced',
+      'btn-team-create-range-balanced',
+      'btn-team-preview-count-range',
+      'btn-team-create-count-range',
+    ].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = !hasSelection;
+    });
+  }
+
+  function updateAutoBucketsMeta() {
+    const total = Number(currentAutoContext()?.buckets_total || 0);
+    const resolvedCount = Array.isArray(state.resolvedBuckets) ? state.resolvedBuckets.length : total;
+    const activeCount = total ? getActiveBucketKeys().length : 0;
+    const visibleCount = Number(document.getElementById('team-auto-buckets-grid')?.childElementCount || 0);
+    setText('team-auto-buckets-count', `${activeCount} buckets actius de ${total}`);
+    setText('team-auto-buckets-visibility-summary', `${visibleCount} visibles de ${resolvedCount} buckets resolts.`);
+    updateAutoStrategyButtonsState();
+  }
+
+  function resetAutoContextState(message = '') {
+    state.resolvedBucketSignature = '';
+    state.resolvedBuckets = [];
+    state.selectedBucketKeys = new Set();
+    state.autoContext = null;
+    state.bucketSelectionMode = 'all';
+
+    const grid = document.getElementById('team-auto-buckets-grid');
+    if (grid) {
+      grid.innerHTML = '';
+      grid.classList.add('d-none');
+    }
+    const empty = document.getElementById('team-auto-buckets-empty');
+    if (empty) {
+      empty.textContent = message || "Defineix l'estrategia per veure quins buckets es poden activar.";
+      empty.classList.toggle('d-none', !message);
+    }
+    setText('team-auto-scope-note', "Selecciona inscripcions i camps de particio per activar l'estrategia.");
+    setText('team-auto-target-note', message || "Selecciona camps de particio per resoldre buckets sobre la seleccio activa.");
+    setText('team-auto-buckets-status', message || 'Encara no hi ha cap resolucio automatica disponible.');
+    setText('team-auto-buckets-count', '0 buckets actius de 0');
+    setText('team-auto-buckets-visibility-summary', '0 visibles de 0 buckets resolts.');
+    updateAutoStrategyButtonsState();
+  }
+
+  function createAutoBucketNode(bucket) {
+    const key = String(bucket?.key || '').trim();
+    const label = document.createElement('label');
+    label.className = 'team-auto-bucket-card';
+    label.classList.toggle('is-selected', selectedBucketKeys().includes(key));
+    label.setAttribute('data-bucket-key', key);
+
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.className = 'js-team-auto-bucket-check';
+    check.value = key;
+    check.checked = selectedBucketKeys().includes(key);
+    label.appendChild(check);
+
+    const main = document.createElement('div');
+    main.className = 'team-auto-bucket-main';
+
+    const title = document.createElement('div');
+    title.className = 'team-auto-bucket-title';
+    title.textContent = String(bucket?.label || key || 'Bucket');
+    main.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'team-auto-bucket-meta';
+    meta.textContent = `${Number(bucket?.count || 0)} inscripcions`;
+    main.appendChild(meta);
+
+    const values = Array.isArray(bucket?.values) ? bucket.values.filter(Boolean) : [];
+    if (values.length) {
+      const valuesRow = document.createElement('div');
+      valuesRow.className = 'team-auto-bucket-values';
+      valuesRow.textContent = values.join(' | ');
+      main.appendChild(valuesRow);
+    }
+
+    const samples = Array.isArray(bucket?.member_samples) ? bucket.member_samples.filter(Boolean) : [];
+    if (samples.length) {
+      const sampleRow = document.createElement('div');
+      sampleRow.className = 'team-auto-bucket-samples';
+      const suffix = Number(bucket?.member_samples_remaining || 0) > 0 ? ` +${Number(bucket?.member_samples_remaining || 0)} mes` : '';
+      sampleRow.textContent = `${samples.join(', ')}${suffix}`;
+      main.appendChild(sampleRow);
+    }
+
+    label.appendChild(main);
+    return label;
+  }
+
+  function renderAutoContext() {
+    const context = currentAutoContext();
+    const fields = getSelectedTeamPartitionFields();
+    const targetScope = String(context?.target_scope || '').trim() === 'selected' ? 'selected' : 'filtered';
+    const targetCount = Number(context?.target_count || 0);
+    const buckets = Array.isArray(state.resolvedBuckets) ? state.resolvedBuckets : [];
+    const activeKeySet = new Set(getActiveBucketKeys());
+    const viewFilters = normalizeAutoBucketViewFilters(state.autoBucketViewFilters);
+    const visibleBuckets = sortVisibleAutoBuckets(
+      buckets.filter((bucket) => autoBucketMatchesViewFilters(bucket, viewFilters, activeKeySet)),
+      viewFilters,
+    );
+    const grid = document.getElementById('team-auto-buckets-grid');
+    const empty = document.getElementById('team-auto-buckets-empty');
+    const status = document.getElementById('team-auto-buckets-status');
+    const targetNote = document.getElementById('team-auto-target-note');
+    state.autoBucketViewFilters = viewFilters;
+
+    if (!fields.length) {
+      resetAutoContextState("Selecciona com a minim un camp de particio per resoldre buckets.");
+      return;
+    }
+
+    if (targetNote) {
+      targetNote.textContent = `La estrategia treballara sobre ${targetCount} inscripcions de la seleccio activa.`;
+    }
+    setText(
+      'team-auto-scope-note',
+      targetCount
+        ? `La particio treballara sobre ${targetCount} inscripcions seleccionades al workspace.`
+        : "Selecciona inscripcions i camps de particio per activar l'estrategia."
+    );
+    if (status) {
+      status.textContent = targetCount
+        ? `S'han resolt ${buckets.length} buckets a partir dels camps seleccionats.`
+        : 'No hi ha inscripcions disponibles amb aquest abast i aquests filtres.';
+    }
+    if (grid) {
+      grid.innerHTML = '';
+      visibleBuckets.forEach((bucket) => {
+        grid.appendChild(createAutoBucketNode(bucket));
+      });
+      grid.classList.toggle('d-none', visibleBuckets.length === 0);
+    }
+    if (empty) {
+      empty.textContent = targetCount
+        ? (buckets.length
+          ? (visibleBuckets.length ? '' : 'Cap bucket resolt coincideix amb els filtres de visualitzacio.')
+          : "No s'ha pogut resoldre cap bucket amb aquesta combinacio de camps.")
+        : 'No hi ha inscripcions disponibles per a aquesta estrategia.';
+      empty.classList.toggle('d-none', !!(targetCount && visibleBuckets.length));
+    }
+    updateAutoBucketsMeta();
+  }
+
+  async function refreshAutoContext(options = {}) {
+    const fields = getSelectedTeamPartitionFields();
+    if (!fields.length) {
+      resetAutoContextState("Selecciona com a minim un camp de particio per resoldre buckets.");
+      return null;
+    }
+    if (!ids().length) {
+      resetAutoContextState("Selecciona inscripcions al workspace per resoldre buckets.");
+      return null;
+    }
+    const signature = buildBucketSignature(fields);
+    if (!options.force && signature === state.resolvedBucketSignature && currentAutoContext()) {
+      renderAutoContext();
+      return currentAutoContext();
+    }
+    try {
+      const data = await postJson(workspaceUrl, {
+        context_code: state.contextCode,
+        operation: 'resolve_auto_context',
+        filters: state.filters,
+        selected_ids: ids(),
+        fields,
+      });
+      const buckets = Array.isArray(data?.buckets) ? data.buckets : [];
+      const previousKeys = new Set(selectedBucketKeys());
+      const previousMode = String(state.bucketSelectionMode || 'all').trim() || 'all';
+      const availableKeys = buckets.map((bucket) => String(bucket?.key || '').trim()).filter(Boolean);
+      state.autoContext = data && typeof data === 'object' ? data : null;
+      state.resolvedBuckets = buckets;
+      if (signature !== state.resolvedBucketSignature) {
+        state.selectedBucketKeys = new Set((data?.default_bucket_keys || []).map((key) => String(key || '').trim()).filter(Boolean));
+        state.bucketSelectionMode = 'all';
+      } else {
+        if (previousMode === 'all') {
+          state.selectedBucketKeys = new Set(availableKeys);
+          state.bucketSelectionMode = 'all';
+        } else if (previousMode === 'none') {
+          state.selectedBucketKeys = new Set();
+          state.bucketSelectionMode = 'none';
+        } else {
+          state.selectedBucketKeys = new Set(availableKeys.filter((key) => previousKeys.has(key)));
+          state.bucketSelectionMode = state.selectedBucketKeys.size ? 'custom' : 'none';
+        }
+      }
+      state.resolvedBucketSignature = signature;
+      renderAutoContext();
+      return data;
+    } catch (err) {
+      resetAutoContextState("No s'ha pogut resoldre el context automatic d'equips.");
+      showAlert(`No s'ha pogut resoldre el context automatic d'equips.\n${err.message || err}`);
+      return null;
+    }
+  }
+
+  function renderContextSources(workspace) {
+    const list = document.getElementById('team-context-source-list');
+    const status = document.getElementById('team-context-source-status');
+    const saveBtn = document.getElementById('btn-team-context-sources-save');
+    if (!list) return;
+
+    const items = Array.isArray(workspace?.team_comp_aparells) ? workspace.team_comp_aparells : [];
+    list.innerHTML = '';
+    if (status) {
+      status.textContent = items.length
+        ? "Selecciona en quins aparells globals d'equip competeix aquest context."
+        : "No hi ha cap aparell global d'equip actiu en aquesta competició.";
+    }
+    if (saveBtn) saveBtn.disabled = !editable() || !items.length;
+
+    items.forEach((item) => {
+      const label = document.createElement('label');
+      label.className = 'team-context-source-option';
+
+      const check = document.createElement('input');
+      check.type = 'checkbox';
+      check.className = 'js-team-context-source-check';
+      check.value = String(item?.id || '');
+      check.checked = !!item?.selected;
+      check.disabled = !editable();
+      label.appendChild(check);
+
+      const copy = document.createElement('div');
+      const title = document.createElement('div');
+      title.className = 'fw-semibold';
+      title.textContent = String(item?.nom || `Aparell ${item?.id || ''}`);
+      copy.appendChild(title);
+      const meta = document.createElement('div');
+      meta.className = 'small text-muted';
+      meta.textContent = item?.codi ? `Codi ${item.codi}` : "Aparell global d'equip";
+      copy.appendChild(meta);
+      label.appendChild(copy);
+
+      list.appendChild(label);
+    });
+  }
+
+  function updateSelectionSummary() {
+    const selectedCount = ids().length;
+    const filteredCount = Number(state.lastWorkspace?.summary?.filtered_count || 0);
+    const autoContext = currentAutoContext();
+    const autoTargetCount = Number(autoContext?.target_count || 0);
+    setText('team-selection-count', selectedCount ? `${selectedCount} seleccionades` : 'Cap seleccionada');
+    setText('team-selection-mode-label', `${filteredCount} filtrades`);
+    setText(
+      'team-selection-scope-copy',
+      selectedCount
+        ? `Aquest workspace treballa sobre el context actiu i una seleccio activa de ${selectedCount} inscripcions dins d'un univers filtrat de ${filteredCount}.`
+        : `Aquest workspace treballa sobre el context actiu. Ara mateix tens ${filteredCount} inscripcions filtrades i cap seleccio activa.`
+    );
+    setText('team-workspace-selection-note', `Aquestes accions treballaran sobre ${selectedCount} inscripcions seleccionades al workspace.`);
+    setText('team-direct-scope-note', selectedCount
+      ? `S'aplicara sobre ${selectedCount} inscripcions seleccionades en aquest context.`
+      : 'Cal tenir una seleccio activa per aplicar aquestes operacions.');
+    setText(
+      'team-auto-scope-note',
+      autoTargetCount
+        ? `La particio treballara sobre ${autoTargetCount} inscripcions seleccionades al workspace.`
+        : "Selecciona inscripcions i camps de particio per activar l'estrategia."
+    );
+    updateAutoStrategyButtonsState();
+    renderCompactActionState();
+  }
+
+  function candidateRow(item) {
+    const id = String(item?.id || '').trim();
+    const groupPalette = teamGroupPaletteForCandidate(item);
+    const row = document.createElement('div');
+    row.className = `team-candidate-row${state.selectedIds.has(id) ? ' is-selected' : ''}`;
+    row.dataset.candidateId = id;
+    row.dataset.inscripcioId = id;
+    row.style.setProperty('--candidate-group-accent', groupPalette.accent);
+    row.style.setProperty('--candidate-group-bg', groupPalette.bg);
+
+    const checkboxWrap = document.createElement('div');
+    checkboxWrap.className = 'custom-control custom-checkbox groups-candidate-check-wrap';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = `team-candidate-check-${id}`;
+    checkbox.className = 'custom-control-input js-team-workspace-candidate-check';
+    checkbox.value = id;
+    checkbox.checked = state.selectedIds.has(id);
+    checkbox.addEventListener('click', (event) => event.stopPropagation());
+    const checkboxLabel = document.createElement('label');
+    checkboxLabel.className = 'custom-control-label';
+    checkboxLabel.setAttribute('for', checkbox.id);
+    checkboxLabel.setAttribute('aria-label', `Seleccionar ${String(item?.nom || `Inscripcio ${id}`)}`);
+    checkboxWrap.appendChild(checkbox);
+    checkboxWrap.appendChild(checkboxLabel);
+    row.appendChild(checkboxWrap);
+
+    const avatar = document.createElement('span');
+    avatar.className = 'team-candidate-avatar';
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.textContent = initialsForLabel(item?.nom || id);
+    row.appendChild(avatar);
+
+    const main = document.createElement('div');
+    main.className = 'team-candidate-main';
+    const head = document.createElement('div');
+    head.className = 'team-candidate-head';
+    head.style.gap = '10px';
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'team-candidate-title-wrap';
+    const title = document.createElement('div');
+    title.className = 'team-candidate-title';
+    title.textContent = String(item?.nom || `Inscripcio ${id}`);
+    titleWrap.appendChild(title);
+
+    const teamDetails = document.createElement('details');
+    teamDetails.className = `team-candidate-group-details${item?.current_team_name ? ' has-team' : ' is-unassigned'}`;
+    const teamSummary = document.createElement('summary');
+    teamSummary.innerHTML = `<span class="team-candidate-group-dot" aria-hidden="true"></span><span>${item?.current_team_name ? 'Equip' : 'Sense equip'}</span>`;
+    const teamText = document.createElement('span');
+    teamText.className = 'team-candidate-group-full';
+    teamText.textContent = String(item?.current_team_name || 'Sense equip en aquest context');
+    teamDetails.appendChild(teamSummary);
+    teamDetails.appendChild(teamText);
+    teamDetails.addEventListener('click', (event) => event.stopPropagation());
+    titleWrap.appendChild(teamDetails);
+    head.appendChild(titleWrap);
+    main.appendChild(head);
+
+    const meta = document.createElement('div');
+    meta.className = 'team-candidate-meta';
+    meta.textContent = [item?.entitat, [item?.categoria, item?.subcategoria].filter(Boolean).join(' / '), item?.document ? `Doc ${item.document}` : '']
+      .filter(Boolean)
+      .join(' | ') || 'Sense metadades';
+    main.appendChild(meta);
+
+    if (item?.show_native_team_hint) {
+      const badges = document.createElement('div');
+      badges.className = 'team-candidate-teams';
+      badges.appendChild(createGroupPreviewBadge(item?.native_team_name ? `Base: ${item.native_team_name}` : 'Base: sense equip'));
+      main.appendChild(badges);
+    }
+    row.appendChild(main);
+    return row;
+  }
+
+  function renderCandidates(workspace) {
+    const list = document.getElementById('team-candidates-list');
+    const status = document.getElementById('team-candidates-status');
+    const count = document.getElementById('team-candidates-count-badge');
+    const pageLabel = document.getElementById('team-candidates-page-label');
+    const prev = document.getElementById('btn-team-candidates-prev');
+    const next = document.getElementById('btn-team-candidates-next');
+    if (!list) return;
+
+    const items = Array.isArray(workspace?.candidates?.items) ? workspace.candidates.items : [];
+    const total = Number(workspace?.candidates?.total || 0);
+    const page = Number(workspace?.candidates?.page || 1);
+    const pageSize = Number(workspace?.candidates?.page_size || state.candidatePageSize || 40);
+    const pageCount = total > 0 ? Math.ceil(total / pageSize) : 1;
+
+    if (status) status.textContent = total ? `${total} candidates segons els filtres del workspace.` : "Cap inscripcio candidata amb aquests filtres.";
+    if (count) count.textContent = `${total} candidates`;
+    if (pageLabel) pageLabel.textContent = `Pagina ${page} de ${pageCount}`;
+    if (prev) prev.disabled = page <= 1;
+    if (next) next.disabled = !workspace?.candidates?.has_more;
+
+    list.innerHTML = '';
+    list.id = 'team-candidates-list';
+    list.setAttribute('data-team-candidate-source', '1');
+    items.forEach((item) => list.appendChild(candidateRow(item)));
+  }
+
+  async function resolveFilteredCandidateIds() {
+    if (Number(state.lastWorkspace?.summary?.filtered_count || 0) === 0) return [];
+    try {
+      const data = await postJson(workspaceUrl, {
+        context_code: state.contextCode,
+        filters: state.filters,
+        operation: 'resolve_filtered_ids',
+      });
+      return Array.isArray(data?.target_ids) ? data.target_ids.map(String).filter(Boolean) : [];
+    } catch (err) {
+      showAlert(`No s'ha pogut resoldre el conjunt filtrat del workspace.\n${err.message || err}`);
+      return null;
+    }
+  }
+
+  function teamMemberRow(member) {
+    const id = String(member?.id || '').trim();
+    const row = document.createElement('div');
+    row.className = 'team-context-member-row';
+    row.dataset.inscripcioId = id;
+
+    const main = document.createElement('div');
+    main.className = 'team-context-member-main';
+    const title = document.createElement('div');
+    title.className = 'team-context-member-title';
+    title.textContent = String(member?.nom || `Inscripcio ${id}`);
+    main.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'team-context-member-meta';
+    meta.textContent = [member?.entitat, member?.categoria, member?.subcategoria, member?.document ? `Doc ${member.document}` : '']
+      .filter(Boolean)
+      .join(' | ') || 'Sense metadades';
+    main.appendChild(meta);
+
+    if (state.contextCode !== 'native') {
+      const hint = document.createElement('div');
+      hint.className = 'team-context-member-native';
+      hint.textContent = member?.native_team_name ? `Equip base: ${member.native_team_name}` : 'Equip base: sense equip';
+      main.appendChild(hint);
+    }
+
+    row.appendChild(main);
+    if (editable()) {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn btn-sm btn-outline-warning js-team-member-unassign';
+      remove.dataset.inscripcioId = id;
+      remove.textContent = 'Treure';
+      remove.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!id || state.dragBusy) return;
+        const memberName = String(member?.nom || `Inscripcio ${id}`).trim();
+        const teamName = String(getCurrentSelectedTeamSummary()?.nom || 'aquest equip').trim();
+        if (!(await showTeamMemberUnassignConfirm(memberName, teamName))) return;
+        try {
+          state.dragBusy = true;
+          await postUnassign([id]);
+          resetPreview();
+          await refreshWorkspace();
+          await showTeamMemberUnassignSuccess(memberName);
+        } catch (err) {
+          showAlert(`No s'ha pogut treure la inscripcio de l'equip.\n${err.message || err}`);
+          await refreshWorkspace();
+        } finally {
+          state.dragBusy = false;
+        }
+      });
+      row.appendChild(remove);
+    }
+    return row;
+  }
+
+  function renderUnassigned(workspace) {
+    const root = document.getElementById('team-context-unassigned-dropzone');
+    if (!root) return;
+    root.innerHTML = '';
+    root.classList.add('team-context-drop-target');
+    root.dataset.dropKind = 'unassigned';
+
+    const title = document.createElement('div');
+    title.className = 'fw-semibold';
+    title.textContent = 'Sense equip';
+    root.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'small text-muted';
+    meta.textContent = `${Number(workspace?.summary?.unassigned_count || 0)} inscripcions estan sense equip en aquest context.`;
+    root.appendChild(meta);
+
+    const placeholder = document.createElement('div');
+    placeholder.className = 'team-context-drop-placeholder';
+    placeholder.textContent = editable()
+      ? "Deixa aqui una inscripcio per deixar-la sense equip en aquest context."
+      : 'Vista de nomes lectura del context actual.';
+    root.appendChild(placeholder);
+  }
+
+  function renderTeams(workspace) {
+    const list = document.getElementById('team-context-teams-list');
+    const status = document.getElementById('team-context-teams-status');
+    const countBadge = document.getElementById('team-existing-count-badge');
+    const zeroWrap = document.getElementById('team-context-zero-members-wrap');
+    const zeroList = document.getElementById('team-context-zero-members-list');
+    const existingSelect = document.getElementById('team-workspace-existing-select');
+    const compactSelect = document.getElementById('team-compact-target-team');
+    if (!list || !zeroWrap || !zeroList) return;
+
+    const teams = Array.isArray(workspace?.teams) ? workspace.teams : [];
+    const visibleTeams = teams.filter((team) => teamMatchesBoardFilters(team));
+    const active = visibleTeams.filter((team) => Array.isArray(team?.members) && team.members.length > 0);
+    const empty = visibleTeams.filter((team) => !Array.isArray(team?.members) || team.members.length === 0);
+    const filtersActive = boardFiltersAreActive();
+
+    if (status) {
+      status.textContent = teams.length
+        ? `${active.length} equips amb membres i ${empty.length} sense membres visibles${filtersActive ? ` de ${teams.length} totals` : ''} en aquest context.`
+        : 'Encara no hi ha equips disponibles per a aquest context.';
+    }
+    if (countBadge) countBadge.textContent = `${teams.length} equips`;
+    setText('team-board-filter-count', `${visibleTeams.length} de ${teams.length} equips`);
+    renderTeamBoardFilterPopovers();
+
+    const card = (team, isEmpty, index) => {
+      const teamId = String(team?.id || '').trim();
+      const members = Array.isArray(team?.members) ? team.members : [];
+      const previewNames = members.slice(0, 4).map((member) => String(member?.nom || '').trim()).filter(Boolean);
+      const extraNames = Math.max(0, members.length - previewNames.length);
+      const isCurrent = String(state.selectedTeamId || '') === teamId;
+      const membersCount = Number(team?.membres || members.length || 0);
+      const wrap = document.createElement('div');
+      wrap.className = `team-context-team-card team-context-drop-target group-band-${Number(index || 0) % 8}${isEmpty ? ' is-empty' : ''}${isCurrent ? ' is-current' : ''}`;
+      wrap.dataset.teamId = teamId;
+      wrap.dataset.teamCardId = teamId;
+      wrap.setAttribute('data-team-card-id', teamId);
+
+      const head = document.createElement('div');
+      head.className = 'team-context-team-head';
+      const titleWrap = document.createElement('div');
+      titleWrap.className = 'team-context-team-title-wrap';
+      const titleRow = document.createElement('div');
+      titleRow.className = 'team-context-team-title-row';
+      const title = document.createElement('div');
+      title.className = 'fw-semibold team-context-team-name';
+      title.textContent = String(team?.nom || 'Equip');
+      titleRow.appendChild(title);
+      const meta = document.createElement('div');
+      meta.className = 'team-context-team-meta groups-existing-card-meta team-existing-card-meta';
+      const membersBadge = document.createElement('span');
+      membersBadge.className = 'groups-existing-participants team-existing-members';
+      membersBadge.textContent = `${membersCount} membres`;
+      meta.appendChild(membersBadge);
+      const statuses = document.createElement('span');
+      statuses.className = 'groups-existing-status-pills';
+      [
+        isCurrent ? 'Detall actiu' : '',
+        isEmpty ? 'Buit' : '',
+      ].filter(Boolean).forEach((label) => {
+        const pill = document.createElement('span');
+        pill.className = 'groups-existing-status-pill';
+        pill.textContent = label;
+        statuses.appendChild(pill);
+      });
+      if (statuses.childNodes.length) meta.appendChild(statuses);
+      titleRow.appendChild(meta);
+      titleWrap.appendChild(titleRow);
+      if (previewNames.length) {
+        const preview = document.createElement('div');
+        preview.className = 'small text-muted team-context-team-preview';
+        preview.textContent = `${previewNames.join(', ')}${extraNames > 0 ? ` +${extraNames} mes` : ''}`;
+        titleWrap.appendChild(preview);
+      }
+      head.appendChild(titleWrap);
+
+      const actions = document.createElement('div');
+      actions.className = 'team-context-team-actions';
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'btn btn-sm btn-outline-dark';
+      toggle.setAttribute('data-team-open', teamId);
+      toggle.textContent = isCurrent ? 'Detall' : 'Detall';
+      actions.appendChild(toggle);
+
+      const assign = document.createElement('button');
+      assign.type = 'button';
+      assign.className = 'btn btn-sm btn-outline-primary';
+      assign.setAttribute('data-team-assign-to', teamId);
+      assign.textContent = 'Assignar';
+      assign.disabled = !editable();
+      actions.appendChild(assign);
+
+      if (editable()) {
+        const rename = document.createElement('button');
+        rename.type = 'button';
+        rename.className = 'btn btn-sm btn-outline-secondary';
+        rename.setAttribute('data-team-rename', teamId);
+        rename.textContent = 'Renombrar';
+        actions.appendChild(rename);
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'btn btn-sm btn-outline-danger';
+        remove.setAttribute('data-team-delete', teamId);
+        remove.textContent = 'Eliminar';
+        actions.appendChild(remove);
+      }
+      head.appendChild(actions);
+      wrap.appendChild(head);
+
+      const dropSurface = document.createElement('div');
+      dropSurface.className = 'team-context-team-drop-surface';
+      dropSurface.dataset.teamId = teamId;
+      dropSurface.dataset.dropKind = 'team';
+      const dropHint = document.createElement('div');
+      dropHint.className = 'team-context-team-drop-hint';
+      dropHint.textContent = editable()
+        ? "Deixa aqui una inscripcio per afegir-la a aquest equip. No cal desplegar-lo."
+        : 'Aquest equip es mostra en mode lectura.';
+      dropSurface.appendChild(dropHint);
+      wrap.appendChild(dropSurface);
+      return wrap;
+    };
+
+    list.innerHTML = '';
+    active.forEach((team, index) => list.appendChild(card(team, false, index)));
+    if (!active.length) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'groups-board-placeholder';
+      placeholder.textContent = filtersActive
+        ? 'Cap equip amb participants coincideix amb els filtres del board.'
+        : 'Encara no hi ha equips amb participants en aquest context.';
+      list.appendChild(placeholder);
+    }
+    zeroList.innerHTML = '';
+    empty.forEach((team, index) => zeroList.appendChild(card(team, true, active.length + index)));
+    if (!empty.length) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'groups-board-placeholder';
+      placeholder.textContent = filtersActive
+        ? 'Cap equip buit coincideix amb els filtres del board.'
+        : 'No hi ha equips buits disponibles ara mateix.';
+      zeroList.appendChild(placeholder);
+    }
+    zeroWrap.classList.toggle('d-none', !filtersActive && empty.length === 0);
+    const mapTeamOption = (item) => ({
+      value: item?.id,
+      label: `${item?.nom || 'Equip'} (${Number(item?.membres || 0)})`,
+    });
+    fillSelect(existingSelect, teams, existingSelect?.value, '-- Selecciona equip --', mapTeamOption);
+    fillSelect(compactSelect, teams, compactSelect?.value, 'Cap equip disponible', mapTeamOption);
+    syncTargetTeamSelectors();
+    renderDetailPane();
+  }
+
+  function renderFilterOptions(workspace) {
+    const options = workspace?.filter_options || {};
+    fillSelect(document.getElementById('team-filter-categoria'), options.categories || [], state.filters.categories || [], 'Totes');
+    fillSelect(document.getElementById('team-filter-subcategoria'), options.subcategories || [], state.filters.subcategories || [], 'Totes');
+    fillSelect(document.getElementById('team-filter-entitat'), options.entitats || [], state.filters.entitats || [], 'Totes');
+    fillSelect(document.getElementById('team-filter-equip-id'), options.teams || [], state.filters.equip_ids || [], 'Qualsevol', (item) => ({
+      value: item?.id,
+      label: `${item?.name || 'Equip'} (${Number(item?.members || 0)})`,
+    }));
+    setFiltersToDom(state.filters);
+    renderTeamFilterPopovers();
+    renderTeamFilterActiveChips();
+  }
+
+  function renderWorkspace(workspace) {
+    if (!workspace || !workspace.ok) return;
+    const teams = (Array.isArray(workspace?.teams) ? workspace.teams : []).map((team) => enrichTeamBoardData(team));
+    state.lastWorkspace = { ...workspace, teams };
+    state.contextCode = String(workspace.context_code || 'native');
+    const availableIds = new Set(teams.map((team) => String(team?.id || '').trim()).filter(Boolean));
+    state.editingTeamIds = new Set(Array.from(state.editingTeamIds).filter((id) => availableIds.has(String(id || '').trim())));
+    if (state.selectedTeamId && !availableIds.has(String(state.selectedTeamId || '').trim())) {
+      state.selectedTeamId = '';
+      state.selectedTeamDetail = null;
+      state.selectedTeamMembersPage = 1;
+      state.editingTeamIds = new Set();
+    } else {
+      syncSelectedTeamDetail(workspace);
+    }
+    updateRightPaneTabUi();
+    renderContextMeta(workspace.context, workspace.summary, workspace.contexts || []);
+    renderContextSources(workspace);
+    renderFilterOptions(state.lastWorkspace);
+    renderBoardFilterControls(teams);
+    renderCandidates(state.lastWorkspace);
+    renderTeams(state.lastWorkspace);
+    updateSelectionSummary();
+    setupDnd();
+    refreshAutoContext().catch(() => {});
+  }
+
+  async function refreshWorkspace(opts = {}) {
+    if (opts.resetPage) state.candidatePage = 1;
+    if (opts.clearSelection) state.selectedIds = new Set(getExternalSelectionIds());
+    destroySortables();
+    const status = document.getElementById('team-candidates-status');
+    if (status) status.textContent = 'Carregant candidates...';
+    try {
+      const data = await postJson(workspaceUrl, {
+        context_code: state.contextCode,
+        filters: state.filters,
+        page: state.candidatePage,
+        page_size: state.candidatePageSize,
+      });
+      renderWorkspace(data);
+      saveWorkspaceState();
+      return data;
+    } catch (err) {
+      if (status) status.textContent = "No s'han pogut carregar les candidates del workspace.";
+      showAlert(`No s'ha pogut carregar el workspace d'equips.\n${err.message || err}`);
+      return null;
+    }
+  }
+
+  function readIntInput(id, fallback = 0) {
+    const value = Number.parseInt(document.getElementById(id)?.value || '', 10);
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  async function resolveAutoCreatePayload(strategy = 'per_bucket', extraPayload = {}) {
+    const selectedIds = ids();
+    if (!selectedIds.length) {
+      showAlert('Selecciona com a minim una inscripcio dins del workspace.');
+      return null;
+    }
+    const resolvedStrategy = String(strategy || 'per_bucket').trim() || 'per_bucket';
+    const fields = getSelectedTeamPartitionFields();
+    if (resolvedStrategy === 'per_bucket' && !fields.length) {
+      showAlert('Selecciona com a minim un camp de particio.');
+      return null;
+    }
+    const payload = {
+      context_code: state.contextCode,
+      strategy: resolvedStrategy,
+      fields,
+      replace_existing: document.getElementById('team-auto-replace')?.checked ?? true,
+      filters: state.filters,
+      selected_ids: selectedIds,
+      ...extraPayload,
+    };
+    if (resolvedStrategy === 'per_bucket') {
+      const autoContext = await refreshAutoContext();
+      const targetCount = Number(autoContext?.target_count || 0);
+      if (targetCount <= 0) {
+        showAlert('No hi ha cap inscripcio disponible per a aquesta estrategia.');
+        return null;
+      }
+      const activeBucketKeys = getActiveBucketKeys();
+      if (!activeBucketKeys.length) {
+        showAlert('Selecciona com a minim un bucket resolt.');
+        return null;
+      }
+      payload.bucket_keys = activeBucketKeys;
+    }
+    return payload;
+  }
+
+  function syncAutoPreviewConfirmIntent(payload, data) {
+    const previewApi = teamPreviewApi();
+    if (!previewApi) return;
+    const plannedTeams = Array.isArray(data?.preview) ? data.preview : [];
+    if (!plannedTeams.length) {
+      previewApi.clearConfirmIntent();
+      return;
+    }
+    const frozenPayload = JSON.parse(JSON.stringify(payload || {}));
+    previewApi.setConfirmIntent({
+      label: `Previsualitzacio de: ${describeTeamStrategy(payload?.strategy)}`,
+      buttonLabel: 'Confirmar aquesta creacio',
+      canConfirm: true,
+      execute: () => runAutoCreate(frozenPayload),
+    });
+  }
+
+  function describeTeamStrategy(strategy) {
+    switch (String(strategy || 'per_bucket')) {
+      case 'count':
+        return 'Crear X equips';
+      case 'size_fixed':
+        return 'Crear per mida fixa';
+      case 'size_balanced':
+        return 'Crear per mida equilibrada';
+      case 'range_balanced':
+        return 'Equilibrats min-max';
+      case 'count_with_range':
+        return 'X equips amb forquilla';
+      case 'per_bucket':
+      default:
+        return 'Crear equips per bucket';
+    }
+  }
+
+  async function requestPreview(strategy = 'per_bucket', extraPayload = {}) {
+    const payload = await resolveAutoCreatePayload(strategy, extraPayload);
+    if (!payload) return null;
+    setTeamPreviewLoading(true);
+    try {
+      const data = await postJson(previewUrl, payload);
+      renderTeamPreview(data);
+      syncAutoPreviewConfirmIntent(payload, data);
+      setRightPaneTab('preview');
+      return data;
+    } catch (err) {
+      clearTeamPreview("No s'ha pogut calcular la previsualitzacio amb aquesta configuracio.");
+      showAlert(`No s'ha pogut previsualitzar equips.\n${err.message || err}`);
+      return null;
+    } finally {
+      setTeamPreviewLoading(false);
+    }
+  }
+
+  async function runAutoCreate(payload = null, strategy = 'per_bucket', extraPayload = {}) {
+    const requestPayload = payload ? JSON.parse(JSON.stringify(payload)) : await resolveAutoCreatePayload(strategy, extraPayload);
+    if (!requestPayload) return false;
+    try {
+      const data = await postJson(autoCreateUrl, requestPayload);
+      if (!data.ok) {
+        showAlert("No s'han pogut crear equips.");
+        return false;
+      }
+      if (String(requestPayload.strategy || 'per_bucket') === 'per_bucket') {
+        const createdCount = Number(data.created || 0);
+        const successMessage = createdCount === 1
+          ? "S'ha creat 1 equip per bloc."
+          : `S'han creat ${createdCount} equips per bloc.`;
+        showAlert(successMessage);
+      }
+      resetPreview();
+      await refreshWorkspace();
+      return true;
+    } catch (err) {
+      showAlert(`No s'han pogut crear equips.\n${err.message || err}`);
+      return false;
+    }
+  }
+
+  async function ensureFreshPreview() {
+    const root = document.getElementById('team-preview');
+    if (root && (root.dataset.hasPreview !== '1' || root.dataset.dirty === '1')) {
+      return !!(await requestPreview());
+    }
+    return true;
+  }
+
+  function renderDirectPreview(action, payload = {}) {
+    const selectedCount = ids().length;
+    if (!selectedCount) {
+      showAlert('Selecciona com a minim una inscripcio dins del workspace.');
+      return;
+    }
+    const targetName = String(payload.targetName || '').trim();
+    const previewRows = [];
+    const affectedRows = [];
+
+    if (action === 'create') {
+      previewRows.push({
+        nom_suggerit: targetName || 'Equip nou',
+        team_name: targetName || 'Equip nou',
+        count: selectedCount,
+        will_create: true,
+        current_none_count: selectedCount,
+        current_same_count: 0,
+        current_other_count: 0,
+        skipped_reassign_count: 0,
+      });
+    } else if (action === 'assign') {
+      previewRows.push({
+        nom_suggerit: targetName || 'Equip desti',
+        team_name: targetName || 'Equip desti',
+        count: selectedCount,
+        will_create: false,
+        existing_team_name: targetName || 'Equip desti',
+        will_reassign: true,
+        current_none_count: 0,
+        current_same_count: 0,
+        current_other_count: selectedCount,
+        skipped_reassign_count: 0,
+      });
+    } else if (action === 'unassign') {
+      affectedRows.push({
+        team_name: 'Assignacions actuals',
+        current_members_context: selectedCount,
+        remaining_members_context: 0,
+        outgoing_count: selectedCount,
+        incoming_count: 0,
+        keep_count: 0,
+        impact_kind: 'removed',
+      });
+    }
+
+    renderTeamPreview({
+      ok: true,
+      total_inscripcions: selectedCount,
+      selection_summary: {
+        mode: 'selected',
+        label: `${selectedCount} seleccionades`,
+        selected_count: selectedCount,
+        filters_active: false,
+        replace_existing: true,
+      },
+      existing_summary: {
+        affected_teams: affectedRows,
+      },
+      preview: previewRows,
+    });
+    teamPreviewApi()?.clearConfirmIntent();
+    setRightPaneTab('preview');
+  }
+
+  async function runAssignToTeam(teamId, inscripcioIds = ids()) {
+    const cleanId = String(teamId || '').trim();
+    if (!cleanId) return;
+    const rows = Array.isArray(inscripcioIds) ? inscripcioIds.map(String).filter(Boolean) : [];
+    if (!rows.length) {
+      showAlert('Selecciona com a minim una inscripcio dins del workspace.');
+      return;
+    }
+    const team = getCurrentSelectedTeamSummary() && String(state.selectedTeamId || '').trim() === cleanId
+      ? getCurrentSelectedTeamSummary()
+      : (Array.isArray(state.lastWorkspace?.teams) ? state.lastWorkspace.teams.find((row) => String(row?.id || '').trim() === cleanId) : null);
+    const teamName = String(team?.nom || 'Equip desti').trim();
+    const countLabel = rows.length === 1 ? '1 inscripcio' : `${rows.length} inscripcions`;
+    if (!(await showTeamActionConfirm({
+      title: 'Assignar seleccio a equip',
+      body: `Vols assignar ${countLabel} a l'equip "${teamName}" en el context actual?`,
+      confirmLabel: 'Assignar',
+      tone: 'primary',
+    }))) return;
+    try {
+      const data = await postAssign(cleanId, rows);
+      if (!data.ok) {
+        showAlert("No s'han pogut assignar les inscripcions.");
+        return;
+      }
+      state.selectedTeamId = cleanId;
+      state.selectedTeamMembersPage = 1;
+      state.selectedRightPaneTab = 'detail';
+      resetPreview();
+      await refreshWorkspace();
+      await showTeamActionSuccess({
+        title: 'Seleccio assignada',
+        body: `${countLabel} ${rows.length === 1 ? 'assignada' : 'assignades'} a l'equip "${teamName}".`,
+      });
+    } catch (err) {
+      showAlert(`No s'han pogut assignar les inscripcions.\n${err.message || err}`);
+    }
+  }
+
+  async function renameTeam(teamId, nextName) {
+    const cleanId = String(teamId || '').trim();
+    const cleanName = String(nextName || '').trim();
+    if (!cleanId || !cleanName) return;
+    const team = getCurrentSelectedTeamSummary() && String(state.selectedTeamId || '').trim() === cleanId
+      ? getCurrentSelectedTeamSummary()
+      : (Array.isArray(state.lastWorkspace?.teams) ? state.lastWorkspace.teams.find((row) => String(row?.id || '').trim() === cleanId) : null);
+    const currentName = String(team?.nom || 'Equip').trim();
+    if (!(await showTeamActionConfirm({
+      title: "Renombrar l'equip",
+      body: `Vols canviar el nom de l'equip "${currentName}" a "${cleanName}"?`,
+      confirmLabel: 'Renombrar',
+      tone: 'primary',
+    }))) return;
+    try {
+      const data = await postJson(actionUrl(renameUrlTpl, cleanId), {
+        name: cleanName,
+        context_code: state.contextCode,
+      });
+      if (!data.ok) {
+        showAlert("No s'ha pogut renombrar l'equip.");
+        return;
+      }
+      state.editingTeamIds.delete(cleanId);
+      resetPreview();
+      await refreshWorkspace();
+      await selectTeam(cleanId, { scroll: false, resetPage: false });
+      await showTeamActionSuccess({
+        title: 'Equip renombrat',
+        body: `L'equip ara es diu "${cleanName}".`,
+      });
+    } catch (err) {
+      showAlert(`No s'ha pogut renombrar l'equip.\n${err.message || err}`);
+    }
+  }
+
+  async function deleteTeam(teamId) {
+    const cleanId = String(teamId || '').trim();
+    const team = getCurrentSelectedTeamSummary() && String(state.selectedTeamId || '').trim() === cleanId
+      ? getCurrentSelectedTeamSummary()
+      : (Array.isArray(state.lastWorkspace?.teams) ? state.lastWorkspace.teams.find((row) => String(row?.id || '').trim() === cleanId) : null);
+    const teamName = String(team?.nom || 'Equip');
+    const message = state.contextCode === 'native'
+      ? `Eliminar l'equip "${teamName}"?\nLes inscripcions quedaran sense equip.`
+      : `Treure l'equip "${teamName}" del context actual?`;
+    if (!(await showTeamActionConfirm({
+      title: state.contextCode === 'native' ? 'Eliminar equip' : 'Treure equip del context',
+      body: message,
+      confirmLabel: state.contextCode === 'native' ? 'Eliminar' : 'Treure',
+      tone: 'danger',
+    }))) return;
+    try {
+      const data = await postJson(actionUrl(deleteUrlTpl, cleanId), { context_code: state.contextCode });
+      if (!data.ok) {
+        showAlert("No s'ha pogut eliminar l'equip.");
+        return;
+      }
+      if (String(state.selectedTeamId || '') === cleanId) {
+        state.selectedTeamId = '';
+        state.selectedTeamDetail = null;
+        state.selectedTeamMembersPage = 1;
+        state.editingTeamIds = new Set();
+      }
+      resetPreview();
+      await refreshWorkspace();
+      await showTeamActionSuccess({
+        title: state.contextCode === 'native' ? 'Equip eliminat' : 'Equip tret del context',
+        body: state.contextCode === 'native'
+          ? `L'equip "${teamName}" s'ha eliminat i les inscripcions han quedat sense equip.`
+          : `L'equip "${teamName}" s'ha tret del context actual.`,
+      });
+    } catch (err) {
+      showAlert(`No s'ha pogut eliminar l'equip.\n${err.message || err}`);
+    }
+  }
+
+  function setupDnd() {
+    destroySortables();
+    if (!editable() || typeof Sortable === 'undefined') return;
+
+    const groupName = 'team-workspace-members';
+    const onChoose = () => {
+      document.body.classList.add('dragging');
+      teamWorkspaceShell.classList.add('is-team-dragging');
+      clearDragTargets();
+    };
+    const onEnd = () => {
+      document.body.classList.remove('dragging');
+      teamWorkspaceShell.classList.remove('is-team-dragging');
+      clearDragTargets();
+    };
+
+    const onAdd = async (event) => {
+      const item = event?.item;
+      const target = event?.to;
+      const inscripcioId = String(item?.dataset?.inscripcioId || '').trim();
+      const kind = String(target?.dataset?.dropKind || '').trim();
+      const teamId = String(target?.dataset?.teamId || '').trim();
+
+      if (item && item.parentNode === target) {
+        try {
+          item.remove();
+        } catch (_) {}
+      }
+      clearDragTargets();
+      document.body.classList.remove('dragging');
+      teamWorkspaceShell.classList.remove('is-team-dragging');
+
+      if (!inscripcioId || state.dragBusy) {
+        await refreshWorkspace();
+        return;
+      }
+      try {
+        state.dragBusy = true;
+        if (kind === 'unassigned') await postUnassign([inscripcioId]);
+        else if (kind === 'team' && teamId) await postAssign(teamId, [inscripcioId]);
+        resetPreview();
+        await refreshWorkspace();
+      } catch (err) {
+        showAlert(`No s'ha pogut moure la inscripcio entre equips.\n${err.message || err}`);
+        await refreshWorkspace();
+      } finally {
+        state.dragBusy = false;
+      }
+    };
+
+    const candidateSource = document.getElementById('team-candidates-list');
+    if (candidateSource) {
+      state.sortables.push(Sortable.create(candidateSource, {
+        group: { name: groupName, pull: 'clone', put: false },
+        sort: false,
+        animation: 120,
+        forceFallback: true,
+        fallbackOnBody: true,
+        fallbackTolerance: 4,
+        removeCloneOnHide: true,
+        draggable: '.team-candidate-row',
+        handle: '.team-candidate-drag-handle',
+        filter: 'input,a,select,textarea',
+        preventOnFilter: false,
+        onChoose,
+        onEnd,
+      }));
+    }
+
+    document.querySelectorAll('.team-context-member-list[data-member-source="1"]').forEach((source) => {
+      state.sortables.push(Sortable.create(source, {
+        group: { name: groupName, pull: 'clone', put: false },
+        sort: false,
+        animation: 120,
+        forceFallback: true,
+        fallbackOnBody: true,
+        fallbackTolerance: 4,
+        removeCloneOnHide: true,
+        draggable: '.team-context-member-row',
+        handle: '.team-member-drag-handle',
+        filter: 'button.js-team-member-unassign,input,a,select,textarea',
+        preventOnFilter: false,
+        onChoose,
+        onEnd,
+      }));
+    });
+
+    document.querySelectorAll('.team-context-team-drop-surface,#team-context-unassigned-dropzone').forEach((target) => {
+      state.sortables.push(Sortable.create(target, {
+        group: { name: groupName, pull: false, put: true },
+        sort: false,
+        animation: 140,
+        forceFallback: true,
+        fallbackOnBody: true,
+        fallbackTolerance: 4,
+        removeCloneOnHide: true,
+        draggable: '.team-context-member-row, .team-candidate-row',
+        handle: '.team-member-drag-handle, .team-candidate-drag-handle',
+        filter: 'button.js-team-member-unassign,input,a,select,textarea,[data-team-open],[data-team-assign-to],[data-team-rename],[data-team-delete]',
+        preventOnFilter: false,
+        onMove: (event) => {
+          markDragTarget(target);
+          return true;
+        },
+        onAdd,
+        onEnd,
+      }));
+    });
+  }
+
+  const teamAutoFields = document.getElementById('team-auto-fields');
+  if (teamAutoFields) {
+    teamAutoFields.addEventListener('change', () => {
+      updateTeamPartitionFieldsPickerUi();
+      dirtyPreview();
+      refreshAutoContext({ force: true }).catch(() => {});
+    });
+  }
+
+  document.querySelectorAll('.js-team-field').forEach((choice) => {
+    choice.addEventListener('change', () => {
+      setTeamPartitionFieldValue(choice.value, choice.checked);
+    });
+  });
+
+  document.getElementById('team-auto-replace')?.addEventListener('change', () => {
+    dirtyPreview();
+    refreshAutoContext({ force: true }).catch(() => {});
+  });
+
+  document.getElementById('btn-team-auto-fields-clear')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    clearTeamPartitionFields();
+  });
+
+  document.addEventListener('click', (event) => {
+    if (event.target.closest('[data-team-auto-context-criteria]')) return;
+    document.querySelectorAll('[data-team-auto-context-criteria] details[open]').forEach((details) => {
+      details.removeAttribute('open');
+    });
+  });
+
+  [
+    'team-team-count',
+    'team-team-size',
+    'team-team-size-mode',
+    'team-team-min-size',
+    'team-team-max-size',
+    'team-team-count-range',
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', dirtyPreview);
+  });
+
+  const filterQ = document.getElementById('team-filter-q');
+  if (filterQ) {
+    filterQ.value = state.filters.q || '';
+    filterQ.addEventListener('input', () => {
+      renderTeamFilterActiveChips();
+      if (state.filterTimer) clearTimeout(state.filterTimer);
+      state.filterTimer = setTimeout(() => {
+        state.filters = Object.assign({}, state.filters, readFilters());
+        saveWorkspaceState();
+        dirtyPreview();
+        refreshWorkspace({ resetPage: true });
+      }, 220);
+    });
+  }
+
+  ['team-filter-categoria', 'team-filter-subcategoria', 'team-filter-entitat', 'team-filter-assignment-state', 'team-filter-equip-id'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('change', () => {
+        renderTeamFilterPopovers();
+        renderTeamFilterActiveChips();
+        state.filters = Object.assign({}, state.filters, readFilters());
+        saveWorkspaceState();
+        dirtyPreview();
+        refreshWorkspace({ resetPage: true });
+      });
+    }
+  });
+
+  document.addEventListener('change', (event) => {
+    const choice = event.target.closest('.js-team-filter-choice');
+    if (!choice) return;
+    const selectId = String(choice.getAttribute('data-team-filter-choice') || '').trim();
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+    const value = String(choice.value || '').trim();
+    if (selectEl.multiple) {
+      const option = Array.from(selectEl.options).find((item) => String(item.value || '').trim() === value);
+      if (option) option.selected = !!choice.checked;
+    } else {
+      selectEl.value = value;
+    }
+    renderTeamFilterPopovers();
+    renderTeamFilterActiveChips();
+    triggerTeamFilterChange(selectEl);
+  });
+
+  document.addEventListener('change', (event) => {
+    const choice = event.target.closest('.js-team-board-filter-choice');
+    if (!choice) return;
+    const selectId = String(choice.getAttribute('data-select-id') || '').trim();
+    setTeamBoardFilterValue(selectId, choice.value, choice.checked);
+    const selectEl = document.getElementById(selectId);
+    if (selectEl) selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+  document.addEventListener('change', (event) => {
+    const choice = event.target.closest('.js-team-detail-filter-choice');
+    if (!choice) return;
+    const selectId = String(choice.getAttribute('data-select-id') || '').trim();
+    setTeamDetailFilterValue(selectId, choice.value, choice.checked);
+    state.detailMemberFilters = readDetailMemberFilters();
+    state.selectedTeamMembersPage = 1;
+    saveWorkspaceState();
+    renderDetailPane();
+    setupDnd();
+  });
+
+  document.addEventListener('click', (event) => {
+    const clearBtn = event.target.closest('[data-team-filter-clear]');
+    if (clearBtn) {
+      event.preventDefault();
+      clearTeamFilter(String(clearBtn.getAttribute('data-team-filter-clear') || '').trim());
+      return;
+    }
+
+    const chip = event.target.closest('[data-team-filter-chip-select]');
+    if (chip) {
+      event.preventDefault();
+      const selectId = String(chip.getAttribute('data-team-filter-chip-select') || '').trim();
+      const value = String(chip.getAttribute('data-team-filter-chip-value') || '').trim();
+      const selectEl = document.getElementById(selectId);
+      if (!selectEl) return;
+      Array.from(selectEl.options).forEach((option) => {
+        if (String(option.value || '').trim() === value) option.selected = false;
+      });
+      if (!selectEl.multiple && (!selectEl.value || selectEl.value === value)) {
+        selectEl.value = selectId === 'team-filter-assignment-state' ? 'all' : '';
+      }
+      renderTeamFilterPopovers();
+      renderTeamFilterActiveChips();
+      triggerTeamFilterChange(selectEl);
+      return;
+    }
+
+    if (event.target.closest('[data-team-filter-search-clear]')) {
+      event.preventDefault();
+      const q = document.getElementById('team-filter-q');
+      if (!q) return;
+      q.value = '';
+      q.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+
+    const boardClearBtn = event.target.closest('[data-team-board-filter-clear]');
+    if (boardClearBtn) {
+      event.preventDefault();
+      clearTeamBoardFilter(String(boardClearBtn.getAttribute('data-team-board-filter-clear') || '').trim());
+      state.boardFilters = readBoardFilters();
+      saveWorkspaceState();
+      renderTeams(state.lastWorkspace);
+      setupDnd();
+      return;
+    }
+
+    const boardChip = event.target.closest('[data-team-board-filter-chip-select]');
+    if (boardChip) {
+      event.preventDefault();
+      clearTeamBoardFilter(
+        String(boardChip.getAttribute('data-team-board-filter-chip-select') || '').trim(),
+        String(boardChip.getAttribute('data-team-board-filter-chip-value') || '').trim()
+      );
+      state.boardFilters = readBoardFilters();
+      saveWorkspaceState();
+      renderTeams(state.lastWorkspace);
+      setupDnd();
+      return;
+    }
+
+    if (event.target.closest('[data-team-board-filter-search-clear]')) {
+      event.preventDefault();
+      const q = document.getElementById('team-board-filter-q');
+      if (q) q.value = '';
+      state.boardFilters = readBoardFilters();
+      saveWorkspaceState();
+      renderTeams(state.lastWorkspace);
+      setupDnd();
+      return;
+    }
+
+    const detailClearBtn = event.target.closest('[data-team-detail-filter-clear]');
+    if (detailClearBtn) {
+      event.preventDefault();
+      clearTeamDetailFilter(String(detailClearBtn.getAttribute('data-team-detail-filter-clear') || '').trim());
+      state.detailMemberFilters = readDetailMemberFilters();
+      state.selectedTeamMembersPage = 1;
+      saveWorkspaceState();
+      renderDetailPane();
+      setupDnd();
+      return;
+    }
+
+    const detailChip = event.target.closest('[data-team-detail-filter-chip-select]');
+    if (detailChip) {
+      event.preventDefault();
+      clearTeamDetailFilter(
+        String(detailChip.getAttribute('data-team-detail-filter-chip-select') || '').trim(),
+        String(detailChip.getAttribute('data-team-detail-filter-chip-value') || '').trim()
+      );
+      state.detailMemberFilters = readDetailMemberFilters();
+      state.selectedTeamMembersPage = 1;
+      saveWorkspaceState();
+      renderDetailPane();
+      setupDnd();
+      return;
+    }
+
+    if (event.target.closest('[data-team-detail-filter-search-clear]')) {
+      event.preventDefault();
+      const q = document.getElementById('team-detail-member-q');
+      if (q) q.value = '';
+      state.detailMemberFilters = readDetailMemberFilters();
+      state.selectedTeamMembersPage = 1;
+      saveWorkspaceState();
+      renderDetailPane();
+      setupDnd();
+      return;
+    }
+
+    if (!event.target.closest('.groups-existing-actions-menu')) {
+      document.querySelectorAll('#team-workspace-shell .groups-existing-actions-menu[open]').forEach((details) => {
+        details.removeAttribute('open');
+      });
+    }
+
+    if (event.target.closest('[data-team-filter-popover], [data-team-board-filter-popover], [data-team-detail-filter-popover]')) return;
+    document.querySelectorAll('[data-team-filter-popover] details[open], [data-team-board-filter-popover] details[open], [data-team-detail-filter-popover] details[open]').forEach((details) => {
+      details.removeAttribute('open');
+    });
+  });
+
+  const applyBoardFilterChange = () => {
+    state.boardFilters = readBoardFilters();
+    if (boardFiltersAreActive()) state.boardFiltersExpanded = true;
+    saveWorkspaceState();
+    setBoardFiltersExpanded(state.boardFiltersExpanded, { skipSave: true });
+    renderTeamBoardFilterPopovers();
+    renderTeams(state.lastWorkspace);
+    setupDnd();
+  };
+
+  const boardFilterQ = document.getElementById('team-board-filter-q');
+  if (boardFilterQ) boardFilterQ.addEventListener('input', applyBoardFilterChange);
+
+  ['team-board-filter-categoria', 'team-board-filter-subcategoria', 'team-board-filter-entitat', 'team-board-filter-members-state'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', applyBoardFilterChange);
+  });
+
+  const applyDetailMemberFilterChange = () => {
+    state.detailMemberFilters = readDetailMemberFilters();
+    state.selectedTeamMembersPage = 1;
+    saveWorkspaceState();
+    renderDetailPane();
+    setupDnd();
+  };
+  const detailMemberQ = document.getElementById('team-detail-member-q');
+  if (detailMemberQ) detailMemberQ.addEventListener('input', applyDetailMemberFilterChange);
+  ['team-detail-filter-entitat', 'team-detail-filter-native-state'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', applyDetailMemberFilterChange);
+  });
+  document.getElementById('btn-team-detail-filters-clear')?.addEventListener('click', clearAllTeamDetailFilters);
+
+  document.getElementById('btn-team-board-filters-clear')?.addEventListener('click', () => {
+    state.boardFilters = normalizeBoardFilters();
+    setBoardFiltersToDom(state.boardFilters, buildBoardFilterOptions(Array.isArray(state.lastWorkspace?.teams) ? state.lastWorkspace.teams : []));
+    setBoardFiltersExpanded(false, { skipSave: true });
+    renderTeamBoardFilterPopovers();
+    saveWorkspaceState();
+    renderTeams(state.lastWorkspace);
+    setupDnd();
+  });
+  document.getElementById('btn-team-auto-buckets-toggle')?.addEventListener('click', () => {
+    setAutoBucketsExpanded(!state.autoBucketsExpanded);
+  });
+
+  const autoBucketFilterQ = document.getElementById('team-auto-buckets-filter-q');
+  if (autoBucketFilterQ) {
+    autoBucketFilterQ.addEventListener('input', () => {
+      state.autoBucketViewFilters = readAutoBucketViewFilters();
+      saveWorkspaceState();
+      renderAutoContext();
+    });
+  }
+
+  ['team-auto-buckets-filter-selected-state', 'team-auto-buckets-filter-sort'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('change', () => {
+        state.autoBucketViewFilters = readAutoBucketViewFilters();
+        saveWorkspaceState();
+        renderAutoContext();
+      });
+    }
+  });
+
+  const autoBucketsAll = document.getElementById('btn-team-auto-buckets-all');
+  if (autoBucketsAll) {
+    autoBucketsAll.addEventListener('click', () => {
+      state.bucketSelectionMode = 'all';
+      state.selectedBucketKeys = new Set((state.resolvedBuckets || []).map((bucket) => String(bucket?.key || '').trim()).filter(Boolean));
+      renderAutoContext();
+      dirtyPreview();
+    });
+  }
+
+  const autoBucketsNone = document.getElementById('btn-team-auto-buckets-none');
+  if (autoBucketsNone) {
+    autoBucketsNone.addEventListener('click', () => {
+      state.bucketSelectionMode = 'none';
+      state.selectedBucketKeys = new Set();
+      renderAutoContext();
+      dirtyPreview();
+    });
+  }
+
+  const autoBucketsSet = document.getElementById('btn-team-auto-buckets-set');
+  if (autoBucketsSet) {
+    autoBucketsSet.addEventListener('click', async () => {
+      const fields = getSelectedTeamPartitionFields();
+      if (!fields.length) return showAlert('Selecciona com a minim un camp de particio.');
+      if (!ids().length) return showAlert('Selecciona com a minim una inscripcio dins del workspace.');
+      const activeBucketKeys = getActiveBucketKeys();
+      if (!activeBucketKeys.length) return showAlert('Selecciona com a minim un bucket resolt.');
+      try {
+        const data = await postJson(workspaceUrl, {
+          context_code: state.contextCode,
+          operation: 'apply_auto_context_selection',
+          filters: state.filters,
+          selected_ids: ids(),
+          fields,
+          bucket_keys: activeBucketKeys,
+          selection_mode: 'set',
+        });
+        if (!data?.ok) return showAlert("No s'ha pogut substituir la seleccio.");
+        applySelectionChange(Array.isArray(data.selected_ids) ? data.selected_ids : [], 'set');
+      } catch (err) {
+        showAlert(`No s'ha pogut substituir la seleccio.\n${err.message || err}`);
+      }
+    });
+  }
+
+  const autoBucketsGrid = document.getElementById('team-auto-buckets-grid');
+  if (autoBucketsGrid) {
+    autoBucketsGrid.addEventListener('change', (event) => {
+      const input = event.target.closest('.js-team-auto-bucket-check');
+      if (!input) return;
+      const key = String(input.value || '').trim();
+      if (!key) return;
+      if (input.checked) state.selectedBucketKeys.add(key);
+      else state.selectedBucketKeys.delete(key);
+      const totalBuckets = (state.resolvedBuckets || []).length;
+      if (state.selectedBucketKeys.size === 0) state.bucketSelectionMode = 'none';
+      else if (state.selectedBucketKeys.size === totalBuckets) state.bucketSelectionMode = 'all';
+      else state.bucketSelectionMode = 'custom';
+      const card = input.closest('.team-auto-bucket-card');
+      if (card) card.classList.toggle('is-selected', input.checked);
+      updateAutoBucketsMeta();
+      dirtyPreview();
+    });
+  }
+
+  if (!window.__teamsWorkspaceSelectionBridgeBound) {
+    window.__teamsWorkspaceSelectionBridgeBound = true;
+    document.addEventListener('inscripcions:selection-changed', (event) => {
+      const detail = event?.detail || {};
+      if (detail.source === 'team_workspace') return;
+      const ids = Array.isArray(detail.ids) ? detail.ids : [];
+      const workspaceApi = window.__teamWorkspaceApi;
+      if (workspaceApi && typeof workspaceApi.setExternalSelection === 'function') {
+        workspaceApi.setExternalSelection(ids, { source: 'main' });
+      }
+    });
+  }
+
+  const contextSelect = document.getElementById('team-workspace-context-select');
+  if (contextSelect) {
+    contextSelect.addEventListener('change', async () => {
+      await applyContextChange(contextSelect.value);
+    });
+  }
+
+  const compactContext = document.getElementById('team-compact-context');
+  if (compactContext) {
+    compactContext.addEventListener('change', async () => {
+      await applyContextChange(compactContext.value);
+    });
+  }
+
+  const compactScope = document.getElementById('team-compact-scope');
+  if (compactScope) {
+    compactScope.addEventListener('change', () => {
+      setCompactScope(compactScope.value);
+    });
+  }
+
+  const contextToggle = document.getElementById('btn-team-workspace-context-toggle');
+  if (contextToggle) {
+    contextToggle.addEventListener('click', () => {
+      const details = document.getElementById('team-workspace-context-details');
+      setContextDetailsOpen(!!details?.classList.contains('d-none'));
+    });
+  }
+
+  const contextCreate = document.getElementById('btn-team-workspace-context-create');
+  if (contextCreate) {
+    contextCreate.addEventListener('click', async () => {
+      const name = await showPrompt("Nom del nou context d'equips:", '');
+      if (!name || !name.trim()) return;
+      try {
+        const data = await postJson(ctxCreateUrl, { name: name.trim() });
+        if (!data.ok) return showAlert("No s'ha pogut crear el context.");
+        state.contextCode = String(data.context?.code || 'native');
+        state.selectedIds = new Set(getExternalSelectionIds());
+        state.selectedTeamId = '';
+        state.selectedTeamDetail = null;
+        state.selectedTeamMembersPage = 1;
+        state.selectedRightPaneTab = 'preview';
+        state.editingTeamIds = new Set();
+        setContextDetailsOpen(true);
+        clearTeamPreview();
+        await refreshWorkspace({ resetPage: true, clearSelection: true });
+      } catch (err) {
+        showAlert(`No s'ha pogut crear el context.\n${err.message || err}`);
+      }
+    });
+  }
+
+  const contextRename = document.getElementById('btn-team-workspace-context-rename');
+  if (contextRename) {
+    contextRename.addEventListener('click', async () => {
+      const code = state.contextCode;
+      if (code === 'native') return showAlert('El context Base no es pot renombrar.');
+      const current = contextSelect?.selectedOptions?.[0]?.textContent || code;
+      const name = await showPrompt("Nou nom del context d'equips:", current);
+      if (!name || !name.trim()) return;
+      const cleanName = name.trim();
+      if (!(await showTeamActionConfirm({
+        title: "Renombrar context d'equips",
+        body: `Vols canviar el nom del context "${current}" a "${cleanName}"?`,
+        confirmLabel: 'Renombrar',
+        tone: 'primary',
+      }))) return;
+      try {
+        const data = await postJson(ctxRenameUrlTpl.replace('__context__', encodeURIComponent(code)), {
+          name: cleanName,
+        });
+        if (!data.ok) return showAlert("No s'ha pogut renombrar el context.");
+        await refreshWorkspace();
+        await showTeamActionSuccess({
+          title: 'Context renombrat',
+          body: `El context ara es diu "${cleanName}".`,
+        });
+      } catch (err) {
+        showAlert(`No s'ha pogut renombrar el context.\n${err.message || err}`);
+      }
+    });
+  }
+
+  const contextDelete = document.getElementById('btn-team-workspace-context-delete');
+  if (contextDelete) {
+    contextDelete.addEventListener('click', async () => {
+      const code = state.contextCode;
+      if (code === 'native') return showAlert('El context Base no es pot eliminar.');
+      const label = contextSelect?.selectedOptions?.[0]?.textContent || code;
+      const ok = await showTeamActionConfirm({
+        title: "Eliminar context d'equips",
+        body: `Eliminar el context "${label}"? S'esborraran les seves assignacions.`,
+        confirmLabel: 'Eliminar',
+        tone: 'danger',
+      });
+      if (!ok) return;
+      try {
+        const data = await postJson(ctxDeleteUrlTpl.replace('__context__', encodeURIComponent(code)), {});
+        if (!data.ok) return showAlert("No s'ha pogut eliminar el context.");
+        state.contextCode = 'native';
+        state.selectedIds = new Set(getExternalSelectionIds());
+        state.selectedTeamId = '';
+        state.selectedTeamDetail = null;
+        state.selectedTeamMembersPage = 1;
+        state.selectedRightPaneTab = 'preview';
+        state.editingTeamIds = new Set();
+        setContextDetailsOpen(false);
+        clearTeamPreview();
+        await refreshWorkspace({ resetPage: true, clearSelection: true });
+        await showTeamActionSuccess({
+          title: 'Context eliminat',
+          body: `El context "${label}" s'ha eliminat.`,
+        });
+      } catch (err) {
+        showAlert(`No s'ha pogut eliminar el context.\n${err.message || err}`);
+      }
+    });
+  }
+
+  async function refreshLoadedSeriesPanel() {
+    const seriesApi = window.__seriesWorkspaceApi || null;
+    if (seriesApi && typeof seriesApi.refreshInPlace === 'function') {
+      try {
+        await seriesApi.refreshInPlace();
+        return;
+      } catch (_err) {}
+    }
+    if (seriesApi && typeof seriesApi.refresh === 'function') {
+      try {
+        await seriesApi.refresh({ preservePage: true });
+        return;
+      } catch (_err) {}
+    }
+    if (!document.getElementById('series-workspace-shell')) return;
+    if (!window.InscripcionsApp || typeof window.InscripcionsApp.refreshHtmlFragments !== 'function') return;
+    window.__seriesWorkspaceHydrationRetry = false;
+    try {
+      await window.InscripcionsApp.refreshHtmlFragments(['panel'], { panelKey: 'series-equips' });
+    } catch (_err) {
+      // No bloquegis el desat del context si nomes falla el refresc del panell dependent.
+    }
+  }
+
+  const contextSourcesSave = document.getElementById('btn-team-context-sources-save');
+  if (contextSourcesSave) {
+    contextSourcesSave.addEventListener('click', async () => {
+      const compAparellIds = Array.from(document.querySelectorAll('.js-team-context-source-check:checked'))
+        .map((node) => Number(node.value || 0))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const message = compAparellIds.length
+        ? `Desar ${compAparellIds.length} aparells d'equip per aquest context?`
+        : "Desar aquest context sense cap aparell d'equip seleccionat?";
+      if (!(await showConfirm(message))) return;
+      try {
+        const data = await postJson(ctxSourcesSaveUrl, {
+          context_code: state.contextCode,
+          comp_aparell_ids: compAparellIds,
+        });
+        if (!data?.ok) {
+          showAlert("No s'han pogut desar els aparells globals d'equip per aquest context.");
+          return;
+        }
+        await refreshWorkspace();
+        await refreshLoadedSeriesPanel();
+      } catch (err) {
+        showAlert(`No s'han pogut desar els aparells globals d'equip.\n${err.message || err}`);
+      }
+    });
+  }
+
+  [
+    ['btn-team-workspace-select-filtered', async () => {
+      const targetIds = await resolveFilteredCandidateIds();
+      if (Array.isArray(targetIds)) applySelectionChange(targetIds, 'set');
+    }],
+    ['btn-team-workspace-add-filtered', async () => {
+      const targetIds = await resolveFilteredCandidateIds();
+      if (Array.isArray(targetIds)) applySelectionChange(targetIds, 'add');
+    }],
+    ['btn-team-workspace-remove-filtered', async () => {
+      const targetIds = await resolveFilteredCandidateIds();
+      if (Array.isArray(targetIds)) applySelectionChange(targetIds, 'remove');
+    }],
+    ['btn-team-import-selection', () => {
+      syncExternalSelection(getExternalSelectionIds(), { source: 'main' });
+    }],
+    ['btn-team-workspace-clear-selection', () => {
+      applySelectionChange([], 'clear');
+    }],
+  ].forEach(([id, fn]) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', fn);
+  });
+
+  const prev = document.getElementById('btn-team-candidates-prev');
+  if (prev) {
+    prev.addEventListener('click', async () => {
+      if (state.candidatePage <= 1) return;
+      state.candidatePage -= 1;
+      await refreshWorkspace();
+    });
+  }
+
+  const next = document.getElementById('btn-team-candidates-next');
+  if (next) {
+    next.addEventListener('click', async () => {
+      if (!state.lastWorkspace?.candidates?.has_more) return;
+      state.candidatePage += 1;
+      await refreshWorkspace();
+    });
+  }
+
+  const candidateList = document.getElementById('team-candidates-list');
+  if (candidateList) {
+    candidateList.addEventListener('change', (event) => {
+      const input = event.target.closest('.js-team-workspace-candidate-check');
+      if (!input) return;
+      const id = String(input.value || '').trim();
+      if (!id) return;
+      if (input.checked) applySelectionChange([id], 'add');
+      else applySelectionChange([id], 'remove');
+    });
+    candidateList.addEventListener('click', (event) => {
+      const row = event.target.closest('.team-candidate-row');
+      if (!row || event.target.closest('.team-candidate-group-details')) return;
+      const checkbox = row.querySelector('.js-team-workspace-candidate-check');
+      if (!checkbox || event.target === checkbox) return;
+      checkbox.checked = !checkbox.checked;
+      checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  }
+
+  ['team-workspace-existing-select', 'team-compact-target-team'].forEach((id) => {
+    const select = document.getElementById(id);
+    if (!select) return;
+    select.addEventListener('change', async () => {
+      const value = String(select.value || '').trim();
+      if (!value) return;
+      await selectTeam(value, { scroll: false, resetPage: true });
+    });
+  });
+
+  teamWorkspaceShell.addEventListener('click', async (event) => {
+    const tabBtn = event.target.closest('[data-team-right-tab]');
+    if (tabBtn) {
+      event.preventDefault();
+      setRightPaneTab(String(tabBtn.getAttribute('data-team-right-tab') || '').trim());
+      return;
+    }
+
+    const openBtn = event.target.closest('[data-team-open]');
+    if (openBtn) {
+      event.preventDefault();
+      const teamId = String(openBtn.getAttribute('data-team-open') || '').trim();
+      await selectTeam(teamId, { scroll: true, resetPage: false });
+      return;
+    }
+
+    const assignToBtn = event.target.closest('[data-team-assign-to]');
+    if (assignToBtn) {
+      event.preventDefault();
+      const teamId = String(assignToBtn.getAttribute('data-team-assign-to') || '').trim();
+      await selectTeam(teamId, { scroll: false, resetPage: false });
+      await runAssignToTeam(teamId);
+      return;
+    }
+
+    const renameBtn = event.target.closest('[data-team-rename]');
+    if (renameBtn) {
+      event.preventDefault();
+      const teamId = String(renameBtn.getAttribute('data-team-rename') || '').trim();
+      await selectTeam(teamId, { scroll: true, resetPage: false, openEditor: true });
+      const input = document.querySelector(`[data-team-name-input="${CSS.escape(teamId)}"]`);
+      if (input) {
+        input.focus();
+        input.select?.();
+      }
+      return;
+    }
+
+    const cancelRenameBtn = event.target.closest('[data-team-cancel-name]');
+    if (cancelRenameBtn) {
+      event.preventDefault();
+      const teamId = String(cancelRenameBtn.getAttribute('data-team-cancel-name') || '').trim();
+      state.editingTeamIds.delete(teamId);
+      renderDetailPane();
+      setupDnd();
+      return;
+    }
+
+    const saveRenameBtn = event.target.closest('[data-team-save-name]');
+    if (saveRenameBtn) {
+      event.preventDefault();
+      const teamId = String(saveRenameBtn.getAttribute('data-team-save-name') || '').trim();
+      const input = document.querySelector(`[data-team-name-input="${CSS.escape(teamId)}"]`);
+      const nextName = String(input?.value || '').trim();
+      if (!nextName) {
+        showAlert("Indica un nom per a l'equip.");
+        return;
+      }
+      await renameTeam(teamId, nextName);
+      return;
+    }
+
+    const pagerBtn = event.target.closest('[data-team-members-page]');
+    if (pagerBtn) {
+      event.preventDefault();
+      state.selectedTeamMembersPage = Math.max(1, Number(pagerBtn.getAttribute('data-team-members-page') || 1));
+      renderDetailPane();
+      setupDnd();
+      return;
+    }
+
+    const deleteBtn = event.target.closest('[data-team-delete]');
+    if (deleteBtn) {
+      event.preventDefault();
+      const teamId = String(deleteBtn.getAttribute('data-team-delete') || '').trim();
+      await selectTeam(teamId, { scroll: false, resetPage: false });
+      await deleteTeam(teamId);
+      return;
+    }
+
+    const card = event.target.closest('.team-context-team-card[data-team-id]');
+    if (!card) return;
+    if (event.target.closest('button,input,a,select,textarea,label')) return;
+    const teamId = String(card.getAttribute('data-team-id') || '').trim();
+    if (!teamId) return;
+    await selectTeam(teamId, { scroll: false, resetPage: true });
+  });
+
+  async function previewTeamStrategy(strategy, extraPayload = {}) {
+    await requestPreview(strategy, extraPayload);
+  }
+
+  async function createTeamStrategy(strategy, extraPayload = {}) {
+    const payload = await resolveAutoCreatePayload(strategy, extraPayload);
+    if (!payload) return false;
+    if (!(await requestPreview(strategy, extraPayload))) return false;
+    return runAutoCreate(payload);
+  }
+
+  const previewBtn = document.getElementById('btn-team-workspace-preview');
+  if (previewBtn) previewBtn.addEventListener('click', async () => { await previewTeamStrategy('per_bucket'); });
+
+  const directPreviewBtn = document.getElementById('btn-team-workspace-preview-direct');
+  if (directPreviewBtn) {
+    directPreviewBtn.addEventListener('click', () => {
+      const nextName = String(document.getElementById('team-workspace-new-name')?.value || '').trim();
+      const selectedTarget = document.getElementById('team-workspace-existing-select');
+      const targetName = String(selectedTarget?.selectedOptions?.[0]?.textContent || '').trim();
+      if (nextName) renderDirectPreview('create', { targetName: nextName });
+      else if (selectedTarget?.value) renderDirectPreview('assign', { targetName });
+      else renderDirectPreview('unassign');
+    });
+  }
+
+  const autoBtn = document.getElementById('btn-team-workspace-auto-create');
+  if (autoBtn) {
+    autoBtn.addEventListener('click', async () => {
+      await createTeamStrategy('per_bucket');
+    });
+  }
+
+  const simpleStrategyConfig = [
+    ['btn-team-preview-count', 'count', () => ({ team_count: readIntInput('team-team-count', 1) }), true],
+    ['btn-team-create-count', 'count', () => ({ team_count: readIntInput('team-team-count', 1) }), false],
+    ['btn-team-preview-range-balanced', 'range_balanced', () => ({ min_size: readIntInput('team-team-min-size', 1), max_size: readIntInput('team-team-max-size', 1) }), true],
+    ['btn-team-create-range-balanced', 'range_balanced', () => ({ min_size: readIntInput('team-team-min-size', 1), max_size: readIntInput('team-team-max-size', 1) }), false],
+    ['btn-team-preview-count-range', 'count_with_range', () => ({ team_count: readIntInput('team-team-count-range', 1), min_size: readIntInput('team-team-min-size', 1), max_size: readIntInput('team-team-max-size', 1) }), true],
+    ['btn-team-create-count-range', 'count_with_range', () => ({ team_count: readIntInput('team-team-count-range', 1), min_size: readIntInput('team-team-min-size', 1), max_size: readIntInput('team-team-max-size', 1) }), false],
+  ];
+
+  simpleStrategyConfig.forEach(([id, strategy, readArgs, previewOnly]) => {
+    const button = document.getElementById(id);
+    if (!button) return;
+    button.addEventListener('click', async () => {
+      const args = readArgs();
+      if (previewOnly) await previewTeamStrategy(strategy, args);
+      else await createTeamStrategy(strategy, args);
+    });
+  });
+
+  const sizePreview = document.getElementById('btn-team-preview-size');
+  if (sizePreview) {
+    sizePreview.addEventListener('click', async () => {
+      const size = readIntInput('team-team-size', 2);
+      const mode = String(document.getElementById('team-team-size-mode')?.value || 'fixed');
+      await previewTeamStrategy(mode === 'balanced' ? 'size_balanced' : 'size_fixed', { team_size: size });
+    });
+  }
+
+  const sizeCreate = document.getElementById('btn-team-create-size');
+  if (sizeCreate) {
+    sizeCreate.addEventListener('click', async () => {
+      const size = readIntInput('team-team-size', 2);
+      const mode = String(document.getElementById('team-team-size-mode')?.value || 'fixed');
+      await createTeamStrategy(mode === 'balanced' ? 'size_balanced' : 'size_fixed', { team_size: size });
+    });
+  }
+
+  const createManual = document.getElementById('btn-team-workspace-create-manual');
+  if (createManual) {
+    createManual.addEventListener('click', async () => {
+      const name = String(document.getElementById('team-workspace-new-name')?.value || '').trim();
+      if (!name) return showAlert('Indica un nom per al nou equip.');
+      if (!ids().length) return showAlert('Selecciona com a minim una inscripcio dins del workspace.');
+      try {
+        const data = await postJson(createManualUrl, {
+          context_code: state.contextCode,
+          name,
+          selected_ids: ids(),
+        });
+        if (!data.ok) return showAlert("No s'ha pogut crear l'equip.");
+        state.selectedTeamId = String(data?.equip_id || '').trim();
+        state.selectedTeamMembersPage = 1;
+        state.selectedRightPaneTab = state.selectedTeamId ? 'detail' : state.selectedRightPaneTab;
+        const input = document.getElementById('team-workspace-new-name');
+        if (input) input.value = '';
+        resetPreview();
+        await refreshWorkspace();
+      } catch (err) {
+        showAlert(`No s'ha pogut crear l'equip.\n${err.message || err}`);
+      }
+    });
+  }
+
+  const compactCreate = document.getElementById('btn-team-compact-create');
+  if (compactCreate) {
+    compactCreate.addEventListener('click', async () => {
+      const targetIds = await ensureCompactManualSelection();
+      if (!targetIds) return;
+      const name = String(document.getElementById('team-compact-name')?.value || '').trim();
+      if (!name) return showAlert('Indica un nom per al nou equip.');
+      try {
+        const data = await postJson(createManualUrl, {
+          context_code: state.contextCode,
+          name,
+          selected_ids: targetIds,
+        });
+        if (!data.ok) return showAlert("No s'ha pogut crear l'equip.");
+        state.selectedTeamId = String(data?.equip_id || '').trim();
+        state.selectedTeamMembersPage = 1;
+        state.selectedRightPaneTab = state.selectedTeamId ? 'detail' : state.selectedRightPaneTab;
+        const input = document.getElementById('team-compact-name');
+        if (input) input.value = '';
+        resetPreview();
+        await refreshWorkspace();
+      } catch (err) {
+        showAlert(`No s'ha pogut crear l'equip.\n${err.message || err}`);
+      }
+    });
+  }
+
+  const assignBtn = document.getElementById('btn-team-workspace-assign');
+  if (assignBtn) {
+    assignBtn.addEventListener('click', async () => {
+      const equipId = String(document.getElementById('team-workspace-existing-select')?.value || '').trim();
+      if (!equipId) return showAlert('Selecciona un equip.');
+      await runAssignToTeam(equipId);
+    });
+  }
+
+  const compactAssign = document.getElementById('btn-team-compact-assign');
+  if (compactAssign) {
+    compactAssign.addEventListener('click', async () => {
+      const targetIds = await ensureCompactManualSelection();
+      if (!targetIds) return;
+      const equipId = String(document.getElementById('team-compact-target-team')?.value || '').trim();
+      if (!equipId) return showAlert('Selecciona un equip desti.');
+      await runAssignToTeam(equipId, targetIds);
+    });
+  }
+
+  const unassignBtn = document.getElementById('btn-team-workspace-unassign');
+  if (unassignBtn) {
+    unassignBtn.addEventListener('click', async () => {
+      if (!ids().length) return showAlert('Selecciona com a minim una inscripcio dins del workspace.');
+      try {
+        const data = await postUnassign(ids());
+        if (!data.ok) return showAlert("No s'han pogut desassignar les inscripcions.");
+        resetPreview();
+        await refreshWorkspace();
+      } catch (err) {
+        showAlert(`No s'han pogut desassignar les inscripcions.\n${err.message || err}`);
+      }
+    });
+  }
+
+  const compactUnassign = document.getElementById('btn-team-compact-unassign');
+  if (compactUnassign) {
+    compactUnassign.addEventListener('click', async () => {
+      const targetIds = await ensureCompactManualSelection();
+      if (!targetIds) return;
+      try {
+        const data = await postUnassign(targetIds);
+        if (!data.ok) return showAlert("No s'han pogut desassignar les inscripcions.");
+        resetPreview();
+        await refreshWorkspace();
+      } catch (err) {
+        showAlert(`No s'han pogut desassignar les inscripcions.\n${err.message || err}`);
+      }
+    });
+  }
+
+  const compactOpenWorkspace = document.getElementById('btn-team-compact-open-workspace');
+  if (compactOpenWorkspace) {
+    compactOpenWorkspace.addEventListener('click', () => openWorkspaceCard());
+  }
+
+  const deleteSelectedBtn = document.getElementById('btn-team-workspace-delete-selected');
+  if (deleteSelectedBtn) {
+    deleteSelectedBtn.addEventListener('click', async () => {
+      const teamId = String(document.getElementById('team-workspace-existing-select')?.value || state.selectedTeamId || '').trim();
+      if (!teamId) return showAlert('Selecciona un equip del board o del selector.');
+      const team = Array.isArray(state.lastWorkspace?.teams)
+        ? state.lastWorkspace.teams.find((row) => String(row?.id || '').trim() === teamId)
+        : null;
+      if ((team?.members || []).length > 0 || Number(team?.membres || 0) > 0) {
+        return showAlert('Nomes pots eliminar un equip buit des d aquesta accio.');
+      }
+      await deleteTeam(teamId);
+    });
+  }
+
+  const deleteAll = document.getElementById('btn-team-workspace-delete-all');
+  if (deleteAll) {
+    deleteAll.addEventListener('click', async () => {
+      const url = deleteAll.getAttribute('data-delete-all-url');
+      if (!url) return showAlert("URL d'eliminacio massiva no disponible.");
+      const message = state.contextCode === 'native'
+        ? "Vols eliminar tots els equips del context Base?"
+        : "Vols eliminar tots els equips d'aquest context?";
+      if (!(await showTeamActionConfirm({
+        title: 'Eliminar tots els equips',
+        body: message,
+        confirmLabel: 'Eliminar tots',
+        tone: 'danger',
+      }))) return;
+      try {
+        const data = await postJson(url, { context_code: state.contextCode });
+        if (!data.ok) return showAlert("No s'han pogut eliminar tots els equips.");
+        state.selectedIds = new Set(getExternalSelectionIds());
+        state.selectedTeamId = '';
+        state.selectedTeamDetail = null;
+        state.selectedTeamMembersPage = 1;
+        state.selectedRightPaneTab = 'preview';
+        state.editingTeamIds = new Set();
+        resetPreview();
+        await refreshWorkspace({ clearSelection: true });
+        await showTeamActionSuccess({
+          title: 'Equips eliminats',
+          body: state.contextCode === 'native'
+            ? "Tots els equips del context Base s'han eliminat."
+            : "Tots els equips d'aquest context s'han eliminat.",
+        });
+      } catch (err) {
+        showAlert(`No s'han pogut eliminar tots els equips.\n${err.message || err}`);
+      }
+    });
+  }
+
+  const deleteEmpty = document.getElementById('btn-team-workspace-delete-empty');
+  if (deleteEmpty) {
+    deleteEmpty.addEventListener('click', async () => {
+      const message = state.contextCode === 'native'
+        ? "Vols eliminar els equips buits del context Base?"
+        : "Vols eliminar els equips buits d'aquest context?";
+      if (!(await showTeamActionConfirm({
+        title: 'Eliminar equips buits',
+        body: message,
+        confirmLabel: 'Eliminar buits',
+        tone: 'danger',
+      }))) return;
+      try {
+        const data = await postJson(deleteEmptyUrl, { context_code: state.contextCode });
+        if (!data.ok) return showAlert("No s'han pogut eliminar els equips buits.");
+        const deleted = Number(data.deleted || 0);
+        state.selectedIds = new Set(getExternalSelectionIds());
+        state.selectedTeamDetail = null;
+        state.selectedTeamMembersPage = 1;
+        state.editingTeamIds = new Set();
+        resetPreview();
+        await refreshWorkspace({ clearSelection: true });
+        const summary = deleted > 0
+          ? `${deleted} equip(s) buit(s) eliminat(s).`
+          : "No hi havia cap equip buit per eliminar.";
+        await showTeamActionSuccess({
+          title: deleted > 0 ? 'Equips buits eliminats' : 'Sense equips buits',
+          body: summary,
+        });
+      } catch (err) {
+        showAlert(`No s'han pogut eliminar els equips buits.\n${err.message || err}`);
+      }
+    });
+  }
+
+  const previewConfirm = document.getElementById('btn-team-preview-confirm');
+  if (previewConfirm) {
+    previewConfirm.addEventListener('click', async () => {
+      const els = getTeamPreviewElements();
+      if (!lastConfirmableTeamPreview || !lastConfirmableTeamPreview.canConfirm) return;
+      if (!els.root || els.root.dataset.hasPreview !== '1' || els.root.dataset.dirty === '1') return;
+      if (teamPreviewConfirmBusy) return;
+      try {
+        teamPreviewConfirmBusy = true;
+        updateTeamPreviewConfirmUi();
+        await lastConfirmableTeamPreview.execute();
+      } finally {
+        teamPreviewConfirmBusy = false;
+        updateTeamPreviewConfirmUi();
+      }
+    });
+  }
+
+  const previewClear = document.getElementById('btn-team-preview-clear');
+  if (previewClear) previewClear.addEventListener('click', () => clearTeamPreview());
+
+  window.__teamPreviewApi = {
+    setConfirmIntent: setTeamPreviewConfirmIntent,
+    clearConfirmIntent: clearTeamPreviewConfirmIntent,
+  };
+
+  window.__teamWorkspaceApi = {
+    root: teamWorkspaceShell,
+    refresh: refreshWorkspace,
+    setExternalSelection: syncExternalSelection,
+    setSelection: (selectionIds, options = {}) => applySelectionChange(selectionIds, 'set', options),
+    getState: () => ({
+      compactScope: state.compactScope,
+      selectedIds: ids(),
+      contextCode: state.contextCode,
+      filters: { ...state.filters },
+      boardFilters: { ...state.boardFilters },
+    }),
+  };
+
+  restoreWorkspaceState();
+  setContextDetailsOpen(state.contextDetailsOpen);
+  updateRightPaneTabUi();
+  setFiltersToDom(state.filters);
+  setCompactScope(state.compactScope, { skipDirty: true });
+  setBoardFiltersToDom(state.boardFilters, buildBoardFilterOptions([]));
+  setBoardFiltersExpanded(state.boardFiltersExpanded, { skipSave: true });
+  renderTeamBoardFilterPopovers();
+  setAutoBucketViewFiltersToDom(state.autoBucketViewFilters);
+  updateTeamPartitionFieldsPickerUi();
+  setAutoBucketsExpanded(state.autoBucketsExpanded, { skipSave: true });
+  clearTeamPreview();
+  await refreshWorkspace({ resetPage: !state.candidatePage, clearSelection: true });
+  return window.__teamWorkspaceApi;
+};

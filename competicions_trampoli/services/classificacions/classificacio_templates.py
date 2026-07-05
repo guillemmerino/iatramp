@@ -1,0 +1,2392 @@
+import json
+
+from django.utils.text import slugify
+
+from ...models import Equip, EquipContext
+from ..teams.equip_contexts import (
+    NATIVE_EQUIP_CONTEXT_CODE,
+    get_equip_context,
+    normalize_equip_context_code,
+)
+from ...models.classificacions import ClassificacioTemplateGlobal
+from ...models.competicio import Aparell, CompeticioAparell
+from ...models.scoring import ScoringSchema
+from .compute import DEFAULT_SCHEMA
+from .partitions import (
+    BIRTH_YEAR_RANGE_PARTITION_CODE,
+    normalize_particions_config,
+    normalize_particions_v2_entries,
+    particio_codes_from_entries,
+)
+from ..shared.birth_year_ranges import validate_birth_year_range_partition_config
+from .detail_schema_validation import (
+    detail_section_key_for_tipus,
+    validate_detail_schema,
+    validation_details_to_messages,
+)
+
+
+GLOBAL_NATIVE_PARTICIO_FIELDS = [
+    {"code": "categoria", "label": "Categoria", "ui_label": "Categoria (Nativa)", "kind": "builtin", "source": "native"},
+    {"code": "subcategoria", "label": "Subcategoria", "ui_label": "Subcategoria (Nativa)", "kind": "builtin", "source": "native"},
+    {"code": "entitat", "label": "Entitat", "ui_label": "Entitat (Nativa)", "kind": "builtin", "source": "native"},
+    {"code": "sexe", "label": "Sexe", "ui_label": "Sexe (Nativa)", "kind": "builtin", "source": "native"},
+    {"code": "data_naixement", "label": "Data naixement", "ui_label": "Data naixement (Nativa)", "kind": "builtin", "source": "native"},
+    {"code": BIRTH_YEAR_RANGE_PARTITION_CODE, "label": "Forquilla data naixement", "ui_label": "Forquilla data naixement (Derivada)", "kind": "derived", "source": "derived"},
+    {"code": "document", "label": "Document", "ui_label": "Document (Nativa)", "kind": "builtin", "source": "native"},
+    {"code": "grup", "label": "Grup", "ui_label": "Grup (Nativa)", "kind": "builtin", "source": "native"},
+]
+
+GLOBAL_FILTER_KEYS = {
+    "entitats_in",
+    "categories_in",
+    "subcategories_in",
+    "grups_in",
+}
+
+
+def json_clone(value):
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False))
+    except Exception:
+        return {}
+
+
+def _assignment_teams_queryset(competicio, raw_cfg):
+    context_code = _resolve_assignment_context_code(raw_cfg)
+    ctx = get_equip_context(competicio, context_code)
+    if ctx is None:
+        return Equip.objects.none()
+    return Equip.objects.filter(competicio=competicio, context=ctx)
+
+
+def _normalize_assignment_source(raw_cfg):
+    cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+    raw_mode = str(cfg.get("mode") or "native").strip().lower()
+    mode = raw_mode if raw_mode in {"native", "context"} else "native"
+    context_code = normalize_equip_context_code(cfg.get("context_code"))
+    legacy_mode = mode == "native"
+    if legacy_mode:
+        mode = "context"
+        context_code = NATIVE_EQUIP_CONTEXT_CODE
+    fallback = str(cfg.get("fallback") or NATIVE_EQUIP_CONTEXT_CODE).strip().lower()
+    if fallback != NATIVE_EQUIP_CONTEXT_CODE:
+        fallback = NATIVE_EQUIP_CONTEXT_CODE
+    return {
+        "mode": mode,
+        "context_code": context_code,
+        "fallback": fallback,
+        "legacy_mode": legacy_mode,
+    }
+
+
+def _resolve_assignment_context_code(raw_cfg, normalized_assignment_source=None):
+    cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+    assignment_source = (
+        normalized_assignment_source
+        if isinstance(normalized_assignment_source, dict)
+        else _normalize_assignment_source(cfg.get("assignment_source") if isinstance(cfg.get("assignment_source"), dict) else raw_cfg)
+    )
+    assignment_source_provided = isinstance(cfg.get("assignment_source"), dict) and bool(cfg.get("assignment_source"))
+    if assignment_source_provided:
+        return normalize_equip_context_code(assignment_source.get("context_code"))
+    if str(cfg.get("context_code") or "").strip():
+        return normalize_equip_context_code(cfg.get("context_code"))
+    return normalize_equip_context_code(assignment_source.get("context_code"))
+
+
+def canon_app_code(raw) -> str:
+    return str(raw or "").strip().upper()
+
+
+def normalize_particions_v2(raw, fallback_codes=None):
+    return normalize_particions_v2_entries(raw, fallback_codes=fallback_codes)
+
+
+def split_particio_custom_values(raw):
+    if isinstance(raw, list):
+        values = [str(x or "").strip() for x in raw]
+    elif isinstance(raw, str):
+        values = [x.strip() for x in raw.split(",")]
+    else:
+        values = []
+
+    out = []
+    seen = set()
+    for txt in values:
+        if not txt:
+            continue
+        key = " ".join(txt.split()).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(txt)
+    return out
+
+
+def normalize_particions_custom(raw):
+    out = {}
+    if not isinstance(raw, dict):
+        return out
+
+    for field_code, cfg in raw.items():
+        code = str(field_code or "").strip()
+        if not code or not isinstance(cfg, dict):
+            continue
+
+        mode = str(cfg.get("mode") or "raw").strip().lower()
+        if mode not in {"raw", "custom"}:
+            mode = "raw"
+
+        fallback_label = str(cfg.get("fallback_label") or "").strip()
+        groups = []
+        for idx, group in enumerate(cfg.get("grups") or []):
+            if not isinstance(group, dict):
+                continue
+            label = (
+                str(group.get("label") or group.get("key") or f"Grup {idx + 1}").strip()
+                or f"Grup {idx + 1}"
+            )
+            values = split_particio_custom_values(group.get("values"))
+            if not values and not label:
+                continue
+            groups.append(
+                {
+                    "key": str(group.get("key") or f"grp_{idx + 1}").strip() or f"grp_{idx + 1}",
+                    "label": label,
+                    "values": values,
+                }
+            )
+
+        out[code] = {
+            "mode": mode,
+            "fallback_label": fallback_label,
+            "grups": groups,
+        }
+    return out
+
+
+def normalize_particions_schema(schema):
+    if not isinstance(schema, dict):
+        return {}
+    out = dict(schema)
+    part_entries = normalize_particions_v2(
+        schema.get("particions_v2") or [],
+        fallback_codes=schema.get("particions") or [],
+    )
+    out["particions_v2"] = part_entries
+    out["particions"] = particio_codes_from_entries(part_entries)
+    out["particions_custom"] = normalize_particions_custom(schema.get("particions_custom") or {})
+    out["particions_config"] = normalize_particions_config(schema.get("particions_config") or {})
+    return out
+
+
+def validate_particions_config_global(schema: dict, *, tipus="individual"):
+    schema = schema or {}
+    errors = []
+    part_entries = normalize_particions_v2(
+        schema.get("particions_v2") or [],
+        fallback_codes=schema.get("particions") or [],
+    )
+    parts = particio_codes_from_entries(part_entries)
+    if BIRTH_YEAR_RANGE_PARTITION_CODE not in parts:
+        return errors
+    _cfg, cfg_errors = validate_birth_year_range_partition_config(
+        ((schema.get("particions_config") or {}).get(BIRTH_YEAR_RANGE_PARTITION_CODE)),
+        require_ranges=True,
+    )
+    for err in cfg_errors:
+        errors.append(f"particions_config.any_naixement_forquilla: {err}")
+    return errors
+
+
+def extract_template_schema(payload_or_schema):
+    if not isinstance(payload_or_schema, dict):
+        return {}
+    if isinstance(payload_or_schema.get("schema"), dict):
+        return json_clone(payload_or_schema.get("schema") or {})
+    return json_clone(payload_or_schema)
+
+
+def _iter_presentacio_column_groups(presentacio):
+    if not isinstance(presentacio, dict):
+        return []
+    groups = [("presentacio.columnes", presentacio.get("columnes"))]
+    detail = presentacio.get("detall")
+    if isinstance(detail, dict):
+        groups.append(("presentacio.detall.columnes", detail.get("columnes")))
+        sections = detail.get("sections") or []
+        if isinstance(sections, list):
+            for idx, section in enumerate(sections):
+                if not isinstance(section, dict):
+                    continue
+                groups.append((f"presentacio.detall.sections[{idx}].columns", section.get("columns")))
+    return groups
+
+
+def _assign_presentacio_column_group(presentacio, path, cols_out):
+    if path == "presentacio.columnes":
+        presentacio["columnes"] = cols_out
+        return
+    detail = presentacio.get("detall") if isinstance(presentacio.get("detall"), dict) else {}
+    if path == "presentacio.detall.columnes":
+        detail["columnes"] = cols_out
+        presentacio["detall"] = detail
+        return
+    if path.startswith("presentacio.detall.sections[") and path.endswith("].columns"):
+        raw_idx = path[len("presentacio.detall.sections[") : -len("].columns")]
+        try:
+            idx = int(raw_idx)
+        except Exception:
+            return
+        sections = detail.get("sections") if isinstance(detail.get("sections"), list) else []
+        if 0 <= idx < len(sections) and isinstance(sections[idx], dict):
+            sections[idx]["columns"] = cols_out
+            detail["sections"] = sections
+            presentacio["detall"] = detail
+
+
+def _map_tie_pipeline_app_refs(
+    pipeline,
+    resolver,
+    *,
+    prefix="",
+    warnings=None,
+    missing_reason="no exportat",
+    max_exercises_by_app=None,
+):
+    if not isinstance(pipeline, dict):
+        return pipeline
+    warnings = warnings if isinstance(warnings, list) else []
+
+    def map_keys(raw_map, label):
+        if not isinstance(raw_map, dict):
+            return raw_map
+        out = {}
+        for raw_key, raw_value in raw_map.items():
+            mapped = resolver(raw_key)
+            if not mapped:
+                warnings.append(f"{label}: aparell no exportat ({raw_key})")
+                continue
+            out[str(mapped)] = raw_value
+        return out
+
+    def map_ids(raw_ids, label):
+        if not isinstance(raw_ids, list):
+            return raw_ids
+        out = []
+        seen = set()
+        for raw in raw_ids:
+            mapped = resolver(raw)
+            if not mapped:
+                warnings.append(f"{label} no exportat: {raw}")
+                continue
+            key = str(mapped)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(mapped)
+        return out
+
+    out = dict(pipeline)
+    apps = out.get("aparells") if isinstance(out.get("aparells"), dict) else {}
+    if isinstance(apps, dict):
+        apps2 = dict(apps)
+        apps2["ids"] = map_ids(apps.get("ids") or [], f"{prefix}.aparells.ids")
+        out["aparells"] = apps2
+    out["camps_per_aparell"] = map_keys(out.get("camps_per_aparell") or {}, f"{prefix}.camps_per_aparell")
+    out["agregacio_camps_per_aparell"] = map_keys(
+        out.get("agregacio_camps_per_aparell") or {},
+        f"{prefix}.agregacio_camps_per_aparell",
+    )
+    out["camps_mode_per_aparell"] = map_keys(
+        out.get("camps_mode_per_aparell") or {},
+        f"{prefix}.camps_mode_per_aparell",
+    )
+    out["camps_per_exercici_per_aparell"] = _map_per_app_exercise_map(
+        out.get("camps_per_exercici_per_aparell") or {},
+        resolver,
+        field_label=f"{prefix}.camps_per_exercici_per_aparell",
+        warnings=warnings,
+        missing_reason=missing_reason,
+        max_exercises_by_app=max_exercises_by_app,
+    )
+    out["agregacio_camps_per_exercici_per_aparell"] = _map_per_app_exercise_map(
+        out.get("agregacio_camps_per_exercici_per_aparell") or {},
+        resolver,
+        field_label=f"{prefix}.agregacio_camps_per_exercici_per_aparell",
+        warnings=warnings,
+        missing_reason=missing_reason,
+        max_exercises_by_app=max_exercises_by_app,
+    )
+    out["candidate_source_per_aparell"] = map_keys(
+        out.get("candidate_source_per_aparell") or {},
+        f"{prefix}.candidate_source_per_aparell",
+    )
+    out["exercicis_per_aparell"] = map_keys(out.get("exercicis_per_aparell") or {}, f"{prefix}.exercicis_per_aparell")
+    out["agregacio_exercicis_per_aparell"] = map_keys(
+        out.get("agregacio_exercicis_per_aparell") or {},
+        f"{prefix}.agregacio_exercicis_per_aparell",
+    )
+    return out
+
+
+def _iter_presentacio_detail_sections(presentacio):
+    if not isinstance(presentacio, dict):
+        return []
+    detail = presentacio.get("detall")
+    if not isinstance(detail, dict):
+        return []
+    sections = detail.get("sections")
+    if not isinstance(sections, list):
+        return []
+    out = []
+    for idx, section in enumerate(sections):
+        if not isinstance(section, dict):
+            continue
+        out.append((idx, section))
+    return out
+
+
+def get_comp_aparell_maps(competicio, active_only=True):
+    qs = CompeticioAparell.objects.filter(competicio=competicio).select_related("aparell").order_by("ordre", "id")
+    if active_only:
+        qs = qs.filter(actiu=True)
+    apps = list(qs)
+    by_id = {int(ca.id): ca for ca in apps}
+    by_code = {}
+    for ca in apps:
+        code = canon_app_code(getattr(ca, "display_codi", None) or getattr(ca.aparell, "codi", ""))
+        if code and code not in by_code:
+            by_code[code] = ca
+    return apps, by_id, by_code
+
+
+def get_global_aparell_maps(user, include_inactive=False, include_all_owners=False):
+    qs = Aparell.objects.all().order_by("nom", "id")
+    if not include_all_owners:
+        qs = qs.filter(created_by=user)
+    if not include_inactive:
+        qs = qs.filter(actiu=True)
+    apps = list(qs)
+    by_id = {int(app.id): app for app in apps}
+    by_code = {}
+    for app in apps:
+        code = canon_app_code(getattr(app, "codi", ""))
+        if code and code not in by_code:
+            by_code[code] = app
+    return apps, by_id, by_code
+
+
+def resolve_app_code_for_template(raw, by_id, by_code):
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        txt = raw.strip()
+        if not txt:
+            return None
+        code = canon_app_code(txt)
+        if code in by_code:
+            return code
+        try:
+            app_id = int(txt)
+        except Exception:
+            return None
+        obj = by_id.get(app_id)
+        if not obj:
+            return None
+        if isinstance(obj, CompeticioAparell):
+            return canon_app_code(getattr(obj, "display_codi", ""))
+        app = getattr(obj, "aparell", obj)
+        return canon_app_code(getattr(app, "codi", ""))
+    try:
+        app_id = int(raw)
+    except Exception:
+        return None
+    obj = by_id.get(app_id)
+    if not obj:
+        return None
+    if isinstance(obj, CompeticioAparell):
+        return canon_app_code(getattr(obj, "display_codi", ""))
+    app = getattr(obj, "aparell", obj)
+    return canon_app_code(getattr(app, "codi", ""))
+
+
+def resolve_app_id(raw, by_id, by_code):
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        txt = raw.strip()
+        if not txt:
+            return None
+        code = canon_app_code(txt)
+        if code in by_code:
+            return int(by_code[code].id)
+        try:
+            app_id = int(txt)
+        except Exception:
+            return None
+        return app_id if app_id in by_id else None
+    try:
+        app_id = int(raw)
+    except Exception:
+        return None
+    return app_id if app_id in by_id else None
+
+
+def _normalize_exercise_key(raw):
+    txt = str(raw or "").strip()
+    if not txt:
+        return "", None
+    try:
+        exercise = int(txt)
+    except Exception:
+        return txt, None
+    return str(exercise), exercise
+
+
+def _map_per_app_exercise_map(
+    raw_map,
+    resolver,
+    *,
+    field_label="",
+    warnings=None,
+    missing_reason="no disponible",
+    max_exercises_by_app=None,
+):
+    out = {}
+    if not isinstance(raw_map, dict):
+        return out
+
+    warnings = warnings if isinstance(warnings, list) else []
+    max_exercises_by_app = max_exercises_by_app if isinstance(max_exercises_by_app, dict) else {}
+
+    for raw_key, raw_value in raw_map.items():
+        mapped = resolver(raw_key)
+        if not mapped:
+            if field_label:
+                warnings.append(f"{field_label}: aparell {missing_reason} ({raw_key})")
+            continue
+
+        app_key = str(mapped)
+        if not isinstance(raw_value, dict):
+            out[app_key] = json_clone(raw_value)
+            continue
+
+        max_exercises = max_exercises_by_app.get(app_key)
+        try:
+            max_exercises = int(max_exercises or 0)
+        except Exception:
+            max_exercises = 0
+        if max_exercises <= 0:
+            max_exercises = None
+
+        exercise_map = {}
+        for raw_exercise, exercise_value in raw_value.items():
+            exercise_key, exercise_num = _normalize_exercise_key(raw_exercise)
+            if not exercise_key:
+                continue
+            if max_exercises is not None and exercise_num is not None and (exercise_num < 1 or exercise_num > max_exercises):
+                continue
+            exercise_map[exercise_key] = json_clone(exercise_value)
+        out[app_key] = exercise_map
+
+    return out
+
+
+def next_template_slug(base_name: str, owner_id: int, exclude_template_id=None):
+    base = slugify(base_name or "") or "classificacio-template"
+    slug = base
+    idx = 2
+    qs = ClassificacioTemplateGlobal.objects.filter(created_by_id=owner_id)
+    if exclude_template_id:
+        qs = qs.exclude(id=exclude_template_id)
+    existing = set(qs.values_list("slug", flat=True))
+    while slug in existing:
+        slug = f"{base}-{idx}"
+        idx += 1
+    return slug
+
+
+def schema_to_template_schema(competicio, schema_local):
+    schema = json_clone(schema_local or {})
+    warnings = []
+
+    _apps_all, by_id_all, by_code_all = get_comp_aparell_maps(competicio, active_only=False)
+    punt = schema.get("puntuacio") or {}
+    if not isinstance(punt, dict):
+        punt = {}
+    schema["puntuacio"] = punt
+
+    raw_apps = punt.get("aparells") or {}
+    if not isinstance(raw_apps, dict):
+        raw_apps = {}
+    ids_in = raw_apps.get("ids") or []
+    ids_out = []
+    seen_codes = set()
+    for raw in ids_in if isinstance(ids_in, list) else []:
+        code = resolve_app_code_for_template(raw, by_id_all, by_code_all)
+        if not code:
+            warnings.append(f"Aparell no exportat (ids): {raw}")
+            continue
+        if code in seen_codes:
+            continue
+        seen_codes.add(code)
+        ids_out.append(code)
+    punt["aparells"] = {"mode": "seleccionar", "ids": ids_out}
+
+    def map_keys_to_codes(raw_map, field_label):
+        out = {}
+        if not isinstance(raw_map, dict):
+            return out
+        for raw_key, raw_value in raw_map.items():
+            code = resolve_app_code_for_template(raw_key, by_id_all, by_code_all)
+            if not code:
+                warnings.append(f"{field_label}: aparell no exportat ({raw_key})")
+                continue
+            out[code] = raw_value
+        return out
+
+    def map_tie_item_to_codes(tie, prefix):
+        if not isinstance(tie, dict):
+            return tie
+        item = dict(tie)
+        raw_legacy_app = item.get("aparell_id")
+        if raw_legacy_app not in (None, "", 0, "0"):
+            code = resolve_app_code_for_template(raw_legacy_app, by_id_all, by_code_all)
+            if code:
+                item["aparell_codi"] = code
+            else:
+                warnings.append(f"{prefix}.aparell_id no exportat: {raw_legacy_app}")
+            item.pop("aparell_id", None)
+
+        scope = item.get("scope") or {}
+        if isinstance(scope, dict):
+            scope2 = dict(scope)
+            apps = scope2.get("aparells") or {}
+            if isinstance(apps, dict):
+                ids_scope = apps.get("ids") or []
+                ids_scope_out = []
+                seen_scope = set()
+                for raw in ids_scope if isinstance(ids_scope, list) else []:
+                    code = resolve_app_code_for_template(raw, by_id_all, by_code_all)
+                    if not code:
+                        warnings.append(f"{prefix}.scope.aparells.ids no exportat: {raw}")
+                        continue
+                    if code in seen_scope:
+                        continue
+                    seen_scope.add(code)
+                    ids_scope_out.append(code)
+                apps2 = dict(apps)
+                apps2["ids"] = ids_scope_out
+                scope2["aparells"] = apps2
+            item["scope"] = scope2
+
+        item["exercicis_per_aparell"] = map_keys_to_codes(
+            item.get("exercicis_per_aparell") or {},
+            f"{prefix}.exercicis_per_aparell",
+        )
+        item["agregacio_exercicis_per_aparell"] = map_keys_to_codes(
+            item.get("agregacio_exercicis_per_aparell") or {},
+            f"{prefix}.agregacio_exercicis_per_aparell",
+        )
+        if isinstance(item.get("pipeline"), dict):
+            item["pipeline"] = _map_tie_pipeline_app_refs(
+                item.get("pipeline"),
+                lambda raw: resolve_app_code_for_template(raw, by_id_all, by_code_all),
+                prefix=f"{prefix}.pipeline",
+                warnings=warnings,
+                missing_reason="no exportat",
+            )
+        return item
+
+    punt["camps_per_aparell"] = map_keys_to_codes(punt.get("camps_per_aparell") or {}, "camps_per_aparell")
+    punt["agregacio_camps_per_aparell"] = map_keys_to_codes(
+        punt.get("agregacio_camps_per_aparell") or {},
+        "agregacio_camps_per_aparell",
+    )
+    punt["camps_mode_per_aparell"] = map_keys_to_codes(
+        punt.get("camps_mode_per_aparell") or {},
+        "camps_mode_per_aparell",
+    )
+    punt["camps_per_exercici_per_aparell"] = _map_per_app_exercise_map(
+        punt.get("camps_per_exercici_per_aparell") or {},
+        lambda raw: resolve_app_code_for_template(raw, by_id_all, by_code_all),
+        field_label="camps_per_exercici_per_aparell",
+        warnings=warnings,
+        missing_reason="no exportat",
+    )
+    punt["agregacio_camps_per_exercici_per_aparell"] = _map_per_app_exercise_map(
+        punt.get("agregacio_camps_per_exercici_per_aparell") or {},
+        lambda raw: resolve_app_code_for_template(raw, by_id_all, by_code_all),
+        field_label="agregacio_camps_per_exercici_per_aparell",
+        warnings=warnings,
+        missing_reason="no exportat",
+    )
+    punt["exercicis_per_aparell"] = map_keys_to_codes(
+        punt.get("exercicis_per_aparell") or {},
+        "exercicis_per_aparell",
+    )
+    punt["agregacio_exercicis_per_aparell"] = map_keys_to_codes(
+        punt.get("agregacio_exercicis_per_aparell") or {},
+        "agregacio_exercicis_per_aparell",
+    )
+    punt["candidate_source_per_aparell"] = map_keys_to_codes(
+        punt.get("candidate_source_per_aparell") or {},
+        "candidate_source_per_aparell",
+    )
+    punt["participants_per_aparell"] = map_keys_to_codes(
+        punt.get("participants_per_aparell") or {},
+        "participants_per_aparell",
+    )
+    punt["agregacio_participants_per_aparell"] = map_keys_to_codes(
+        punt.get("agregacio_participants_per_aparell") or {},
+        "agregacio_participants_per_aparell",
+    )
+    victories = punt.get("victories") or {}
+    if isinstance(victories, dict):
+        victories_out = dict(victories)
+        compare_ties = victories_out.get("desempat_comparacio") or []
+        if isinstance(compare_ties, list):
+            victories_out["desempat_comparacio"] = [
+                map_tie_item_to_codes(tie, f"puntuacio.victories.desempat_comparacio[{idx}]")
+                for idx, tie in enumerate(compare_ties)
+            ]
+        punt["victories"] = victories_out
+
+    desempat = schema.get("desempat") or []
+    if not isinstance(desempat, list):
+        desempat = []
+    schema["desempat"] = [
+        map_tie_item_to_codes(tie, f"desempat[{idx}]")
+        for idx, tie in enumerate(desempat)
+    ]
+
+    presentacio = schema.get("presentacio") or {}
+    if not isinstance(presentacio, dict):
+        presentacio = {}
+    for path, cols in _iter_presentacio_column_groups(presentacio):
+        if not isinstance(cols, list):
+            continue
+        cols_out = []
+        for idx, col in enumerate(cols):
+            if not isinstance(col, dict):
+                cols_out.append(col)
+                continue
+            item = dict(col)
+            ctype = str(item.get("type") or "builtin").strip().lower()
+            if ctype == "raw":
+                src = item.get("source") if isinstance(item.get("source"), dict) else {}
+                src2 = dict(src)
+                code = resolve_app_code_for_template(src2.get("aparell_codi"), by_id_all, by_code_all)
+                if not code:
+                    code = resolve_app_code_for_template(src2.get("aparell_id"), by_id_all, by_code_all)
+                if code:
+                    src2["aparell_codi"] = code
+                elif src2.get("aparell_id") not in (None, "", 0, "0"):
+                    warnings.append(f"{path}[{idx}] raw: aparell no exportat")
+                src2.pop("aparell_id", None)
+                item.pop("aparell_id", None)
+                item["source"] = src2
+            elif ctype == "metric":
+                code = resolve_app_code_for_template(item.get("aparell_codi"), by_id_all, by_code_all)
+                if not code:
+                    code = resolve_app_code_for_template(item.get("aparell_id"), by_id_all, by_code_all)
+                if code:
+                    item["aparell_codi"] = code
+                item.pop("aparell_id", None)
+            cols_out.append(item)
+        _assign_presentacio_column_group(presentacio, path, cols_out)
+    for sidx, section in _iter_presentacio_detail_sections(presentacio):
+        raw_app = section.get("aparell_id", section.get("aparell_codi"))
+        if raw_app in (None, "", 0, "0"):
+            continue
+        code = resolve_app_code_for_template(raw_app, by_id_all, by_code_all)
+        if code:
+            section["aparell_codi"] = code
+        else:
+            warnings.append(f"presentacio.detall.sections[{sidx}].aparell_id no exportat: {raw_app}")
+        section.pop("aparell_id", None)
+    schema["presentacio"] = presentacio
+
+    equips_cfg = schema.get("equips") or {}
+    if isinstance(equips_cfg, dict):
+        assignment_source = _normalize_assignment_source(equips_cfg.get("assignment_source"))
+        context_code = _resolve_assignment_context_code(
+            equips_cfg,
+            normalized_assignment_source=assignment_source,
+        )
+        if assignment_source.get("legacy_mode"):
+            warnings.append("equips.assignment_source.mode='native' detectat; es normalitza al context Base.")
+        equips_cfg["assignment_source"] = assignment_source
+        equips_cfg["context_code"] = context_code
+        manual = equips_cfg.get("particions_manuals") or []
+        if isinstance(manual, list):
+            team_name_by_id = {
+                int(e.id): str(e.nom or "").strip()
+                for e in _assignment_teams_queryset(competicio, {"context_code": context_code}).only("id", "nom")
+            }
+            manual_out = []
+            for idx, item in enumerate(manual):
+                if not isinstance(item, dict):
+                    manual_out.append(item)
+                    continue
+                row = dict(item)
+                names = []
+                seen_names = set()
+                for raw_id in (row.get("equip_ids") or []):
+                    try:
+                        eid = int(raw_id)
+                    except Exception:
+                        continue
+                    name = str(team_name_by_id.get(eid) or "").strip()
+                    if not name:
+                        warnings.append(f"equips.particions_manuals[{idx}]: equip {eid} no exportat")
+                        continue
+                    key = name.casefold()
+                    if key in seen_names:
+                        continue
+                    seen_names.add(key)
+                    names.append(name)
+                row.pop("equip_ids", None)
+                row["equips_noms"] = names
+                manual_out.append(row)
+            equips_cfg["particions_manuals"] = manual_out
+            schema["equips"] = equips_cfg
+
+    return schema, warnings
+
+
+def template_schema_to_competicio_schema(competicio, schema_tpl):
+    schema = json_clone(schema_tpl or {})
+    warnings = []
+    compat_meta = {
+        "portable": True,
+        "missing_context_codes": [],
+        "unresolved_manual_team_partitions": [],
+    }
+
+    _apps_active, by_id_active, by_code_active = get_comp_aparell_maps(competicio, active_only=True)
+    mapping = {code: int(ca.id) for code, ca in by_code_active.items()}
+    max_exercises_by_app = {
+        str(ca.id): max(1, int(getattr(ca, "nombre_exercicis", 1) or 1))
+        for ca in by_id_active.values()
+    }
+
+    punt = schema.get("puntuacio") or {}
+    if not isinstance(punt, dict):
+        punt = {}
+    schema["puntuacio"] = punt
+
+    raw_apps = punt.get("aparells") or {}
+    if not isinstance(raw_apps, dict):
+        raw_apps = {}
+    ids_in = raw_apps.get("ids") or []
+    ids_out = []
+    seen_ids = set()
+    for raw in ids_in if isinstance(ids_in, list) else []:
+        app_id = resolve_app_id(raw, by_id_active, by_code_active)
+        if not app_id:
+            warnings.append(f"Aparell no disponible a la competicio: {raw}")
+            continue
+        if app_id in seen_ids:
+            continue
+        seen_ids.add(app_id)
+        ids_out.append(app_id)
+    punt["aparells"] = {"mode": "seleccionar", "ids": ids_out}
+
+    def map_keys_to_ids(raw_map, field_label):
+        out = {}
+        if not isinstance(raw_map, dict):
+            return out
+        for raw_key, raw_value in raw_map.items():
+            app_id = resolve_app_id(raw_key, by_id_active, by_code_active)
+            if not app_id:
+                warnings.append(f"{field_label}: aparell no disponible ({raw_key})")
+                continue
+            out[str(app_id)] = raw_value
+        return out
+
+    def map_tie_item_to_ids(tie, prefix):
+        if not isinstance(tie, dict):
+            return tie
+        item = dict(tie)
+        raw_code = item.get("aparell_codi")
+        if raw_code not in (None, "", 0, "0"):
+            app_id = resolve_app_id(raw_code, by_id_active, by_code_active)
+            if app_id:
+                item["aparell_id"] = app_id
+            else:
+                warnings.append(f"{prefix}.aparell_codi no disponible: {raw_code}")
+        item.pop("aparell_codi", None)
+
+        scope = item.get("scope") or {}
+        if isinstance(scope, dict):
+            scope2 = dict(scope)
+            apps = scope2.get("aparells") or {}
+            if isinstance(apps, dict):
+                ids_scope = apps.get("ids") or []
+                ids_scope_out = []
+                seen_scope = set()
+                for raw in ids_scope if isinstance(ids_scope, list) else []:
+                    app_id = resolve_app_id(raw, by_id_active, by_code_active)
+                    if not app_id:
+                        warnings.append(f"{prefix}.scope.aparells.ids no disponible: {raw}")
+                        continue
+                    if app_id in seen_scope:
+                        continue
+                    seen_scope.add(app_id)
+                    ids_scope_out.append(app_id)
+                apps2 = dict(apps)
+                apps2["ids"] = ids_scope_out
+                scope2["aparells"] = apps2
+            item["scope"] = scope2
+
+        item["exercicis_per_aparell"] = map_keys_to_ids(
+            item.get("exercicis_per_aparell") or {},
+            f"{prefix}.exercicis_per_aparell",
+        )
+        item["agregacio_exercicis_per_aparell"] = map_keys_to_ids(
+            item.get("agregacio_exercicis_per_aparell") or {},
+            f"{prefix}.agregacio_exercicis_per_aparell",
+        )
+        if isinstance(item.get("pipeline"), dict):
+            item["pipeline"] = _map_tie_pipeline_app_refs(
+                item.get("pipeline"),
+                lambda raw: resolve_app_id(raw, by_id_active, by_code_active),
+                prefix=f"{prefix}.pipeline",
+                warnings=warnings,
+                missing_reason="no disponible",
+                max_exercises_by_app=max_exercises_by_app,
+            )
+        return item
+
+    punt["camps_per_aparell"] = map_keys_to_ids(punt.get("camps_per_aparell") or {}, "camps_per_aparell")
+    punt["agregacio_camps_per_aparell"] = map_keys_to_ids(
+        punt.get("agregacio_camps_per_aparell") or {},
+        "agregacio_camps_per_aparell",
+    )
+    punt["camps_mode_per_aparell"] = map_keys_to_ids(
+        punt.get("camps_mode_per_aparell") or {},
+        "camps_mode_per_aparell",
+    )
+    punt["camps_per_exercici_per_aparell"] = _map_per_app_exercise_map(
+        punt.get("camps_per_exercici_per_aparell") or {},
+        lambda raw: resolve_app_id(raw, by_id_active, by_code_active),
+        field_label="camps_per_exercici_per_aparell",
+        warnings=warnings,
+        max_exercises_by_app=max_exercises_by_app,
+    )
+    punt["agregacio_camps_per_exercici_per_aparell"] = _map_per_app_exercise_map(
+        punt.get("agregacio_camps_per_exercici_per_aparell") or {},
+        lambda raw: resolve_app_id(raw, by_id_active, by_code_active),
+        field_label="agregacio_camps_per_exercici_per_aparell",
+        warnings=warnings,
+        max_exercises_by_app=max_exercises_by_app,
+    )
+    punt["exercicis_per_aparell"] = map_keys_to_ids(
+        punt.get("exercicis_per_aparell") or {},
+        "exercicis_per_aparell",
+    )
+    punt["agregacio_exercicis_per_aparell"] = map_keys_to_ids(
+        punt.get("agregacio_exercicis_per_aparell") or {},
+        "agregacio_exercicis_per_aparell",
+    )
+    punt["candidate_source_per_aparell"] = map_keys_to_ids(
+        punt.get("candidate_source_per_aparell") or {},
+        "candidate_source_per_aparell",
+    )
+    punt["participants_per_aparell"] = map_keys_to_ids(
+        punt.get("participants_per_aparell") or {},
+        "participants_per_aparell",
+    )
+    punt["agregacio_participants_per_aparell"] = map_keys_to_ids(
+        punt.get("agregacio_participants_per_aparell") or {},
+        "agregacio_participants_per_aparell",
+    )
+    victories = punt.get("victories") or {}
+    if isinstance(victories, dict):
+        victories_out = dict(victories)
+        compare_ties = victories_out.get("desempat_comparacio") or []
+        if isinstance(compare_ties, list):
+            victories_out["desempat_comparacio"] = [
+                map_tie_item_to_ids(tie, f"puntuacio.victories.desempat_comparacio[{idx}]")
+                for idx, tie in enumerate(compare_ties)
+            ]
+        punt["victories"] = victories_out
+
+    desempat = schema.get("desempat") or []
+    if not isinstance(desempat, list):
+        desempat = []
+    schema["desempat"] = [
+        map_tie_item_to_ids(tie, f"desempat[{idx}]")
+        for idx, tie in enumerate(desempat)
+    ]
+
+    presentacio = schema.get("presentacio") or {}
+    if isinstance(presentacio, dict):
+        for path, cols in _iter_presentacio_column_groups(presentacio):
+            if not isinstance(cols, list):
+                continue
+            cols_out = []
+            for idx, col in enumerate(cols):
+                if not isinstance(col, dict):
+                    cols_out.append(col)
+                    continue
+                item = dict(col)
+                ctype = str(item.get("type") or "builtin").strip().lower()
+                if ctype == "raw":
+                    src = item.get("source") if isinstance(item.get("source"), dict) else {}
+                    src2 = dict(src)
+                    app_id = resolve_app_id(src2.get("aparell_codi"), by_id_active, by_code_active)
+                    if not app_id:
+                        app_id = resolve_app_id(src2.get("aparell_id"), by_id_active, by_code_active)
+                    if app_id:
+                        src2["aparell_id"] = app_id
+                    elif src2.get("aparell_codi") not in (None, "", 0, "0") or src2.get("aparell_id") not in (None, "", 0, "0"):
+                        warnings.append(f"{path}[{idx}] raw: aparell no disponible")
+                    src2.pop("aparell_codi", None)
+                    item["source"] = src2
+                    item.pop("aparell_codi", None)
+                elif ctype == "metric":
+                    app_id = resolve_app_id(item.get("aparell_codi"), by_id_active, by_code_active)
+                    if not app_id:
+                        app_id = resolve_app_id(item.get("aparell_id"), by_id_active, by_code_active)
+                    if app_id:
+                        item["aparell_id"] = app_id
+                    item.pop("aparell_codi", None)
+                cols_out.append(item)
+            _assign_presentacio_column_group(presentacio, path, cols_out)
+        for sidx, section in _iter_presentacio_detail_sections(presentacio):
+            raw_app = section.get("aparell_codi", section.get("aparell_id"))
+            if raw_app in (None, "", 0, "0"):
+                section.pop("aparell_codi", None)
+                continue
+            app_id = resolve_app_id(raw_app, by_id_active, by_code_active)
+            if app_id:
+                section["aparell_id"] = app_id
+            else:
+                warnings.append(f"presentacio.detall.sections[{sidx}].aparell_codi no disponible: {raw_app}")
+            section.pop("aparell_codi", None)
+        schema["presentacio"] = presentacio
+
+    equips_cfg = schema.get("equips") or {}
+    if isinstance(equips_cfg, dict):
+        assignment_source = _normalize_assignment_source(equips_cfg.get("assignment_source"))
+        context_code = _resolve_assignment_context_code(
+            equips_cfg,
+            normalized_assignment_source=assignment_source,
+        )
+        valid_codes = set(
+            EquipContext.objects
+            .filter(competicio=competicio)
+            .values_list("code", flat=True)
+        )
+        if context_code not in valid_codes:
+            warnings.append(
+                f"equips.context_code '{context_code}' no trobat a la competicio desti"
+            )
+            compat_meta["missing_context_codes"].append(context_code)
+        equips_cfg["assignment_source"] = assignment_source
+        equips_cfg["context_code"] = context_code
+        manual = equips_cfg.get("particions_manuals") or []
+        if isinstance(manual, list):
+            teams = list(_assignment_teams_queryset(competicio, {"context_code": context_code}).only("id", "nom"))
+            id_by_name = {}
+            for t in teams:
+                key = str(t.nom or "").strip().casefold()
+                if key and key not in id_by_name:
+                    id_by_name[key] = int(t.id)
+            manual_out = []
+            for idx, item in enumerate(manual):
+                if not isinstance(item, dict):
+                    manual_out.append(item)
+                    continue
+                row = dict(item)
+                names = row.get("equips_noms") or []
+                out_ids = []
+                seen_eq = set()
+                missing_names = []
+                for raw_name in names if isinstance(names, list) else []:
+                    key = str(raw_name or "").strip().casefold()
+                    if not key:
+                        continue
+                    eid = id_by_name.get(key)
+                    if not eid:
+                        warnings.append(
+                            f"equips.particions_manuals[{idx}]: equip '{raw_name}' no trobat al context seleccionat"
+                        )
+                        missing_names.append(str(raw_name or "").strip())
+                        continue
+                    if eid in seen_eq:
+                        continue
+                    seen_eq.add(eid)
+                    out_ids.append(eid)
+                row["equip_ids"] = out_ids
+                if isinstance(names, list):
+                    row["equips_noms"] = [str(name or "").strip() for name in names if str(name or "").strip()]
+                if missing_names:
+                    compat_meta["unresolved_manual_team_partitions"].append(
+                        {
+                            "index": idx,
+                            "label": str(row.get("label") or row.get("key") or f"Particio {idx + 1}").strip(),
+                            "context_code": context_code,
+                            "missing_names": missing_names,
+                        }
+                    )
+                manual_out.append(row)
+            equips_cfg["particions_manuals"] = manual_out
+            schema["equips"] = equips_cfg
+
+    compat_meta["missing_context_codes"] = sorted(
+        {normalize_equip_context_code(code) for code in compat_meta["missing_context_codes"] if str(code or "").strip()}
+    )
+    compat_meta["adaptable"] = bool(
+        compat_meta["missing_context_codes"] or compat_meta["unresolved_manual_team_partitions"]
+    )
+
+    return schema, warnings, mapping, compat_meta
+
+
+def template_schema_to_global_ui_schema(schema_tpl, by_id, by_code):
+    schema = json_clone(schema_tpl or {})
+    warnings = []
+
+    punt = schema.get("puntuacio") or {}
+    if not isinstance(punt, dict):
+        punt = {}
+    schema["puntuacio"] = punt
+
+    raw_apps = punt.get("aparells") or {}
+    if not isinstance(raw_apps, dict):
+        raw_apps = {}
+    ids_in = raw_apps.get("ids") or []
+    ids_out = []
+    seen_ids = set()
+    for raw in ids_in if isinstance(ids_in, list) else []:
+        app_id = resolve_app_id(raw, by_id, by_code)
+        if not app_id:
+            warnings.append(f"Aparell global no disponible: {raw}")
+            continue
+        if app_id in seen_ids:
+            continue
+        seen_ids.add(app_id)
+        ids_out.append(app_id)
+    punt["aparells"] = {"mode": "seleccionar", "ids": ids_out}
+
+    def map_keys_to_ids(raw_map):
+        out = {}
+        if not isinstance(raw_map, dict):
+            return out
+        for raw_key, raw_value in raw_map.items():
+            app_id = resolve_app_id(raw_key, by_id, by_code)
+            if app_id:
+                out[str(app_id)] = raw_value
+        return out
+
+    def map_tie_item_to_ids(tie):
+        if not isinstance(tie, dict):
+            return tie
+        item = dict(tie)
+        raw_code = item.get("aparell_codi")
+        if raw_code not in (None, "", 0, "0"):
+            app_id = resolve_app_id(raw_code, by_id, by_code)
+            if app_id:
+                item["aparell_id"] = app_id
+        item.pop("aparell_codi", None)
+
+        scope = item.get("scope") or {}
+        if isinstance(scope, dict):
+            scope2 = dict(scope)
+            apps = scope2.get("aparells") or {}
+            if isinstance(apps, dict):
+                ids_scope = apps.get("ids") or []
+                ids_scope_out = []
+                seen_scope = set()
+                for raw in ids_scope if isinstance(ids_scope, list) else []:
+                    app_id = resolve_app_id(raw, by_id, by_code)
+                    if not app_id or app_id in seen_scope:
+                        continue
+                    seen_scope.add(app_id)
+                    ids_scope_out.append(app_id)
+                apps2 = dict(apps)
+                apps2["ids"] = ids_scope_out
+                scope2["aparells"] = apps2
+            item["scope"] = scope2
+        item["exercicis_per_aparell"] = map_keys_to_ids(item.get("exercicis_per_aparell") or {})
+        item["agregacio_exercicis_per_aparell"] = map_keys_to_ids(item.get("agregacio_exercicis_per_aparell") or {})
+        return item
+
+    punt["camps_per_aparell"] = map_keys_to_ids(punt.get("camps_per_aparell") or {})
+    punt["agregacio_camps_per_aparell"] = map_keys_to_ids(punt.get("agregacio_camps_per_aparell") or {})
+    punt["camps_mode_per_aparell"] = map_keys_to_ids(punt.get("camps_mode_per_aparell") or {})
+    punt["camps_per_exercici_per_aparell"] = _map_per_app_exercise_map(
+        punt.get("camps_per_exercici_per_aparell") or {},
+        lambda raw: resolve_app_id(raw, by_id, by_code),
+    )
+    punt["agregacio_camps_per_exercici_per_aparell"] = _map_per_app_exercise_map(
+        punt.get("agregacio_camps_per_exercici_per_aparell") or {},
+        lambda raw: resolve_app_id(raw, by_id, by_code),
+    )
+    punt["exercicis_per_aparell"] = map_keys_to_ids(punt.get("exercicis_per_aparell") or {})
+    punt["agregacio_exercicis_per_aparell"] = map_keys_to_ids(punt.get("agregacio_exercicis_per_aparell") or {})
+    punt["candidate_source_per_aparell"] = map_keys_to_ids(punt.get("candidate_source_per_aparell") or {})
+    victories = punt.get("victories") or {}
+    if isinstance(victories, dict):
+        victories_out = dict(victories)
+        compare_ties = victories_out.get("desempat_comparacio") or []
+        if isinstance(compare_ties, list):
+            victories_out["desempat_comparacio"] = [map_tie_item_to_ids(tie) for tie in compare_ties]
+        punt["victories"] = victories_out
+
+    desempat = schema.get("desempat") or []
+    if isinstance(desempat, list):
+        schema["desempat"] = [map_tie_item_to_ids(tie) for tie in desempat]
+
+    presentacio = schema.get("presentacio") or {}
+    if isinstance(presentacio, dict):
+        for path, cols in _iter_presentacio_column_groups(presentacio):
+            if not isinstance(cols, list):
+                continue
+            cols_out = []
+            for col in cols:
+                if not isinstance(col, dict):
+                    cols_out.append(col)
+                    continue
+                item = dict(col)
+                ctype = str(item.get("type") or "builtin").strip().lower()
+                if ctype == "raw":
+                    src = item.get("source") if isinstance(item.get("source"), dict) else {}
+                    src2 = dict(src)
+                    app_id = resolve_app_id(src2.get("aparell_id"), by_id, by_code)
+                    if not app_id:
+                        app_id = resolve_app_id(src2.get("aparell_codi"), by_id, by_code)
+                    if app_id:
+                        src2["aparell_id"] = app_id
+                    src2.pop("aparell_codi", None)
+                    item["source"] = src2
+                elif ctype == "metric":
+                    app_id = resolve_app_id(item.get("aparell_codi"), by_id, by_code)
+                    if app_id:
+                        item["aparell_id"] = app_id
+                    item.pop("aparell_codi", None)
+                cols_out.append(item)
+            _assign_presentacio_column_group(presentacio, path, cols_out)
+        for _sidx, section in _iter_presentacio_detail_sections(presentacio):
+            raw_code = section.get("aparell_codi", section.get("aparell_id"))
+            if raw_code in (None, "", 0, "0"):
+                cols = section.get("columns") if isinstance(section.get("columns"), list) else []
+                raw_ids = []
+                for col in cols:
+                    if not isinstance(col, dict):
+                        continue
+                    if str(col.get("type") or "builtin").strip().lower() != "raw":
+                        continue
+                    src = col.get("source") if isinstance(col.get("source"), dict) else {}
+                    app_id = resolve_app_id(src.get("aparell_id") or src.get("aparell_codi"), by_id, by_code)
+                    if app_id and app_id not in raw_ids:
+                        raw_ids.append(app_id)
+                if len(raw_ids) == 1:
+                    section["aparell_id"] = raw_ids[0]
+                section.pop("aparell_codi", None)
+                continue
+            app_id = resolve_app_id(raw_code, by_id, by_code)
+            if app_id:
+                section["aparell_id"] = app_id
+            section.pop("aparell_codi", None)
+        schema["presentacio"] = presentacio
+
+    return schema, warnings
+
+
+def global_ui_schema_to_template_schema(schema_ui, by_id, by_code):
+    schema = json_clone(schema_ui or {})
+    warnings = []
+
+    punt = schema.get("puntuacio") or {}
+    if not isinstance(punt, dict):
+        punt = {}
+    schema["puntuacio"] = punt
+
+    raw_apps = punt.get("aparells") or {}
+    if not isinstance(raw_apps, dict):
+        raw_apps = {}
+    ids_in = raw_apps.get("ids") or []
+    ids_out = []
+    seen_codes = set()
+    for raw in ids_in if isinstance(ids_in, list) else []:
+        code = resolve_app_code_for_template(raw, by_id, by_code)
+        if not code:
+            warnings.append(f"Aparell global no exportat: {raw}")
+            continue
+        if code in seen_codes:
+            continue
+        seen_codes.add(code)
+        ids_out.append(code)
+    punt["aparells"] = {"mode": "seleccionar", "ids": ids_out}
+
+    def map_keys_to_codes(raw_map):
+        out = {}
+        if not isinstance(raw_map, dict):
+            return out
+        for raw_key, raw_value in raw_map.items():
+            code = resolve_app_code_for_template(raw_key, by_id, by_code)
+            if code:
+                out[code] = raw_value
+        return out
+
+    def map_tie_item_to_codes(tie):
+        if not isinstance(tie, dict):
+            return tie
+        item = dict(tie)
+        raw_legacy_app = item.get("aparell_id")
+        if raw_legacy_app not in (None, "", 0, "0"):
+            code = resolve_app_code_for_template(raw_legacy_app, by_id, by_code)
+            if code:
+                item["aparell_codi"] = code
+            item.pop("aparell_id", None)
+
+        scope = item.get("scope") or {}
+        if isinstance(scope, dict):
+            scope2 = dict(scope)
+            apps = scope2.get("aparells") or {}
+            if isinstance(apps, dict):
+                ids_scope = apps.get("ids") or []
+                ids_scope_out = []
+                seen_scope = set()
+                for raw in ids_scope if isinstance(ids_scope, list) else []:
+                    code = resolve_app_code_for_template(raw, by_id, by_code)
+                    if not code or code in seen_scope:
+                        continue
+                    seen_scope.add(code)
+                    ids_scope_out.append(code)
+                apps2 = dict(apps)
+                apps2["ids"] = ids_scope_out
+                scope2["aparells"] = apps2
+            item["scope"] = scope2
+        item["exercicis_per_aparell"] = map_keys_to_codes(item.get("exercicis_per_aparell") or {})
+        item["agregacio_exercicis_per_aparell"] = map_keys_to_codes(item.get("agregacio_exercicis_per_aparell") or {})
+        if isinstance(item.get("pipeline"), dict):
+            item["pipeline"] = _map_tie_pipeline_app_refs(
+                item.get("pipeline"),
+                lambda raw: resolve_app_code_for_template(raw, by_id, by_code),
+                prefix="pipeline",
+                warnings=warnings,
+                missing_reason="no exportat",
+            )
+        return item
+
+    punt["camps_per_aparell"] = map_keys_to_codes(punt.get("camps_per_aparell") or {})
+    punt["agregacio_camps_per_aparell"] = map_keys_to_codes(punt.get("agregacio_camps_per_aparell") or {})
+    punt["camps_mode_per_aparell"] = map_keys_to_codes(punt.get("camps_mode_per_aparell") or {})
+    punt["camps_per_exercici_per_aparell"] = _map_per_app_exercise_map(
+        punt.get("camps_per_exercici_per_aparell") or {},
+        lambda raw: resolve_app_code_for_template(raw, by_id, by_code),
+    )
+    punt["agregacio_camps_per_exercici_per_aparell"] = _map_per_app_exercise_map(
+        punt.get("agregacio_camps_per_exercici_per_aparell") or {},
+        lambda raw: resolve_app_code_for_template(raw, by_id, by_code),
+    )
+    if not punt["camps_mode_per_aparell"]:
+        punt.pop("camps_mode_per_aparell", None)
+    if not punt["camps_per_exercici_per_aparell"]:
+        punt.pop("camps_per_exercici_per_aparell", None)
+    if not punt["agregacio_camps_per_exercici_per_aparell"]:
+        punt.pop("agregacio_camps_per_exercici_per_aparell", None)
+    punt["exercicis_per_aparell"] = map_keys_to_codes(punt.get("exercicis_per_aparell") or {})
+    punt["agregacio_exercicis_per_aparell"] = map_keys_to_codes(punt.get("agregacio_exercicis_per_aparell") or {})
+    punt["candidate_source_per_aparell"] = map_keys_to_codes(punt.get("candidate_source_per_aparell") or {})
+    punt["participants_per_aparell"] = map_keys_to_codes(punt.get("participants_per_aparell") or {})
+    punt["agregacio_participants_per_aparell"] = map_keys_to_codes(
+        punt.get("agregacio_participants_per_aparell") or {}
+    )
+    victories = punt.get("victories") or {}
+    if isinstance(victories, dict):
+        victories_out = dict(victories)
+        compare_ties = victories_out.get("desempat_comparacio") or []
+        if isinstance(compare_ties, list):
+            victories_out["desempat_comparacio"] = [map_tie_item_to_codes(tie) for tie in compare_ties]
+        punt["victories"] = victories_out
+
+    desempat = schema.get("desempat") or []
+    if isinstance(desempat, list):
+        schema["desempat"] = [map_tie_item_to_codes(tie) for tie in desempat]
+
+    presentacio = schema.get("presentacio") or {}
+    if isinstance(presentacio, dict):
+        for path, cols in _iter_presentacio_column_groups(presentacio):
+            if not isinstance(cols, list):
+                continue
+            cols_out = []
+            for col in cols:
+                if not isinstance(col, dict):
+                    cols_out.append(col)
+                    continue
+                item = dict(col)
+                ctype = str(item.get("type") or "builtin").strip().lower()
+                if ctype == "raw":
+                    src = item.get("source") if isinstance(item.get("source"), dict) else {}
+                    src2 = dict(src)
+                    code = resolve_app_code_for_template(src2.get("aparell_id"), by_id, by_code)
+                    if not code:
+                        code = resolve_app_code_for_template(src2.get("aparell_codi"), by_id, by_code)
+                    if code:
+                        src2["aparell_codi"] = code
+                    src2.pop("aparell_id", None)
+                    src2.pop("aparell_codi", None)
+                    if code:
+                        src2["aparell_codi"] = code
+                    item["source"] = src2
+                elif ctype == "metric":
+                    code = resolve_app_code_for_template(item.get("aparell_id"), by_id, by_code)
+                    if code:
+                        item["aparell_codi"] = code
+                    item.pop("aparell_id", None)
+                cols_out.append(item)
+            _assign_presentacio_column_group(presentacio, path, cols_out)
+        for _sidx, section in _iter_presentacio_detail_sections(presentacio):
+            raw_app = section.get("aparell_id", section.get("aparell_codi"))
+            if raw_app in (None, "", 0, "0"):
+                section.pop("aparell_codi", None)
+                continue
+            code = resolve_app_code_for_template(raw_app, by_id, by_code)
+            if code:
+                section["aparell_codi"] = code
+            section.pop("aparell_id", None)
+            section.pop("aparell_codi", None)
+            if code:
+                section["aparell_codi"] = code
+        schema["presentacio"] = presentacio
+
+    return schema, warnings
+
+
+def collect_required_app_codes_from_template(schema_tpl):
+    schema = schema_tpl or {}
+    out = set()
+    punt = schema.get("puntuacio") or {}
+    if isinstance(punt, dict):
+        apps = punt.get("aparells") or {}
+        if isinstance(apps, dict):
+            for raw in (apps.get("ids") or []):
+                code = canon_app_code(raw)
+                if code:
+                    out.add(code)
+        for raw_key in (punt.get("camps_per_aparell") or {}).keys() if isinstance(punt.get("camps_per_aparell"), dict) else []:
+            code = canon_app_code(raw_key)
+            if code:
+                out.add(code)
+        for raw_key in (punt.get("agregacio_camps_per_aparell") or {}).keys() if isinstance(punt.get("agregacio_camps_per_aparell"), dict) else []:
+            code = canon_app_code(raw_key)
+            if code:
+                out.add(code)
+        for raw_key in (punt.get("camps_mode_per_aparell") or {}).keys() if isinstance(punt.get("camps_mode_per_aparell"), dict) else []:
+            code = canon_app_code(raw_key)
+            if code:
+                out.add(code)
+        for raw_key in (punt.get("camps_per_exercici_per_aparell") or {}).keys() if isinstance(punt.get("camps_per_exercici_per_aparell"), dict) else []:
+            code = canon_app_code(raw_key)
+            if code:
+                out.add(code)
+        for raw_key in (punt.get("agregacio_camps_per_exercici_per_aparell") or {}).keys() if isinstance(punt.get("agregacio_camps_per_exercici_per_aparell"), dict) else []:
+            code = canon_app_code(raw_key)
+            if code:
+                out.add(code)
+        for raw_key in (punt.get("exercicis_per_aparell") or {}).keys() if isinstance(punt.get("exercicis_per_aparell"), dict) else []:
+            code = canon_app_code(raw_key)
+            if code:
+                out.add(code)
+        for raw_key in (punt.get("agregacio_exercicis_per_aparell") or {}).keys() if isinstance(punt.get("agregacio_exercicis_per_aparell"), dict) else []:
+            code = canon_app_code(raw_key)
+            if code:
+                out.add(code)
+        for raw_key in (punt.get("candidate_source_per_aparell") or {}).keys() if isinstance(punt.get("candidate_source_per_aparell"), dict) else []:
+            code = canon_app_code(raw_key)
+            if code:
+                out.add(code)
+        for raw_key in (punt.get("participants_per_aparell") or {}).keys() if isinstance(punt.get("participants_per_aparell"), dict) else []:
+            code = canon_app_code(raw_key)
+            if code:
+                out.add(code)
+        for raw_key in (punt.get("agregacio_participants_per_aparell") or {}).keys() if isinstance(punt.get("agregacio_participants_per_aparell"), dict) else []:
+            code = canon_app_code(raw_key)
+            if code:
+                out.add(code)
+
+    def collect_tie_app_codes(tie):
+        if not isinstance(tie, dict):
+            return
+        code = canon_app_code(tie.get("aparell_codi"))
+        if code:
+            out.add(code)
+        scope = tie.get("scope") or {}
+        if isinstance(scope, dict):
+            apps = scope.get("aparells") or {}
+            if isinstance(apps, dict):
+                for raw in (apps.get("ids") or []):
+                    code = canon_app_code(raw)
+                    if code:
+                        out.add(code)
+        for map_key in ("exercicis_per_aparell", "agregacio_exercicis_per_aparell"):
+            raw_map = tie.get(map_key) or {}
+            if not isinstance(raw_map, dict):
+                continue
+            for raw_key in raw_map.keys():
+                code = canon_app_code(raw_key)
+                if code:
+                    out.add(code)
+        pipeline = tie.get("pipeline") or {}
+        if isinstance(pipeline, dict):
+            for map_key in (
+                "camps_per_aparell",
+                "agregacio_camps_per_aparell",
+                "camps_mode_per_aparell",
+                "camps_per_exercici_per_aparell",
+                "agregacio_camps_per_exercici_per_aparell",
+                "candidate_source_per_aparell",
+                "exercicis_per_aparell",
+                "agregacio_exercicis_per_aparell",
+            ):
+                raw_map = pipeline.get(map_key) or {}
+                if not isinstance(raw_map, dict):
+                    continue
+                for raw_key in raw_map.keys():
+                    code = canon_app_code(raw_key)
+                    if code:
+                        out.add(code)
+
+    desempat = schema.get("desempat") or []
+    if isinstance(desempat, list):
+        for tie in desempat:
+            collect_tie_app_codes(tie)
+    victories = punt.get("victories") or {}
+    if isinstance(victories, dict):
+        for tie in victories.get("desempat_comparacio") or []:
+            collect_tie_app_codes(tie)
+    presentacio = schema.get("presentacio") or {}
+    if isinstance(presentacio, dict):
+        for _path, cols in _iter_presentacio_column_groups(presentacio):
+            for col in cols or []:
+                if not isinstance(col, dict):
+                    continue
+                ctype = str(col.get("type") or "builtin").strip().lower()
+                if ctype == "raw":
+                    src = col.get("source") if isinstance(col.get("source"), dict) else {}
+                    code = canon_app_code(src.get("aparell_id") or src.get("aparell_codi"))
+                    if code:
+                        out.add(code)
+                elif ctype == "metric":
+                    code = canon_app_code(col.get("aparell_codi"))
+                    if code:
+                        out.add(code)
+    return out
+
+
+def build_template_requirements(schema_tpl, *, tipus=None):
+    schema = schema_tpl or {}
+    punt = schema.get("puntuacio") or {}
+    if not isinstance(punt, dict):
+        punt = {}
+
+    part_entries = normalize_particions_v2(
+        schema.get("particions_v2") or [],
+        fallback_codes=schema.get("particions") or [],
+    )
+    equips_cfg = schema.get("equips") or {}
+    if not isinstance(equips_cfg, dict):
+        equips_cfg = {}
+    assignment_source = _normalize_assignment_source(equips_cfg.get("assignment_source"))
+    context_code = _resolve_assignment_context_code(
+        equips_cfg,
+        normalized_assignment_source=assignment_source,
+    ) if equips_cfg else ""
+    team_mode = str(equips_cfg.get("team_mode") or "").strip().lower()
+    manual_defs = equips_cfg.get("particions_manuals") or []
+
+    req = {
+        "tipus": str(tipus or schema.get("tipus") or "individual").strip().lower() or "individual",
+        "aparells_codis": sorted(collect_required_app_codes_from_template(schema)),
+        "particions": particio_codes_from_entries(part_entries),
+        "camps_per_aparell": {},
+        "camps_mode_per_aparell": {},
+        "camps_per_exercici_per_aparell": {},
+        "agregacio_camps_per_exercici_per_aparell": {},
+        "desempat_camps": [],
+        "team_mode": team_mode,
+        "context_code": context_code if context_code else "",
+        "uses_manual_team_partitions": bool(isinstance(manual_defs, list) and manual_defs),
+        "uses_exercise_selection_scope": False,
+        "exercise_selection_scope": "",
+        "exercise_selection_scope_modes": [],
+        "presentacio_raw_camps": [],
+        "presentacio_metric_camps": [],
+    }
+
+    camps_map = punt.get("camps_per_aparell") or {}
+    if isinstance(camps_map, dict):
+        for raw_key, raw_codes in camps_map.items():
+            code = canon_app_code(raw_key)
+            if not code:
+                continue
+            vals = []
+            if isinstance(raw_codes, list):
+                vals = [str(x).strip() for x in raw_codes if str(x).strip()]
+            elif isinstance(raw_codes, str):
+                vals = [x.strip() for x in raw_codes.split(",") if x.strip()]
+            req["camps_per_aparell"][code] = vals
+
+    camps_mode_map = punt.get("camps_mode_per_aparell") or {}
+    if isinstance(camps_mode_map, dict):
+        for raw_key, raw_value in camps_mode_map.items():
+            code = canon_app_code(raw_key)
+            if not code:
+                continue
+            req["camps_mode_per_aparell"][code] = str(raw_value or "").strip().lower()
+
+    for req_key in ("camps_per_exercici_per_aparell", "agregacio_camps_per_exercici_per_aparell"):
+        raw_map = punt.get(req_key) or {}
+        if not isinstance(raw_map, dict):
+            continue
+        normalized = {}
+        for raw_key, raw_value in raw_map.items():
+            code = canon_app_code(raw_key)
+            if not code:
+                continue
+            if not isinstance(raw_value, dict):
+                normalized[code] = json_clone(raw_value)
+                continue
+            exercise_map = {}
+            for raw_exercise, exercise_value in raw_value.items():
+                exercise_key, _exercise_num = _normalize_exercise_key(raw_exercise)
+                if not exercise_key:
+                    continue
+                exercise_map[exercise_key] = json_clone(exercise_value)
+            normalized[code] = exercise_map
+        req[req_key] = normalized
+
+    tie_codes = set()
+    for tie in (schema.get("desempat") or []):
+        if not isinstance(tie, dict):
+            continue
+        for code in normalize_tie_camps_for_validation(tie):
+            if code:
+                tie_codes.add(str(code).strip())
+    victories = punt.get("victories") or {}
+    for tie in (victories.get("desempat_comparacio") or []) if isinstance(victories, dict) else []:
+        if not isinstance(tie, dict):
+            continue
+        for code in normalize_tie_camps_for_validation(tie):
+            if code:
+                tie_codes.add(str(code).strip())
+    req["desempat_camps"] = sorted([c for c in tie_codes if c])
+
+    exercise_scopes = set()
+    main_scope = str(punt.get("exercise_selection_scope") or "").strip().lower()
+    if main_scope:
+        exercise_scopes.add(main_scope)
+        req["exercise_selection_scope"] = main_scope
+    for tie in (schema.get("desempat") or []):
+        if not isinstance(tie, dict):
+            continue
+        tie_scope = str(tie.get("exercise_selection_scope") or "").strip().lower()
+        if tie_scope:
+            exercise_scopes.add(tie_scope)
+    for tie in (victories.get("desempat_comparacio") or []) if isinstance(victories, dict) else []:
+        if not isinstance(tie, dict):
+            continue
+        tie_scope = str(tie.get("exercise_selection_scope") or "").strip().lower()
+        if tie_scope:
+            exercise_scopes.add(tie_scope)
+    req["uses_exercise_selection_scope"] = bool(exercise_scopes)
+    req["exercise_selection_scope_modes"] = sorted(exercise_scopes)
+
+    raw_camps = set()
+    metric_camps = set()
+    presentacio = schema.get("presentacio") or {}
+    if isinstance(presentacio, dict):
+        for _path, cols in _iter_presentacio_column_groups(presentacio):
+            for col in cols or []:
+                if not isinstance(col, dict):
+                    continue
+                ctype = str(col.get("type") or "builtin").strip().lower()
+                if ctype == "raw":
+                    src = col.get("source") if isinstance(col.get("source"), dict) else {}
+                    camp = str(src.get("camp") or "").strip()
+                    if camp:
+                        raw_camps.add(camp)
+                elif ctype == "metric":
+                    criteri = col.get("criteri") if isinstance(col.get("criteri"), dict) else {}
+                    for code in normalize_tie_camps_for_validation(criteri):
+                        if code:
+                            metric_camps.add(str(code).strip())
+    req["presentacio_raw_camps"] = sorted(raw_camps)
+    req["presentacio_metric_camps"] = sorted(metric_camps)
+    return req
+
+
+def build_global_native_particio_fields():
+    return json_clone(GLOBAL_NATIVE_PARTICIO_FIELDS)
+
+
+def collect_global_builder_legacy_keys(schema_tpl, *, allowed_particio_codes, allowed_filter_keys=None):
+    schema = normalize_particions_schema(extract_template_schema(schema_tpl))
+    allowed_particio_codes = {str(code or "").strip() for code in (allowed_particio_codes or []) if str(code or "").strip()}
+    allowed_filter_keys = {str(key or "").strip() for key in (allowed_filter_keys or []) if str(key or "").strip()}
+
+    legacy_particio_codes = set()
+    for entry in normalize_particions_v2(
+        schema.get("particions_v2") or [],
+        fallback_codes=schema.get("particions") or [],
+    ):
+        code = str(entry.get("code") or "").strip()
+        if code and code not in allowed_particio_codes:
+            legacy_particio_codes.add(code)
+    for code in normalize_particions_custom(schema.get("particions_custom") or {}):
+        if code and code not in allowed_particio_codes:
+            legacy_particio_codes.add(code)
+
+    legacy_filter_keys = set()
+    filtres = schema.get("filtres") or {}
+    if isinstance(filtres, dict):
+        for key in filtres:
+            key_txt = str(key or "").strip()
+            if key_txt and key_txt not in allowed_filter_keys:
+                legacy_filter_keys.add(key_txt)
+
+    return legacy_particio_codes, legacy_filter_keys
+
+
+def _global_builder_known_merge_shape():
+    return {
+        "particions": None,
+        "particions_v2": None,
+        "particions_custom": None,
+        "particions_config": None,
+        "filtres": None,
+        "puntuacio": {
+            "camp": None,
+            "agregacio": None,
+            "best_n": None,
+            "exercicis": {
+                "mode": None,
+                "index": None,
+                "ids": None,
+                "best_n": None,
+                "max_per_participant": None,
+            },
+            "exercicis_best_n": None,
+            "mode_seleccio_exercicis": None,
+            "exercicis_per_aparell": None,
+            "agregacio_exercicis_per_aparell": None,
+            "aparells": {"mode": None, "ids": None},
+            "camps_per_aparell": None,
+            "agregacio_camps_per_aparell": None,
+            "agregacio_camps": None,
+            "candidate_source_mode": None,
+            "candidate_source_cfg": {
+                "mode": None,
+                "index": None,
+                "ids": None,
+                "best_n": None,
+                "agregacio_exercicis": None,
+            },
+            "candidate_source_per_aparell": None,
+            "agregacio_exercicis": None,
+            "agregacio_aparells": None,
+            "mode_resultat_aparells": None,
+            "exercise_selection_scope": None,
+            "participants_global": {
+                "mode": None,
+                "n": None,
+            },
+            "agregacio_participants_global": None,
+            "participants_per_aparell": None,
+            "agregacio_participants_per_aparell": None,
+            "victories": {
+                "punts_victoria": None,
+                "punts_empat": None,
+                "sense_nota_mode": None,
+                "mode_camps": None,
+                "mode_exercicis": None,
+                "mode_seleccio_exercicis_camps_separats": None,
+                "agregacio_victories_camps": None,
+                "agregacio_victories_exercicis": None,
+                "desempat_comparacio": None,
+            },
+            "ordre": None,
+        },
+        "desempat": None,
+        "presentacio": {
+            "top_n": None,
+            "mostrar_empats": None,
+            "columnes": None,
+            "detall": {
+                "enabled": None,
+                "default_open": None,
+                "sections": None,
+                "columnes": None,
+            },
+        },
+        "equips": {
+            "context_code": None,
+            "team_mode": None,
+            "mode_resolution": {
+                "resolved_at": None,
+                "eligible_team_app_ids_at_save": None,
+            },
+            "assignment_source": {
+                "mode": None,
+                "context_code": None,
+                "fallback": None,
+            },
+            "incloure_sense_equip": None,
+            "particions_manuals": None,
+            "particio_edat": {
+                "activa": None,
+                "llindars": None,
+                "sense_data_label": None,
+            },
+            "combinar_manual_i_edat": None,
+        },
+    }
+
+
+def _merge_unknown_builder_keys(existing_value, updated_value, known_shape):
+    if not isinstance(existing_value, dict) or not isinstance(updated_value, dict) or not isinstance(known_shape, dict):
+        return json_clone(updated_value)
+
+    merged = json_clone(updated_value)
+    for key, existing_child in existing_value.items():
+        if key in updated_value:
+            if isinstance(existing_child, dict) and isinstance(updated_value.get(key), dict) and isinstance(known_shape.get(key), dict):
+                merged[key] = _merge_unknown_builder_keys(existing_child, updated_value.get(key), known_shape.get(key))
+            continue
+        if key not in known_shape:
+            merged[key] = json_clone(existing_child)
+    return merged
+
+
+def merge_global_builder_schema(existing_schema_tpl, updated_schema_tpl, *, allowed_particio_codes, allowed_filter_keys=None):
+    existing = normalize_particions_schema(extract_template_schema(existing_schema_tpl))
+    updated = normalize_particions_schema(updated_schema_tpl or {})
+    allowed_particio_codes = {str(code or "").strip() for code in (allowed_particio_codes or []) if str(code or "").strip()}
+    allowed_filter_keys = {str(key or "").strip() for key in (allowed_filter_keys or []) if str(key or "").strip()}
+
+    merged = json_clone(updated)
+
+    existing_entries = normalize_particions_v2(
+        existing.get("particions_v2") or [],
+        fallback_codes=existing.get("particions") or [],
+    )
+    updated_entries = normalize_particions_v2(
+        merged.get("particions_v2") or [],
+        fallback_codes=merged.get("particions") or [],
+    )
+    legacy_entries = []
+    for entry in existing_entries:
+        code = str(entry.get("code") or "").strip()
+        if code and code not in allowed_particio_codes:
+            legacy_entries.append(json_clone(entry))
+    if legacy_entries:
+        merged["particions_v2"] = updated_entries + legacy_entries
+        merged["particions"] = particio_codes_from_entries(merged["particions_v2"])
+
+    existing_custom = normalize_particions_custom(existing.get("particions_custom") or {})
+    updated_custom = normalize_particions_custom(merged.get("particions_custom") or {})
+    for code, cfg in existing_custom.items():
+        if code and code not in allowed_particio_codes and code not in updated_custom:
+            updated_custom[code] = json_clone(cfg)
+    merged["particions_custom"] = updated_custom
+
+    existing_filters = existing.get("filtres") or {}
+    updated_filters = merged.get("filtres") or {}
+    if not isinstance(updated_filters, dict):
+        updated_filters = {}
+    if isinstance(existing_filters, dict):
+        for key, value in existing_filters.items():
+            key_txt = str(key or "").strip()
+            if key_txt and key_txt not in allowed_filter_keys and key_txt not in updated_filters:
+                updated_filters[key_txt] = json_clone(value)
+    merged["filtres"] = updated_filters
+
+    return _merge_unknown_builder_keys(
+        existing,
+        merged,
+        _global_builder_known_merge_shape(),
+    )
+
+
+def build_global_aparell_field_options(aparells, field_meta_builder):
+    apps = list(aparells or [])
+    schemas_by_aparell = {
+        s.aparell_id: (s.schema or {})
+        for s in ScoringSchema.objects.filter(aparell_id__in=[app.id for app in apps]).only("aparell_id", "schema")
+    }
+    out = {}
+    for app in apps:
+        sch = schemas_by_aparell.get(app.id, {}) or {}
+        meta = field_meta_builder(app, sch, strict_unknown=True)
+        opts = []
+        for f in (sch.get("fields") or []):
+            if not isinstance(f, dict) or not f.get("code"):
+                continue
+            code = str(f["code"])
+            info = meta.get(code) or {}
+            if not (info.get("scoreable", False) or info.get("detail_displayable", False)):
+                continue
+            judges_count = 1
+            judges = f.get("judges")
+            if isinstance(judges, dict):
+                try:
+                    judges_count = int(judges.get("count") or 1)
+                except Exception:
+                    judges_count = 1
+            opts.append({
+                "code": code,
+                "label": str(f.get("label") or code),
+                "kind": "field",
+                "scoreable": bool(info.get("scoreable", False)),
+                "judges_count": max(1, judges_count),
+                "member_dependent": bool(info.get("member_dependent", False)),
+                "detail_displayable": bool(info.get("detail_displayable", False)),
+                "detail_display_kind": str(info.get("detail_display_kind") or "none"),
+            })
+        for c in (sch.get("computed") or []):
+            if not isinstance(c, dict) or not c.get("code"):
+                continue
+            code = str(c["code"])
+            info = meta.get(code) or {}
+            if not (info.get("scoreable", False) or info.get("detail_displayable", False)):
+                continue
+            opts.append({
+                "code": code,
+                "label": str(c.get("label") or code),
+                "kind": "computed",
+                "scoreable": bool(info.get("scoreable", False)),
+                "judges_count": 1,
+                "member_dependent": bool(info.get("member_dependent", False)),
+                "detail_displayable": bool(info.get("detail_displayable", False)),
+                "detail_display_kind": str(info.get("detail_display_kind") or "none"),
+            })
+        seen = set()
+        dedup = []
+        for item in opts:
+            if item["code"] in seen:
+                continue
+            seen.add(item["code"])
+            dedup.append(item)
+        out[str(app.id)] = dedup
+    return out
+
+
+def parse_positive_int_list(raw):
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        out = []
+        for part in raw.split(","):
+            p = str(part or "").strip()
+            if not p:
+                continue
+            try:
+                iv = int(p)
+            except Exception:
+                continue
+            if iv > 0:
+                out.append(iv)
+        return out
+    if isinstance(raw, (list, tuple)):
+        out = []
+        for x in raw:
+            try:
+                iv = int(x)
+            except Exception:
+                continue
+            if iv > 0:
+                out.append(iv)
+        return out
+    return []
+
+
+def normalize_tie_camps_for_validation(tie_obj) -> list:
+    if not isinstance(tie_obj, dict):
+        return []
+    if isinstance(tie_obj.get("camps"), list):
+        out = []
+        seen = set()
+        for raw in tie_obj.get("camps") or []:
+            code = str(raw or "").strip()
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            out.append(code)
+        if out:
+            return out
+    camp = str(tie_obj.get("camp") or "").strip()
+    return [camp] if camp else []
+
+
+def validate_victories_granular_options(victories, prefix="puntuacio.victories"):
+    errors = []
+    if not isinstance(victories, dict):
+        return errors
+
+    mode_camps = str(victories.get("mode_camps") or "agregat").strip().lower()
+    if mode_camps not in {"agregat", "separat"}:
+        errors.append(f"{prefix}.mode_camps invalid: {mode_camps}")
+
+    mode_exercicis = str(victories.get("mode_exercicis") or "agregat").strip().lower()
+    if mode_exercicis not in {"agregat", "separat"}:
+        errors.append(f"{prefix}.mode_exercicis invalid: {mode_exercicis}")
+
+    mode_sel = str(
+        victories.get("mode_seleccio_exercicis_camps_separats") or "per_camp"
+    ).strip().lower()
+    if mode_sel not in {"per_camp", "global"}:
+        errors.append(f"{prefix}.mode_seleccio_exercicis_camps_separats invalid: {mode_sel}")
+
+    for key in ("agregacio_victories_camps", "agregacio_victories_exercicis"):
+        raw = str(victories.get(key) or "sum").strip().lower()
+        if raw not in {"sum", "avg", "median", "max", "min"}:
+            errors.append(f"{prefix}.{key} invalid: {raw}")
+
+    return errors
+
+
+def validate_template_schema_global(
+    schema_tpl,
+    *,
+    available_app_codes,
+    field_meta_by_code,
+    app_units_by_code=None,
+    allowed_particio_codes,
+    allowed_filter_keys=None,
+    preserved_particio_codes=None,
+    preserved_filter_keys=None,
+    tipus="individual",
+):
+    schema = normalize_particions_schema(schema_tpl or {})
+    errors = []
+    error_details = []
+    app_units_by_code = {
+        canon_app_code(code): str(unit or "").strip().lower()
+        for code, unit in (app_units_by_code or {}).items()
+        if canon_app_code(code)
+    }
+    field_meta_by_code = {
+        canon_app_code(code): (meta if isinstance(meta, dict) else {})
+        for code, meta in (field_meta_by_code or {}).items()
+        if canon_app_code(code)
+    }
+    allowed_particio_codes = {str(code or "").strip() for code in (allowed_particio_codes or []) if str(code or "").strip()}
+    allowed_filter_keys = {str(key or "").strip() for key in (allowed_filter_keys or []) if str(key or "").strip()}
+    preserved_particio_codes = {str(code or "").strip() for code in (preserved_particio_codes or []) if str(code or "").strip()}
+    preserved_filter_keys = {str(key or "").strip() for key in (preserved_filter_keys or []) if str(key or "").strip()}
+
+    punt = schema.get("puntuacio") or {}
+    if not isinstance(punt, dict):
+        punt = {}
+        schema["puntuacio"] = punt
+
+    selected_codes = []
+    seen_codes = set()
+    app_cfg = punt.get("aparells") or {}
+    if str(app_cfg.get("mode") or "seleccionar").strip().lower() == "tots":
+        errors.append("puntuacio.aparells.mode='tots' no esta permes; cal seleccionar aparells explicitament.")
+    for raw in app_cfg.get("ids") or []:
+        code = canon_app_code(raw)
+        if not code or code in seen_codes:
+            continue
+        seen_codes.add(code)
+        selected_codes.append(code)
+        if code not in available_app_codes:
+            errors.append(f"Aparell global no disponible: {code}")
+
+    part_entries = normalize_particions_v2(
+        schema.get("particions_v2") or [],
+        fallback_codes=schema.get("particions") or [],
+    )
+    for idx, entry in enumerate(part_entries):
+        code = str(entry.get("code") or "").strip()
+        if code not in allowed_particio_codes and code not in preserved_particio_codes:
+            errors.append(f"particions: camp no permes al builder global: '{code}'")
+        apply_mode = str(entry.get("apply_mode") or "all").strip().lower()
+        if idx == 0 and apply_mode != "all":
+            errors.append("particions_v2[0].apply_mode ha de ser 'all'.")
+        if idx > 0 and apply_mode not in {"all", "some_parents"}:
+            errors.append(f"particions_v2[{idx}].apply_mode invalid: {apply_mode}")
+    custom_map = normalize_particions_custom(schema.get("particions_custom") or {})
+    for code in custom_map:
+        if code not in allowed_particio_codes and code not in preserved_particio_codes:
+            errors.append(f"particions_custom['{code}']: camp no permes al builder global.")
+    errors.extend(validate_particions_config_global(schema, tipus=tipus))
+
+    filtres = schema.get("filtres") or {}
+    if filtres and not isinstance(filtres, dict):
+        errors.append("filtres ha de ser un objecte JSON.")
+    elif isinstance(filtres, dict):
+        for key in filtres:
+            key_txt = str(key or "").strip()
+            if key_txt and key_txt not in allowed_filter_keys and key_txt not in preserved_filter_keys:
+                errors.append(f"filtres: clau no permesa al builder global: '{key_txt}'")
+    team_mode_value = str((schema.get("equips") or {}).get("team_mode") or "").strip().lower()
+
+    camps_per_aparell = punt.get("camps_per_aparell") or {}
+    if camps_per_aparell and not isinstance(camps_per_aparell, dict):
+        errors.append("puntuacio.camps_per_aparell ha de ser un objecte {aparell_codi:[camps]}.")
+    elif isinstance(camps_per_aparell, dict):
+        for raw_key, raw_codes in camps_per_aparell.items():
+            app_code = canon_app_code(raw_key)
+            if app_code not in available_app_codes:
+                errors.append(f"aparell global no valid a camps_per_aparell: {raw_key}")
+                continue
+            if selected_codes and app_code not in selected_codes:
+                continue
+            codes = [str(x).strip() for x in raw_codes] if isinstance(raw_codes, list) else []
+            for code in [x for x in codes if x]:
+                info = field_meta_by_code.get(app_code, {}).get(code)
+                if not bool((info or {}).get("scoreable", False)):
+                    errors.append(f"aparell {app_code}: camp '{code}' no es puntuable directament.")
+
+    agg_camps_per_aparell = punt.get("agregacio_camps_per_aparell") or {}
+    if agg_camps_per_aparell and not isinstance(agg_camps_per_aparell, dict):
+        errors.append("puntuacio.agregacio_camps_per_aparell ha de ser un objecte {aparell_codi: agregacio}.")
+    elif isinstance(agg_camps_per_aparell, dict):
+        for raw_key, raw_value in agg_camps_per_aparell.items():
+            app_code = canon_app_code(raw_key)
+            if app_code not in available_app_codes:
+                errors.append(f"aparell global no valid a agregacio_camps_per_aparell: {raw_key}")
+                continue
+            if selected_codes and app_code not in selected_codes:
+                continue
+            agg = str(raw_value or "sum").strip().lower()
+            if agg not in {"sum", "avg", "median", "max", "min"}:
+                errors.append(f"puntuacio.agregacio_camps_per_aparell[{app_code}] invalid: {agg}")
+
+    agg_ex_per_aparell = punt.get("agregacio_exercicis_per_aparell") or {}
+    if agg_ex_per_aparell and not isinstance(agg_ex_per_aparell, dict):
+        errors.append("puntuacio.agregacio_exercicis_per_aparell ha de ser un objecte {aparell_codi: agregacio}.")
+    elif isinstance(agg_ex_per_aparell, dict):
+        for raw_key, raw_value in agg_ex_per_aparell.items():
+            app_code = canon_app_code(raw_key)
+            if app_code not in available_app_codes:
+                errors.append(f"aparell global no valid a agregacio_exercicis_per_aparell: {raw_key}")
+                continue
+            if selected_codes and app_code not in selected_codes:
+                continue
+            agg = str(raw_value or "sum").strip().lower()
+            if agg not in {"sum", "avg", "median", "max", "min"}:
+                errors.append(f"puntuacio.agregacio_exercicis_per_aparell[{app_code}] invalid: {agg}")
+
+    candidate_source_per_aparell = punt.get("candidate_source_per_aparell") or {}
+    if candidate_source_per_aparell and not isinstance(candidate_source_per_aparell, dict):
+        errors.append("puntuacio.candidate_source_per_aparell ha de ser un objecte {aparell_codi: cfg}.")
+    elif isinstance(candidate_source_per_aparell, dict):
+        allow_candidate_source = (
+            str(tipus or "").strip().lower() == "individual"
+            or (
+                str(tipus or "").strip().lower() == "equips"
+                and team_mode_value in {"derived_from_individual", "native_team"}
+            )
+        )
+        if candidate_source_per_aparell and not allow_candidate_source:
+            errors.append(
+                "puntuacio.candidate_source_per_aparell nomes es compatible amb tipus='individual', tipus='equips' + team_mode=derived_from_individual o tipus='equips' + team_mode=native_team."
+            )
+        for raw_key, raw_cfg in candidate_source_per_aparell.items():
+            app_code = canon_app_code(raw_key)
+            if app_code not in available_app_codes:
+                errors.append(f"aparell global no valid a candidate_source_per_aparell: {raw_key}")
+                continue
+            if selected_codes and app_code not in selected_codes:
+                continue
+            if not isinstance(raw_cfg, dict):
+                errors.append(f"puntuacio.candidate_source_per_aparell[{app_code}] ha de ser un objecte.")
+                continue
+            mode = str(raw_cfg.get("mode") or "raw_exercise").strip().lower()
+            if mode not in {"raw_exercise", "participant_aggregate", "team_aggregate"}:
+                errors.append(f"puntuacio.candidate_source_per_aparell[{app_code}].mode invalid: {mode}")
+                continue
+            mode_allowed = (
+                mode == "raw_exercise"
+                or (mode == "participant_aggregate" and (str(tipus or "").strip().lower() == "individual" or team_mode_value == "derived_from_individual"))
+                or (mode == "team_aggregate" and team_mode_value == "native_team")
+            )
+            if not mode_allowed:
+                errors.append(
+                    f"puntuacio.candidate_source_per_aparell[{app_code}].mode no es compatible amb tipus={tipus} i team_mode={team_mode_value or 'none'}."
+                )
+                continue
+            if mode == "raw_exercise":
+                continue
+            cfg = raw_cfg.get("cfg")
+            if not isinstance(cfg, dict):
+                errors.append(f"puntuacio.candidate_source_per_aparell[{app_code}].cfg ha de ser un objecte.")
+                continue
+            cfg_mode = str(cfg.get("mode") or "tots").strip().lower()
+            if cfg_mode not in {"tots", "millor_1", "millor_n", "pitjor_1", "pitjor_n", "primer", "ultim", "index", "llista"}:
+                errors.append(f"puntuacio.candidate_source_per_aparell[{app_code}].cfg.mode invalid: {cfg_mode}")
+            cfg_agg = str(cfg.get("agregacio_exercicis") or "sum").strip().lower()
+            if cfg_agg not in {"sum", "avg", "median", "max", "min"}:
+                errors.append(f"puntuacio.candidate_source_per_aparell[{app_code}].cfg.agregacio_exercicis invalid: {cfg_agg}")
+
+    exercise_selection_scope_value = str(punt.get("exercise_selection_scope") or "").strip().lower()
+    allow_member_selection = (
+        str(tipus or "").strip().lower() == "equips"
+        and team_mode_value == "derived_from_individual"
+        and exercise_selection_scope_value == "per_member"
+        and str(punt.get("mode_seleccio_exercicis") or "per_aparell_override").strip().lower() != "global_pool"
+    )
+    participants_per_aparell_cfg = punt.get("participants_per_aparell") or {}
+    if participants_per_aparell_cfg and not isinstance(participants_per_aparell_cfg, dict):
+        errors.append("puntuacio.participants_per_aparell ha de ser un objecte.")
+    elif isinstance(participants_per_aparell_cfg, dict):
+        if participants_per_aparell_cfg and not allow_member_selection:
+            errors.append(
+                "puntuacio.participants_per_aparell nomes es compatible amb tipus='equips' + team_mode=derived_from_individual + exercise_selection_scope=per_member."
+            )
+        else:
+            for app_key, raw_cfg in participants_per_aparell_cfg.items():
+                if not isinstance(raw_cfg, dict):
+                    errors.append(f"puntuacio.participants_per_aparell[{app_key}] ha de ser un objecte.")
+                    continue
+                mode = str(raw_cfg.get("mode") or "tots").strip().lower()
+                if mode not in {"tots", "millor_1", "millor_n", "pitjor_1", "pitjor_n"}:
+                    errors.append(f"puntuacio.participants_per_aparell[{app_key}].mode invalid: {mode}")
+                    continue
+                if mode in {"millor_n", "pitjor_n"}:
+                    try:
+                        n_value = int(raw_cfg.get("n") or 0)
+                    except Exception:
+                        n_value = 0
+                    if n_value <= 0:
+                        errors.append(f"puntuacio.participants_per_aparell[{app_key}].n invalid per mode {mode}.")
+    agg_participants_per_aparell = punt.get("agregacio_participants_per_aparell") or {}
+    if agg_participants_per_aparell and not isinstance(agg_participants_per_aparell, dict):
+        errors.append("puntuacio.agregacio_participants_per_aparell ha de ser un objecte.")
+    elif isinstance(agg_participants_per_aparell, dict) and agg_participants_per_aparell:
+        if not allow_member_selection:
+            errors.append(
+                "puntuacio.agregacio_participants_per_aparell nomes es compatible amb tipus='equips' + team_mode=derived_from_individual + exercise_selection_scope=per_member."
+            )
+        else:
+            for app_key, raw_value in agg_participants_per_aparell.items():
+                agg_participants = str(raw_value or "sum").strip().lower()
+                if agg_participants not in {"sum", "avg", "median", "max", "min"}:
+                    errors.append(f"puntuacio.agregacio_participants_per_aparell[{app_key}] invalid: {agg_participants}")
+
+    allow_global_member_selection = (
+        str(tipus or "").strip().lower() == "equips"
+        and team_mode_value == "derived_from_individual"
+        and exercise_selection_scope_value == "per_member"
+        and str(punt.get("mode_seleccio_exercicis") or "per_aparell_override").strip().lower() == "global_pool"
+    )
+    participants_global_cfg = punt.get("participants_global")
+    agg_participants_global = punt.get("agregacio_participants_global")
+    global_mode_value = (
+        str(participants_global_cfg.get("mode") or "tots").strip().lower()
+        if isinstance(participants_global_cfg, dict)
+        else ""
+    )
+    has_non_default_global_cfg = participants_global_cfg not in (None, {}) and not (
+        isinstance(participants_global_cfg, dict)
+        and global_mode_value == "tots"
+        and participants_global_cfg.get("n") in (None, "", 1, "1")
+    )
+    agg_participants_global_value = str(agg_participants_global or "").strip().lower()
+    has_non_default_global_agg = agg_participants_global not in (None, "") and agg_participants_global_value != "sum"
+    if has_non_default_global_cfg or has_non_default_global_agg:
+        if not allow_global_member_selection:
+            errors.append(
+                "puntuacio.participants_global nomes es compatible amb tipus='equips' + team_mode=derived_from_individual + exercise_selection_scope=per_member + mode_seleccio_exercicis=global_pool."
+            )
+        if participants_global_cfg is not None and not isinstance(participants_global_cfg, dict):
+            errors.append("puntuacio.participants_global ha de ser un objecte.")
+        elif isinstance(participants_global_cfg, dict):
+            mode = str(participants_global_cfg.get("mode") or "tots").strip().lower()
+            if mode not in {"tots", "millor_1", "millor_n", "pitjor_1", "pitjor_n"}:
+                errors.append(f"puntuacio.participants_global.mode invalid: {mode}")
+            if mode in {"millor_n", "pitjor_n"}:
+                try:
+                    n_value = int(participants_global_cfg.get("n") or 0)
+                except Exception:
+                    n_value = 0
+                if n_value <= 0:
+                    errors.append(f"puntuacio.participants_global.n invalid per mode {mode}.")
+        if agg_participants_global not in (None, ""):
+            agg_participants = str(agg_participants_global or "sum").strip().lower()
+            if agg_participants not in {"sum", "avg", "median", "max", "min"}:
+                errors.append(f"puntuacio.agregacio_participants_global invalid: {agg_participants}")
+
+    # Legacy global participant selection is still accepted by old ties but
+    # ignored by the active puntuacio flow.
+    participants_cfg = punt.get("participants") or {}
+    if participants_cfg and not isinstance(participants_cfg, dict):
+        errors.append("puntuacio.participants ha de ser un objecte.")
+    elif isinstance(participants_cfg, dict) and participants_cfg:
+        mode = str(participants_cfg.get("mode") or "tots").strip().lower()
+        if mode not in {"tots", "millor_1", "millor_n", "pitjor_1", "pitjor_n"}:
+            errors.append(f"puntuacio.participants.mode invalid: {mode}")
+        if mode in {"millor_n", "pitjor_n"}:
+            try:
+                n_value = int(participants_cfg.get("n") or 0)
+            except Exception:
+                n_value = 0
+            if n_value <= 0:
+                errors.append(f"puntuacio.participants.n invalid per mode {mode}.")
+    if punt.get("agregacio_participants") not in (None, ""):
+        agg_participants = str(punt.get("agregacio_participants") or "sum").strip().lower()
+        if agg_participants not in {"sum", "avg", "median", "max", "min"}:
+            errors.append(f"puntuacio.agregacio_participants invalid: {agg_participants}")
+
+    if str(punt.get("mode_resultat_aparells") or "score").strip().lower() == "victories" and str(tipus or "individual").strip().lower() != "individual":
+        errors.append("puntuacio.mode_resultat_aparells='victories' nomes s'admet per tipus='individual'.")
+    if str(punt.get("mode_resultat_aparells") or "score").strip().lower() == "victories":
+        errors.extend(validate_victories_granular_options(punt.get("victories") or {}))
+
+    for idx, tie in enumerate(schema.get("desempat") or []):
+        if not isinstance(tie, dict):
+            continue
+        scope = tie.get("scope") or {}
+        if not isinstance(scope, dict):
+            scope = {}
+        target_codes = []
+        app_scope = scope.get("aparells") or {}
+        if isinstance(app_scope, dict) and str(app_scope.get("mode") or "hereta").strip().lower() == "seleccionar":
+            target_codes = [canon_app_code(raw) for raw in (app_scope.get("ids") or []) if canon_app_code(raw)]
+        else:
+            target_codes = list(selected_codes)
+        for app_code in target_codes:
+            for code in normalize_tie_camps_for_validation(tie):
+                info = field_meta_by_code.get(app_code, {}).get(code)
+                if not bool((info or {}).get("scoreable", False)):
+                    errors.append(f"desempat[{idx}]: aparell {app_code}: camp '{code}' no es puntuable directament.")
+
+    presentacio = schema.get("presentacio") or {}
+    if isinstance(presentacio, dict):
+        for path, cols in _iter_presentacio_column_groups(presentacio):
+            for idx, col in enumerate(cols or []):
+                if not isinstance(col, dict):
+                    continue
+                ctype = str(col.get("type") or "builtin").strip().lower()
+                if ctype == "raw":
+                    if path.startswith("presentacio.detall"):
+                        continue
+                    src = col.get("source") if isinstance(col.get("source"), dict) else {}
+                    app_code = canon_app_code(src.get("aparell_id") or src.get("aparell_codi"))
+                    camp = str(src.get("camp") or "total").strip() or "total"
+                    if app_code not in available_app_codes:
+                        errors.append(f"{path}[{idx}] raw: aparell no disponible")
+                        continue
+                    info = field_meta_by_code.get(app_code, {}).get(camp)
+                    if not bool((info or {}).get("scoreable", False)):
+                        errors.append(f"{path}[{idx}] raw: camp no puntuable")
+                        continue
+                    if path == "presentacio.columnes" and team_mode_value == "native_team" and bool((info or {}).get("member_dependent", False)):
+                        errors.append(
+                            f"{path}[{idx}] raw: en team_mode=native_team els camps individuals per membre nomes es poden mostrar a presentacio.detall.sections de tipus team_members_table."
+                        )
+                elif ctype == "metric":
+                    app_code = canon_app_code(col.get("aparell_codi"))
+                    if app_code and app_code not in available_app_codes:
+                        errors.append(f"{path}[{idx}] metric: aparell no disponible")
+                        continue
+                    criteri = col.get("criteri") if isinstance(col.get("criteri"), dict) else {}
+                    target_codes = [app_code] if app_code else []
+                    if not target_codes:
+                        scope = criteri.get("scope") if isinstance(criteri, dict) else {}
+                        app_scope = scope.get("aparells") if isinstance(scope, dict) else {}
+                        if isinstance(app_scope, dict) and str(app_scope.get("mode") or "").strip().lower() == "seleccionar":
+                            target_codes = [
+                                canon_app_code(raw)
+                                for raw in (app_scope.get("ids") or [])
+                                if canon_app_code(raw)
+                            ]
+                    for target_code in target_codes:
+                        if target_code not in available_app_codes:
+                            errors.append(f"{path}[{idx}] metric: aparell no disponible")
+                            continue
+                        for code in normalize_tie_camps_for_validation(criteri):
+                            info = field_meta_by_code.get(target_code, {}).get(code)
+                            if not bool((info or {}).get("scoreable", False)):
+                                errors.append(
+                                    f"{path}[{idx}] metric: aparell {target_code}: camp '{code}' no es puntuable directament."
+                                )
+        detail = presentacio.get("detall")
+        detail_for_validation = json_clone(detail) if isinstance(detail, dict) else detail
+        if isinstance(detail_for_validation, dict):
+            legacy_cols = detail_for_validation.get("columnes")
+            if isinstance(legacy_cols, list):
+                for col in legacy_cols:
+                    if not isinstance(col, dict):
+                        continue
+                    if str(col.get("type") or "builtin").strip().lower() != "raw":
+                        continue
+                    src = col.get("source") if isinstance(col.get("source"), dict) else {}
+                    if src.get("aparell_id") in (None, "", 0, "0") and src.get("aparell_codi") not in (None, "", 0, "0"):
+                        src = dict(src)
+                        src["aparell_id"] = src.get("aparell_codi")
+                        col["source"] = src
+            sections = detail_for_validation.get("sections")
+            if isinstance(sections, list):
+                for section in sections:
+                    if not isinstance(section, dict):
+                        continue
+                    if section.get("aparell_id") in (None, "", 0, "0") and section.get("aparell_codi") not in (None, "", 0, "0"):
+                        section["aparell_id"] = section.get("aparell_codi")
+                    cols = section.get("columns")
+                    if not isinstance(cols, list):
+                        continue
+                    for col in cols:
+                        if not isinstance(col, dict):
+                            continue
+                        if str(col.get("type") or "builtin").strip().lower() != "raw":
+                            continue
+                        src = col.get("source") if isinstance(col.get("source"), dict) else {}
+                        if src.get("aparell_id") in (None, "", 0, "0") and src.get("aparell_codi") not in (None, "", 0, "0"):
+                            src = dict(src)
+                            src["aparell_id"] = src.get("aparell_codi")
+                            col["source"] = src
+        detail_key = detail_section_key_for_tipus(
+            tipus=tipus,
+            team_mode=team_mode_value,
+        )
+
+        def normalize_app(raw):
+            return canon_app_code(raw)
+
+        def is_app_available(app_code):
+            return app_code in available_app_codes
+
+        def get_app_unit(app_code):
+            return str(app_units_by_code.get(app_code) or "").strip().lower()
+
+        def get_scoreable_info(app_code, camp):
+            if app_code not in available_app_codes:
+                return None
+            return field_meta_by_code.get(app_code, {}).get(camp)
+
+        def validate_exercise(_app_code, raw_exercici):
+            try:
+                exercise = int(raw_exercici or 1)
+            except Exception:
+                exercise = 0
+            if exercise < 1:
+                return "exercici invalid."
+            return None
+
+        error_details.extend(
+            validate_detail_schema(
+                detail_for_validation,
+                detail_section_key=detail_key,
+                normalize_app=normalize_app,
+                is_app_available=is_app_available,
+                get_app_unit=get_app_unit,
+                get_scoreable_info=get_scoreable_info,
+                selected_apps=(selected_codes or None),
+                validate_exercise=validate_exercise,
+            )
+        )
+
+    errors.extend(validation_details_to_messages(error_details))
+    return schema, errors, error_details

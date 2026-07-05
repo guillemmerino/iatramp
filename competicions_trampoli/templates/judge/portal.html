@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Jurat - {{ competicio.nom }}{% endblock %}
+
+{% block extra_head %}
+  {{ block.super }}
+  {% if judge_pwa_enabled %}
+    <link rel="manifest" href="{{ judge_manifest_url }}">
+    <meta name="theme-color" content="{{ judge_pwa_theme_color }}">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="{{ judge_pwa_app_name }}">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="{{ judge_pwa_icon_apple_url }}">
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4 judge-portal-page">
+  {% include "judge/portal/_styles.html" %}
+
+  <div class="card-surface">
+    {% include "judge/portal/_header.html" %}
+
+    {% if permissions %}
+
+      <div id="listWrap">
+        {% include "judge/portal/_group_tabs.html" %}
+        {% include "judge/portal/_group_panes.html" %}
+      </div>
+      {% include "judge/portal/_nav_drawer.html" %}
+      {% include "judge/portal/_support_drawer.html" %}
+      {% include "judge/portal/_competition_mode_modal.html" %}
+      {% include "judge/portal/_score_confirm_modal.html" %}
+    {% else %}
+      <div class="text-muted">Aquest QR no té permisos configurats.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% include "judge/portal/_json_contract.html" %}
+{% endblock %}
+
+{% block extra_scripts %}
+{% csrf_token %}
+<script>
+{% include "judge/portal/scripts/_00_bootstrap.js.html" %}
+{% include "judge/portal/scripts/_10_store.js.html" %}
+{% include "judge/portal/scripts/_20_permissions.js.html" %}
+{% include "judge/portal/scripts/_30_support.js.html" %}
+{% include "judge/portal/scripts/_40_video.js.html" %}
+{% include "judge/portal/scripts/_50_exercises.js.html" %}
+{% include "judge/portal/scripts/_60_navigation.js.html" %}
+{% include "judge/portal/scripts/_65_competition_mode_queue.js.html" %}
+{% include "judge/portal/scripts/_70_editor_render.js.html" %}
+{% include "judge/portal/scripts/_80_save_updates.js.html" %}
+{% include "judge/portal/scripts/_85_supervision.js.html" %}
+{% include "judge/portal/scripts/_66_competition_mode_modal.js.html" %}
+{% include "judge/portal/scripts/_90_init.js.html" %}
+</script>
+{% if judge_pwa_enabled %}
+<script>
+  (function(){
+    if(!("serviceWorker" in navigator) || !window.isSecureContext) return;
+    const swUrl = "{{ judge_service_worker_url }}";
+    const swScope = "{{ judge_service_worker_scope }}";
+    window.addEventListener("load", function(){
+      navigator.serviceWorker.register(swUrl, {scope: swScope}).catch(function(){});
+    });
+  })();
+</script>
+{% endif %}
+{% endblock %}

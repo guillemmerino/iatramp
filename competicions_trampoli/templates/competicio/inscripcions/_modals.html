@@ -1,0 +1,228 @@
+{% load competicio_extras %}
+<div class="inscripcions-backdrop" id="inscripcions-drawer-backdrop" aria-hidden="true"></div>
+<div class="group-buckets-backdrop" id="group-buckets-backdrop" aria-hidden="true"></div>
+<div class="team-member-unassign-backdrop" id="team-member-unassign-backdrop" aria-hidden="true"></div>
+<div class="team-action-backdrop" id="team-action-backdrop" aria-hidden="true"></div>
+
+<section
+  class="team-member-unassign-modal is-warning"
+  id="team-member-unassign-confirm-modal"
+  role="dialog"
+  aria-modal="true"
+  aria-hidden="true"
+  aria-labelledby="team-member-unassign-confirm-title"
+  tabindex="-1">
+  <div class="team-member-unassign-modal-head">
+    <div>
+      <p class="team-member-unassign-modal-kicker">Confirmacio</p>
+      <h3 id="team-member-unassign-confirm-title">Treure membre de l'equip</h3>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-team-member-unassign-cancel>Tancar</button>
+  </div>
+  <div class="team-member-unassign-modal-body">
+    <p id="team-member-unassign-confirm-body">Aquesta inscripcio quedara sense equip en el context actual.</p>
+  </div>
+  <div class="team-member-unassign-modal-foot">
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-team-member-unassign-cancel>Cancel-lar</button>
+    <button type="button" class="btn btn-sm btn-warning" id="team-member-unassign-confirm-accept">Treure</button>
+  </div>
+</section>
+
+<section
+  class="team-member-unassign-modal is-success"
+  id="team-member-unassign-success-modal"
+  role="dialog"
+  aria-modal="true"
+  aria-hidden="true"
+  aria-labelledby="team-member-unassign-success-title"
+  tabindex="-1">
+  <div class="team-member-unassign-modal-head">
+    <div>
+      <p class="team-member-unassign-modal-kicker">Completat</p>
+      <h3 id="team-member-unassign-success-title">Inscripcio treta de l'equip</h3>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="team-member-unassign-success-close">Tancar</button>
+  </div>
+  <div class="team-member-unassign-modal-body">
+    <p id="team-member-unassign-success-body">La inscripcio ha quedat sense equip en el context actual.</p>
+  </div>
+  <div class="team-member-unassign-modal-foot">
+    <button type="button" class="btn btn-sm btn-success" id="team-member-unassign-success-accept">D'acord</button>
+  </div>
+</section>
+
+<section
+  class="team-action-modal is-warning"
+  id="team-action-confirm-modal"
+  role="dialog"
+  aria-modal="true"
+  aria-hidden="true"
+  aria-labelledby="team-action-confirm-title"
+  tabindex="-1">
+  <div class="team-action-modal-head">
+    <div>
+      <p class="team-action-modal-kicker" id="team-action-confirm-kicker">Confirmacio</p>
+      <h3 id="team-action-confirm-title">Confirmar accio</h3>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-team-action-cancel>Tancar</button>
+  </div>
+  <div class="team-action-modal-body">
+    <p id="team-action-confirm-body">Vols continuar?</p>
+  </div>
+  <div class="team-action-modal-foot">
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-team-action-cancel>Cancel-lar</button>
+    <button type="button" class="btn btn-sm btn-warning" id="team-action-confirm-accept">Confirmar</button>
+  </div>
+</section>
+
+<section
+  class="team-action-modal is-success"
+  id="team-action-success-modal"
+  role="dialog"
+  aria-modal="true"
+  aria-hidden="true"
+  aria-labelledby="team-action-success-title"
+  tabindex="-1">
+  <div class="team-action-modal-head">
+    <div>
+      <p class="team-action-modal-kicker">Completat</p>
+      <h3 id="team-action-success-title">Accio completada</h3>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="team-action-success-close">Tancar</button>
+  </div>
+  <div class="team-action-modal-body">
+    <p id="team-action-success-body">Els canvis s'han aplicat correctament.</p>
+  </div>
+  <div class="team-action-modal-foot">
+    <button type="button" class="btn btn-sm btn-success" id="team-action-success-accept">D'acord</button>
+  </div>
+</section>
+
+<div class="group-buckets-modal" id="group-buckets-modal" aria-hidden="true">
+  <div class="group-buckets-modal-head">
+    <div>
+      <p class="group-buckets-modal-title mb-0" id="group-buckets-modal-title">Vista ampliada</p>
+      <p class="group-buckets-modal-subtitle" id="group-buckets-modal-subtitle">Treballa amb el bloc seleccionat en una vista ampla.</p>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="group-buckets-modal-close">Tancar</button>
+  </div>
+  <div class="group-buckets-modal-body" id="group-buckets-modal-body"></div>
+</div>
+
+<div class="custom-sort-modal-backdrop" id="custom-sort-modal-backdrop" aria-hidden="true"></div>
+
+<div class="custom-sort-modal" id="custom-sort-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="custom-sort-modal-title" tabindex="-1">
+  <div class="custom-sort-modal-head">
+    <div>
+      <p class="custom-sort-modal-title mb-0" id="custom-sort-modal-title">Ordre personalitzat</p>
+      <p class="custom-sort-modal-subtitle" id="custom-sort-modal-subtitle">Reordena els valors detectats i desa l'ordre per al context actual.</p>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="custom-sort-modal-close">Tancar</button>
+  </div>
+  <div class="custom-sort-modal-body">
+    <div class="custom-sort-modal-panel">
+      <div class="custom-sort-modal-toolbar">
+        <div>
+          <div class="custom-sort-modal-toolbar-title">Arrossega per reordenar</div>
+          <p class="custom-sort-modal-toolbar-copy mb-0">Aquest ordre es desa per aquesta columna amb els filtres i divisions actuals.</p>
+        </div>
+      </div>
+      <div class="small text-muted" id="custom-sort-modal-status">Sense dades carregades.</div>
+      <div class="custom-sort-modal-list-wrap">
+        <div id="custom-sort-modal-list" class="custom-sort-modal-list d-flex flex-column" style="gap:8px;"></div>
+      </div>
+      <div class="custom-sort-modal-foot">
+        <div class="small text-muted" id="custom-sort-modal-footnote">Arrossega per canviar l'ordre i desa quan el resultat sigui correcte.</div>
+        <div class="custom-sort-modal-actions d-flex" style="gap:8px;">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-custom-sort-reset">Restablir</button>
+          <button type="button" class="btn btn-sm btn-primary" id="btn-custom-sort-save">Desar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="group-competition-modal-backdrop" id="group-competition-modal-backdrop" aria-hidden="true"></div>
+
+<div class="group-competition-modal d-none" id="group-competition-modal" aria-hidden="true">
+  <div class="group-competition-modal-head d-flex justify-content-between align-items-start" style="gap:12px;">
+    <div>
+      <p class="group-competition-modal-title mb-1" id="group-competition-modal-title">Ordre de competicio del grup</p>
+      <div class="small text-muted" id="group-competition-modal-subtitle">Consulta i ajusta l'ordre desat del grup seleccionat.</div>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="group-competition-modal-close">Tancar</button>
+  </div>
+
+  <div class="group-competition-modal-status px-3 py-2">
+    <div class="small text-muted" id="group-competition-modal-count">Sense dades carregades.</div>
+    <div class="small text-warning d-none mt-1" id="group-competition-modal-warning"></div>
+  </div>
+
+  <div class="group-competition-modal-list-wrap p-3">
+    <div id="group-competition-modal-list" class="group-competition-modal-list d-flex flex-column" style="gap:8px;"></div>
+  </div>
+
+  <div class="group-competition-modal-foot d-flex justify-content-between align-items-center p-3" style="gap:12px;">
+    <div class="small text-muted" id="group-competition-modal-footnote">El canvi d'ordre es desa sobre l'ordre de competicio real del grup.</div>
+    <div class="group-competition-modal-actions d-flex" style="gap:8px;">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="group-competition-modal-cancel">Cancelar</button>
+      <button type="button" class="btn btn-sm btn-primary" id="group-competition-modal-save">Desar ordre</button>
+    </div>
+  </div>
+</div>
+
+<div class="group-competition-modal d-none" id="bulk-group-order-modal" aria-hidden="true">
+  <div class="group-competition-modal-head d-flex justify-content-between align-items-start" style="gap:12px;">
+    <div>
+      <p class="group-competition-modal-title mb-1" id="bulk-group-order-modal-title">Reordenar ordre de competicio</p>
+      <div class="small text-muted" id="bulk-group-order-modal-subtitle">Aplica un criteri a l'ordre intern dels grups existents sense moure participants de grup.</div>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="bulk-group-order-modal-close">Tancar</button>
+  </div>
+
+  <div class="group-competition-modal-status px-3 py-2">
+    <div class="team-filters-grid" style="gap:10px;">
+      <div>
+        <label class="small text-muted mb-1 d-block" for="bulk-group-order-sort-key">Criteri</label>
+        <select id="bulk-group-order-sort-key" class="form-control form-control-sm">
+          {% for field in sort_field_options %}
+            <option value="{{ field.code }}" data-custom-enabled="{% if custom_sort_enabled_by_code|get_item:field.code %}1{% else %}0{% endif %}">
+              {{ field.ui_label|default:field.label }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="small text-muted mb-1 d-block" for="bulk-group-order-sort-dir">Ordre</label>
+        <select id="bulk-group-order-sort-dir" class="form-control form-control-sm">
+          <option value="asc">Ascendent</option>
+          <option value="desc">Descendent</option>
+          <option value="custom">Personalitzat guardat</option>
+        </select>
+      </div>
+      <div>
+        <label class="small text-muted mb-1 d-block" for="bulk-group-order-scope">Ambit</label>
+        <select id="bulk-group-order-scope" class="form-control form-control-sm">
+          <option value="all">Tots els grups</option>
+          <option value="visible">Grups visibles al board</option>
+          <option value="selected">Grup seleccionat</option>
+        </select>
+      </div>
+    </div>
+    <div class="small text-muted mt-2" id="bulk-group-order-modal-status">Tria un criteri i previsualitza abans d'aplicar.</div>
+  </div>
+
+  <div class="group-competition-modal-list-wrap p-3">
+    <div id="bulk-group-order-modal-preview" class="d-flex flex-column" style="gap:8px;">
+      <div class="group-competition-modal-empty">Encara no s'ha calculat cap previsualitzacio.</div>
+    </div>
+  </div>
+
+  <div class="group-competition-modal-foot d-flex justify-content-between align-items-center p-3" style="gap:12px;">
+    <div class="small text-muted" id="bulk-group-order-modal-footnote">La reordenacio nomes canvia l'ordre de competicio dins de cada grup.</div>
+    <div class="group-competition-modal-actions d-flex" style="gap:8px;">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="bulk-group-order-modal-preview-btn">Previsualitzar</button>
+      <button type="button" class="btn btn-sm btn-primary" id="bulk-group-order-modal-apply" disabled>Aplicar reordenacio</button>
+    </div>
+  </div>
+</div>

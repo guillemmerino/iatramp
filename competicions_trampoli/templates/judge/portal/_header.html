@@ -1,0 +1,81 @@
+    <div class="judge-portal-header d-flex justify-content-between align-items-start mb-3">
+      <div class="judge-portal-header-main">
+        <h2 class="judge-portal-title mb-1">
+          <span>Jurat</span>
+          <span class="judge-portal-apparatus">{{ comp_aparell.display_nom }}</span>
+          {% if not judge_kiosk %}<span class="judge-portal-mode">Entrada per QR</span>{% endif %}
+        </h2>
+        <div class="judge-portal-context">
+          <span><strong>Competició:</strong> <span class="fw-semibold">{{ competicio.nom }}</span></span>
+          {% if token_obj.label %}
+            <span><strong>QR:</strong> <span class="fw-semibold">{{ token_obj.label }}</span></span>
+          {% endif %}
+        </div>
+        {% if permissions %}
+          <div class="judge-assignment-summary mt-2">
+            <span class="judge-assignment-label">Camps puntuats</span>
+            <span class="judge-assignment-values" data-perm-text></span>
+          </div>
+          <div class="judge-assignment-summary mt-2">
+            <span class="judge-assignment-label">Participants</span>
+            <span class="judge-assignment-values">{{ judge_assignment_subject_scope_summary|default:"Tots els participants" }}</span>
+          </div>
+        {% endif %}
+
+      </div>
+      <div class="judge-portal-actions d-flex align-items-center">
+        <a
+          class="btn btn-sm judge-home-return-btn"
+          href="{{ judge_portal_home_url|default:'#' }}"
+          aria-label="Tornar al Home del QR"
+          title="Home del QR"
+        >
+          <span aria-hidden="true">&#8962;</span> Home
+        </a>
+        {% if not judge_kiosk %}
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'scoring_notes_home' competicio.id %}">Tornar a notes</a>
+        {% endif %}
+        {% if permissions %}
+        {% if judge_pwa_enabled %}
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          onclick="if(window.refreshJudgePortal){ refreshJudgePortal(); } else { window.location.reload(); }"
+        >
+       <span class="judge-home-refresh-mark" aria-hidden="true">&#8635;</span>
+          Actualitzar
+        </button>
+        {% endif %}
+        <button
+          type="button"
+          class="btn btn-sm btn-primary"
+          onclick="if(window.openCompetitionModeFromCurrentGroup){ openCompetitionModeFromCurrentGroup(); } else { alert('Cal incloure els scripts del mode competició.'); }"
+        >
+          Mode competició
+        </button>
+        <button
+          type="button"
+          class="judge-nav-toggle"
+          id="insNavToggle"
+          aria-label="Obrir navegació d'inscripcions"
+          aria-controls="insNavDrawer"
+          aria-expanded="false"
+          title="Navegació"
+        >
+          <span class="judge-nav-toggle-icon" aria-hidden="true">&#9662;</span>
+        </button>
+        <button
+          type="button"
+          class="judge-support-toggle"
+          id="supportNavToggle"
+          aria-label="Obrir suport tècnic"
+          aria-controls="supportNavDrawer"
+          aria-expanded="false"
+          title="Suport"
+        >
+          SOS
+          <span id="supportUnreadBadge" class="judge-support-toggle-badge" style="display:none;"></span>
+        </button>
+        {% endif %}
+      </div>
+    </div>

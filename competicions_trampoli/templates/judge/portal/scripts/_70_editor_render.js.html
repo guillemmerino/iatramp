@@ -1,0 +1,302 @@
+  function editorInnerId(insId, exercici){
+    return `editor-inner-${String(insId)}-${exerciseKey(exercici)}`;
+  }
+
+  function isEditorRendered(insId, exercici){
+    const wrap = document.getElementById(editorInnerId(insId, exercici));
+    return !!(wrap && wrap.dataset.editorRendered === "1");
+  }
+
+  function renderAllEditors(opts = {}){
+    document.querySelectorAll('[data-exercise-panel="1"]').forEach((panel) => {
+      renderEditor(panel.dataset.insId || "", panel.dataset.exercici || "", opts);
+    });
+  }
+
+  function renderVisibleEditorsInActiveGroup(opts = {}){
+    document.querySelectorAll('[data-group-pane]:not(.d-none) [data-exercise-panel="1"]:not(.d-none)[data-ins-id][data-exercici]').forEach((panel) => {
+      renderEditor(panel.dataset.insId || "", panel.dataset.exercici || "", opts);
+    });
+  }
+
+  function isJudgeRowPresent(insId, exercici, code, judgeIndex){
+    const presence = effectiveInput(insId, exercici, presenceKey(code));
+    const idx0 = Math.max(1, Number(judgeIndex || 1)) - 1;
+    return Array.isArray(presence) && presence[idx0] === true;
+  }
+
+  function presentJudgeDisplayValue(value, rowPresent){
+    if(rowPresent && (value === null || value === undefined || value === "")){
+      return 0;
+    }
+    return value;
+  }
+
+  function appendFieldBadge(parent, text, kind = ""){
+    if(!text) return;
+    const badge = document.createElement("span");
+    badge.className = `judge-field-badge ${kind}`.trim();
+    badge.textContent = text;
+    parent.appendChild(badge);
+  }
+
+  function appendPermissionHeader(block, perm, field){
+    const head = document.createElement("div");
+    head.className = "judge-field-head";
+    const title = document.createElement("div");
+    title.className = "judge-field-title";
+    title.textContent = field.label || perm.runtime_field_code || perm.field_code || "Camp";
+    const badges = document.createElement("div");
+    badges.className = "judge-field-badges";
+    appendFieldBadge(badges, perm.field_code, "code");
+    appendFieldBadge(badges, `Jutge ${perm.judge_index}`, "judge");
+    if(perm.is_supervisor_row){
+      appendFieldBadge(badges, "Supervisor", "supervisor");
+    } else if(perm.is_supervised_row){
+      appendFieldBadge(badges, "Supervisat", "supervised");
+    }
+    if(perm.item_count){
+      appendFieldBadge(badges, `Items ${perm.item_start}-${perm.item_start + perm.item_count - 1}`, "range");
+    }
+    if(perm.member_slot){
+      appendFieldBadge(badges, `M${perm.member_slot}`, "member");
+    }
+    head.appendChild(title);
+    head.appendChild(badges);
+    block.appendChild(head);
+  }
+
+  function renderPermNumber(lineWrap, insId, exercici, perm, field){
+    const value = effectiveInput(insId, exercici, perm.runtime_field_code);
+    const inp = document.createElement("input");
+    inp.className = "form-control form-control-sm";
+    inp.type = "number";
+    inp.inputMode = "decimal";
+    inp.step = decimalsStep(field.decimals);
+    inp.value = (value ?? "");
+    inp.dataset.kind = "number";
+    inp.dataset.permKey = perm.key;
+    inp._scoreField = field;
+    inp.addEventListener("input", () => {
+      const v = (inp.value === "") ? null : Number(inp.value);
+      updateDraftValue(insId, exercici, perm.runtime_field_code, v, perm);
+    });
+    bindScoreInputNavigation(inp, insId, exercici);
+    lineWrap.appendChild(inp);
+  }
+
+  function renderPermList(lineWrap, insId, exercici, perm, field){
+    const j = Math.max(1, Number(perm.judge_index || 1));
+    const nJudges = Math.max(1, Number((field.judges && field.judges.count) || 1));
+    const baseArr = Array.isArray(effectiveInput(insId, exercici, perm.runtime_field_code))
+      ? deepClone(effectiveInput(insId, exercici, perm.runtime_field_code))
+      : [];
+    while(baseArr.length < nJudges) baseArr.push(null);
+    const rowPresent = isJudgeRowPresent(insId, exercici, perm.runtime_field_code, j);
+    const displayValue = presentJudgeDisplayValue(baseArr[j-1], rowPresent);
+    const inp = document.createElement("input");
+    inp.className = "form-control form-control-sm input-salt";
+    inp.type = "number";
+    inp.inputMode = "decimal";
+    inp.step = decimalsStep(field.decimals);
+    inp.value = (displayValue ?? "");
+    inp.dataset.kind = "list";
+    inp.dataset.permKey = perm.key;
+    inp._scoreField = field;
+    inp.addEventListener("input", () => {
+      const next = Array.isArray(effectiveInput(insId, exercici, perm.runtime_field_code))
+        ? deepClone(effectiveInput(insId, exercici, perm.runtime_field_code))
+        : [];
+      while(next.length < nJudges) next.push(null);
+      next[j-1] = (inp.value === "") ? null : Number(inp.value);
+      updateDraftValue(insId, exercici, perm.runtime_field_code, next, perm);
+    });
+    bindScoreInputNavigation(inp, insId, exercici);
+    lineWrap.appendChild(inp);
+  }
+
+  function crashEnabledForField(field){
+    return !!(field && field.crash && field.crash.enabled);
+  }
+
+  function applyCrashDisableInMatrix(groupEl, crashAt){
+    const cut = Number(crashAt || 0);
+    groupEl.querySelectorAll('[data-matrix-row="1"]').forEach((row) => {
+      const idx1 = Number(row.dataset.itemIndex || 0);
+      const disable = (cut > 0 && idx1 >= cut);
+      const inp = row.querySelector('input[data-kind="matrix"]');
+      if(inp) inp.disabled = disable;
+      const btn = row.querySelector('button[data-crash-btn="1"]');
+      if(btn) btn.style.opacity = disable ? "0.35" : "1";
+    });
+  }
+
+  function renderPermMatrix(lineWrap, insId, exercici, perm, field){
+    const j = Math.max(1, Number(perm.judge_index || 1));
+    const nJudges = Math.max(1, Number((field.judges && field.judges.count) || 1));
+    const nItems = Math.max(1, Number((field.items && field.items.count) || 1));
+    const start = Math.max(1, Number(perm.item_start || 1));
+    const count = perm.item_count ? Math.max(1, Number(perm.item_count)) : (nItems - start + 1);
+    const crashEnabled = crashEnabledForField(field);
+    const crashCode = `__crash__${perm.runtime_field_code}`;
+    const crashVals = crashEnabled && Array.isArray(effectiveInput(insId, exercici, crashCode))
+      ? deepClone(effectiveInput(insId, exercici, crashCode))
+      : [];
+    while(crashVals.length < nJudges) crashVals.push(0);
+
+    const mat = Array.isArray(effectiveInput(insId, exercici, perm.runtime_field_code))
+      ? deepClone(effectiveInput(insId, exercici, perm.runtime_field_code))
+      : [];
+    while(mat.length < nJudges) mat.push([]);
+    while((mat[j-1] || []).length < nItems){
+      mat[j-1] = Array.isArray(mat[j-1]) ? mat[j-1] : [];
+      mat[j-1].push(null);
+    }
+    const rowPresent = isJudgeRowPresent(insId, exercici, perm.runtime_field_code, j);
+
+    const group = document.createElement("div");
+    group.className = "judge-items-strip";
+    group.dataset.itemStrip = "1";
+    for(let k=0; k<count; k++){
+      const idx1 = start + k;
+      const idx0 = idx1 - 1;
+      const row = document.createElement("div");
+      row.className = "judge-item-cell";
+      row.dataset.matrixRow = "1";
+      row.dataset.itemIndex = String(idx1);
+
+      const lab = document.createElement("div");
+      lab.className = "judge-item-label";
+      lab.textContent = getItemDisplayLabel(perm.field_code, idx1);
+
+      const inp = document.createElement("input");
+      inp.className = "form-control form-control-sm input-salt judge-item-input";
+      inp.type = "number";
+      inp.inputMode = "decimal";
+      inp.step = decimalsStep(field.decimals);
+      const displayValue = presentJudgeDisplayValue(mat[j-1][idx0], rowPresent);
+      inp.value = (displayValue ?? "");
+      inp.dataset.kind = "matrix";
+      inp.dataset.itemIndex0 = String(idx0);
+      inp.dataset.permKey = perm.key;
+      inp._scoreField = field;
+      inp.addEventListener("input", () => {
+        const next = Array.isArray(effectiveInput(insId, exercici, perm.runtime_field_code))
+          ? deepClone(effectiveInput(insId, exercici, perm.runtime_field_code))
+          : [];
+        while(next.length < nJudges) next.push([]);
+        while((next[j-1] || []).length < nItems){
+          next[j-1] = Array.isArray(next[j-1]) ? next[j-1] : [];
+          next[j-1].push(null);
+        }
+        next[j-1][idx0] = (inp.value === "") ? null : Number(inp.value);
+        updateDraftValue(insId, exercici, perm.runtime_field_code, next, perm);
+      });
+      bindScoreInputNavigation(inp, insId, exercici);
+
+      row.appendChild(lab);
+      row.appendChild(inp);
+      if(crashEnabled){
+        const btn = document.createElement("button");
+        btn.className = "btn btn-sm btn-outline-danger judge-crash-btn";
+        btn.type = "button";
+        btn.textContent = "C";
+        btn.title = "Crash";
+        btn.dataset.crashBtn = "1";
+        btn.addEventListener("click", () => {
+          const nextCrash = Array.isArray(effectiveInput(insId, exercici, crashCode))
+            ? deepClone(effectiveInput(insId, exercici, crashCode))
+            : [];
+          while(nextCrash.length < nJudges) nextCrash.push(0);
+          const current = Number(nextCrash[j - 1] || 0);
+          nextCrash[j - 1] = (current === idx1) ? 0 : idx1;
+          updateDraftValue(insId, exercici, crashCode, nextCrash, perm);
+          applyCrashDisableInMatrix(group, nextCrash[j - 1]);
+        });
+        row.appendChild(btn);
+      }
+      group.appendChild(row);
+    }
+    applyCrashDisableInMatrix(group, Number(crashVals[j - 1] || 0));
+    lineWrap.appendChild(group);
+  }
+
+  function renderPermissionBlock(parent, insId, exercici, perm){
+    const field = perm.field;
+    const block = document.createElement("div");
+    block.className = "judge-field-block";
+
+    if(!field){
+      if(perm.disabled_missing_member){
+        block.classList.add("is-disabled");
+        block.innerHTML = `<div class="judge-field-head"><div class="judge-field-title">${perm.runtime_field_code || perm.field_code || "Camp"}</div><div class="judge-field-badges"><span class="judge-field-badge member">M${perm.member_slot || "?"}</span></div></div><div class="text-muted small judge-field-body">Membre no disponible per aquest equip. El camp queda desactivat.</div>`;
+        parent.appendChild(block);
+        return;
+      }
+      block.innerHTML = `<div class="text-muted small">Camp no disponible a l'esquema: ${perm.field_code}</div>`;
+      parent.appendChild(block);
+      return;
+    }
+
+    const range = perm.item_count ? ` (${perm.item_start}..${perm.item_start + perm.item_count - 1})` : "";
+    const head = document.createElement("div");
+    head.className = "d-none";
+    const memberLabel = perm.member_slot ? ` - M${perm.member_slot}` : "";
+    head.textContent = `${field.label || perm.runtime_field_code}${memberLabel} [${perm.field_code}] - Jutge ${perm.judge_index}${range}`;
+    block.appendChild(head);
+    appendPermissionHeader(block, perm, field);
+
+    if(perm.disabled_missing_member){
+      block.classList.add("is-disabled");
+      const note = document.createElement("div");
+      note.className = "text-muted small mb-2 judge-field-body";
+      note.textContent = "Membre no disponible per aquest equip. El camp queda desactivat.";
+      block.appendChild(note);
+      const disabledInput = document.createElement("input");
+      disabledInput.className = "form-control form-control-sm";
+      disabledInput.type = "text";
+      disabledInput.disabled = true;
+      disabledInput.value = "";
+      disabledInput.placeholder = "Membre inexistent";
+      block.appendChild(disabledInput);
+      parent.appendChild(block);
+      return;
+    }
+
+    const body = document.createElement("div");
+    body.className = "judge-field-body";
+    block.appendChild(body);
+
+    const type = field.type || "number";
+    if(type === "number"){
+      renderPermNumber(body, insId, exercici, perm, field);
+    } else if(type === "list"){
+      renderPermList(body, insId, exercici, perm, field);
+    } else if(type === "matrix"){
+      renderPermMatrix(body, insId, exercici, perm, field);
+    } else {
+      body.insertAdjacentHTML("beforeend", `<div class="text-muted small">Tipus no suportat: ${type}</div>`);
+    }
+
+    parent.appendChild(block);
+  }
+
+  function renderEditorInto(wrap, insId, exercici, opts = {}){
+    if(!wrap) return;
+    if(wrap.dataset.editorRendered === "1" && !opts.force) return;
+    wrap.dataset.scoreInputNavRoot = "1";
+    wrap.innerHTML = "";
+    const resolvedPerms = resolvedPermsForIns(insId);
+    if(!resolvedPerms.length){
+      wrap.innerHTML = `<div class="text-muted small">No hi ha configuració de permisos.</div>`;
+      wrap.dataset.editorRendered = "1";
+      return;
+    }
+    resolvedPerms.forEach(perm => renderPermissionBlock(wrap, String(insId), exerciseKey(exercici), perm));
+    wrap.dataset.editorRendered = "1";
+  }
+
+  function renderEditor(insId, exercici, opts = {}){
+    const wrap = document.getElementById(editorInnerId(insId, exercici));
+    renderEditorInto(wrap, insId, exercici, opts);
+  }

@@ -1,0 +1,453 @@
+{% load competicio_extras %}
+{% load static %}
+
+  <style>
+    .scoring-panel-dropdown { position: relative; }
+    .scoring-panel-dropdown .dropdown-menu.show { display: block; }
+  </style>
+
+  <div class="card-surface">
+    <!-- CAPÇALERA -->
+    <div class="notes-page-header mb-3" data-avatar-anchor="scores-qrs-header">
+      <div class="notes-title-block">
+        <h1 class="notes-page-title">
+          <span class="notes-title-logo" aria-hidden="true">
+            <img src="{% static 'dock/notes.png' %}" alt="">
+          </span>
+          <span>Notes i QRs</span>
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-avatar-topic="scores_qrs_overview" aria-label="Ajuda sobre Notes i QRs" title="Ajuda sobre Notes i QRs">?</button>
+        </h1>
+        <div class="notes-context-line">
+          <span class="notes-context-main">{{ competicio.nom }}</span>
+          <span>Panell central d'organització</span>
+          <span>Entrada i càlcul per schema d'aparell</span>
+        </div>
+      </div>
+      <div class="notes-header-actions" data-avatar-anchor="scores-qrs-top-actions">
+        <div class="btn-group scoring-panel-dropdown">
+          <button type="button"
+                  class="btn btn-sm section-btn section-btn--notes dropdown-toggle scoring-panel-dropdown-toggle"
+                  aria-haspopup="true"
+                  aria-expanded="false">
+            Classificacions
+          </button>
+
+          <div class="dropdown-menu">
+            <a class="dropdown-item"
+              href="{% url 'classificacions_live' competicio.id %}"
+              data-avatar-action="scores-qrs-open-live">
+              Classificacions en viu
+            </a>
+
+            <a class="dropdown-item"
+              href="{% url 'classificacions_loop_live' competicio.id %}?public=1"
+              data-avatar-action="scores-qrs-open-loop">
+              Classificacions loop
+            </a>
+          </div>
+        </div>
+        
+        <a class="btn btn-sm section-btn section-btn--notes" href="{% url 'qr_admin_home' competicio.id %}" data-avatar-action="scores-qrs-open-qr-admin">Administrador QRs</a>
+        <a class="btn btn-sm btn-outline-warning" href="{% url 'judge_messages_hub' competicio.id %}" data-avatar-action="scores-qrs-open-support">Suport jutges</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'trampoli_config' competicio.id %}">Configuració</a>
+      </div>
+    </div>
+
+    <script>
+      (function(){
+        if (window.__scoringPanelDropdownsBound) return;
+        window.__scoringPanelDropdownsBound = true;
+
+        function closeDropdown(dropdown){
+          if (!dropdown) return;
+          dropdown.classList.remove("show");
+          var menu = dropdown.querySelector(".dropdown-menu");
+          var toggle = dropdown.querySelector(".scoring-panel-dropdown-toggle");
+          if (menu) menu.classList.remove("show");
+          if (toggle) toggle.setAttribute("aria-expanded", "false");
+        }
+
+        function closeOtherDropdowns(activeToggle){
+          document.querySelectorAll(".scoring-panel-dropdown.show").forEach(function(dropdown){
+            if (!activeToggle || !dropdown.contains(activeToggle)) {
+              closeDropdown(dropdown);
+            }
+          });
+        }
+
+        document.addEventListener("click", function(event){
+          var toggle = event.target.closest(".scoring-panel-dropdown-toggle");
+          closeOtherDropdowns(toggle);
+
+          if (!toggle) return;
+          var dropdown = toggle.closest(".scoring-panel-dropdown");
+          var menu = dropdown ? dropdown.querySelector(".dropdown-menu") : null;
+          if (!dropdown || !menu) return;
+
+          event.preventDefault();
+          var shouldOpen = !dropdown.classList.contains("show");
+          dropdown.classList.toggle("show", shouldOpen);
+          menu.classList.toggle("show", shouldOpen);
+          toggle.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+        });
+
+        document.addEventListener("keydown", function(event){
+          if (event.key !== "Escape") return;
+          document.querySelectorAll(".scoring-panel-dropdown.show").forEach(closeDropdown);
+        });
+      })();
+    </script>
+
+    {% if out_of_program_groups_render %}
+      <details class="alert alert-warning mt-3 py-2" role="alert">
+        <summary class="fw-semibold">Fora de programa · {{ out_of_program_groups_render|length }} blocs</summary>
+        <div class="small mb-2">Aquests blocs existeixen pero no tenen cap franja assignada dins el programa actual.</div>
+        <div class="d-flex flex-wrap" style="gap:8px;">
+          {% for group in out_of_program_groups_render %}
+            <span class="badge badge-warning p-2">
+              {{ group.label }} · {{ group.count }}
+            </span>
+          {% endfor %}
+        </div>
+      </details>
+    {% endif %}
+
+    {% if groups_render or out_of_program_groups_render %}
+      <div class="notes-control-panel" data-notes-control-panel="1" data-avatar-anchor="scores-qrs-filters">
+        <div class="notes-toolbar">
+          <div>
+            <label for="notes-franja-select">Franja</label>
+            <div class="notes-select-shell">
+              <select id="notes-franja-select" class="form-control form-control-sm notes-filter-select" data-notes-franja-select="1"></select>
+            </div>
+          </div>
+          <div>
+            <label for="notes-group-select">Unitat</label>
+            <div class="notes-select-shell">
+              <select id="notes-group-select" class="form-control form-control-sm notes-filter-select" data-notes-group-select="1"></select>
+            </div>
+          </div>
+          <div>
+            <label for="notes-app-select">Aparell</label>
+            <div class="notes-select-shell">
+              <select id="notes-app-select" class="form-control form-control-sm notes-filter-select" data-notes-app-select="1"></select>
+            </div>
+          </div>
+          <div>
+            <label for="notes-phase-select">Fase</label>
+            <div class="notes-select-shell">
+              <select id="notes-phase-select" class="form-control form-control-sm notes-filter-select" data-notes-phase-select="1"></select>
+            </div>
+          </div>
+          <div>
+            <label for="notes-exercise-select">Exercici</label>
+            <div class="notes-select-shell">
+              <select id="notes-exercise-select" class="form-control form-control-sm notes-filter-select" data-notes-exercise-select="1"></select>
+            </div>
+          </div>
+          <div>
+            <label for="notes-row-filter-select">Vista / files</label>
+            <div class="notes-select-shell">
+              <select id="notes-row-filter-select" class="form-control form-control-sm notes-filter-select" data-notes-row-filter-select="1">
+                <option value="all">Totes</option>
+                <option value="warnings">Amb avisos</option>
+                <option value="global-warnings">Tots els avisos</option>
+                <option value="counts">Jutges que compten</option>
+                <option value="absent">Jutges absents</option>
+              </select>
+            </div>
+          </div>
+          <div class="notes-search-wrap">
+            <label for="notes-search-input">Cerca inscripcio</label>
+            <input id="notes-search-input" class="form-control form-control-sm" type="search" autocomplete="off" placeholder="Nom, club, categoria..." data-notes-search-input="1">
+            <div id="notes-search-results" class="notes-search-results" data-notes-search-results="1"></div>
+          </div>
+        </div>
+        <div class="notes-program-strip" data-notes-program-strip="1"></div>
+      </div>
+
+      <div class="notes-main-shell" data-notes-main-shell="1" data-avatar-anchor="scores-qrs-results">
+        <div class="notes-main-head">
+          <div>
+            <div class="notes-main-title" data-notes-main-title="1">Selecciona una unitat</div>
+            <div class="notes-main-meta" data-notes-main-meta="1">El panell carrega nomes la taula seleccionada.</div>
+          </div>
+          <div class="d-flex flex-wrap justify-content-end" style="gap:6px;">
+            <a class="btn btn-sm btn-outline-secondary d-none" href="#" data-notes-schema-link="1">Camps i funcions</a>
+            <a class="btn btn-sm btn-outline-primary d-none" href="#" data-notes-judges-link="1">Administrador QRs</a>
+          </div>
+        </div>
+        <div class="notes-status mb-2" data-notes-status="1" data-avatar-anchor="scores-qrs-live-status">Preparant el programa...</div>
+        <div class="notes-results-panel" data-notes-results-panel="1"></div>
+        <div class="table-scrollbar-top" data-scrollbar-top="1">
+          <div data-scrollbar-inner="1"></div>
+        </div>
+        <div class="table-responsive table-sticky" data-scroll-wrap="1" data-avatar-anchor="scores-qrs-collapsed-tables">
+          <table class="table table-bordered table-sm align-middle"
+                 data-scoring-table="1"
+                 data-notes-main-table="1"
+                 data-avatar-anchor="scores-qrs-permissions"
+                 data-group=""
+                 data-exercici="1"
+                 data-fase-id=""
+                 data-comp-aparell-id="">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="notes-warning-summary d-none" data-notes-warning-summary="1"></div>
+      </div>
+
+      <!-- PESTANYES DE GRUPS -->
+      <ul class="nav nav-tabs notes-legacy-tabs d-none" role="tablist" data-notes-legacy-tabs="1">
+        {% for group in groups_render %}
+          <li class="nav-item" role="presentation">
+            <a class="nav-link {% if forloop.first %}active{% endif %}"
+               data-toggle="tab"
+               href="#pane-{{ group.key }}"
+               role="tab"
+               aria-controls="pane-{{ group.key }}"
+               aria-selected="{% if forloop.first %}true{% else %}false{% endif %}">
+              {{ group.label }}
+              <span class="badge badge-light ml-1">{{ group.count }}</span>
+            </a>
+          </li>
+        {% endfor %}
+        {% for group in out_of_program_groups_render %}
+          <li class="nav-item" role="presentation">
+            <a class="nav-link {% if not groups_render and forloop.first %}active{% endif %}"
+               data-toggle="tab"
+               href="#off-pane-{{ group.key }}"
+               role="tab"
+               aria-controls="off-pane-{{ group.key }}"
+               aria-selected="{% if not groups_render and forloop.first %}true{% else %}false{% endif %}">
+              {{ group.label }}
+              <span class="badge badge-warning ml-1">Fora</span>
+              <span class="badge badge-light ml-1">{{ group.count }}</span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+
+      <!-- CONTINGUT GRUP -->
+      <div class="tab-content pt-3 d-none" data-notes-legacy-content="1">
+        {% for group in groups_render %}
+          <div class="tab-pane fade {% if forloop.first %}show active{% endif %}"
+               id="pane-{{ group.key }}"
+               role="tabpanel">
+
+            <!-- SUB-PESTANYES D’APARELL (PILLS) -->
+            <ul class="nav nav-pills mb-3" role="tablist">
+              {% for app in group.apps %}
+                <li class="nav-item" role="presentation">
+                  <a class="nav-link {% if forloop.first %}active{% endif %}"
+                     data-toggle="tab"
+                     href="#pane-{{ group.key }}-app-{{ app.id }}"
+                     role="tab"
+                     aria-controls="pane-{{ group.key }}-app-{{ app.id }}"
+                     aria-selected="{% if forloop.first %}true{% else %}false{% endif %}">
+                    {{ app.display_nom }}
+                  </a>
+                </li>
+              {% endfor %}
+            </ul>
+
+            <div class="tab-content">
+              {% for app in group.apps %}
+                <div class="tab-pane fade {% if forloop.first %}show active{% endif %}"
+                     id="pane-{{ group.key }}-app-{{ app.id }}"
+                     role="tabpanel"
+                     data-comp-aparell-id="{{ app.id }}"
+                     data-group="{{ group.key }}"
+                     data-group-kind="{{ group.kind }}">
+
+                  <!-- SUB-PESTANYES D’EXERCICI -->
+                  <ul class="nav nav-tabs mb-3" role="tablist">
+                    {% for ex in exercicis %}
+                    {% if ex <= app.nombre_exercicis %}
+                      <li class="nav-item" role="presentation">
+                        <a class="nav-link {% if forloop.first %}active{% endif %}"
+                           data-toggle="tab"
+                           href="#pane-{{ group.key }}-app-{{ app.id }}-ex-{{ ex }}"
+                           role="tab"
+                           aria-controls="pane-{{ group.key }}-app-{{ app.id }}-ex-{{ ex }}"
+                           aria-selected="{% if forloop.first %}true{% else %}false{% endif %}">
+                          Exercici {{ ex }}
+                        </a>
+                      </li>
+                    {% endif %}
+                    {% endfor %}
+                  </ul>
+
+                  <div class="tab-content">
+                    {% for ex in exercicis %}
+                      {% if ex <= app.nombre_exercicis %}
+                        <div class="tab-pane fade {% if ex == 1 %}show active{% endif %}"
+                            id="pane-{{ group.key }}-app-{{ app.id }}-ex-{{ ex }}"
+                            role="tabpanel">
+
+                          <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="mini-help">
+                              {{ group.label }} ·
+                              {{ app.display_nom }} · Exercici {{ ex }}
+                            </div>
+                            <div>
+                              <a class="btn btn-sm btn-outline-secondary"
+                                href="{% url 'scoring_schema_update' competicio.id app.id %}">
+                                Camps i funcions
+                              </a>
+                              <a class="btn btn-sm btn-outline-primary"
+                                href="{% url 'qr_admin_home' competicio.id %}">
+                                Administrador QRs
+                              </a>
+                            </div>
+                          </div>
+                          {% with appkey=app.id|stringformat:"s" %}
+                          {% if team_issues_by_app|get_item:appkey %}
+                          <div class="alert alert-warning py-2 small">
+                            <div class="fw-semibold">Incidencies d'equips</div>
+                            {% for issue in team_issues_by_app|get_item:appkey %}
+                            <div>{{ issue.team_label }}: {{ issue.reasons|join:", " }}</div>
+                            {% endfor %}
+                          </div>
+                          {% endif %}
+                          {% endwith %}
+
+                          <!-- Scrollbar top sincronitzat -->
+                          <div class="table-scrollbar-top" data-scrollbar-top="1">
+                            <div data-scrollbar-inner="1"></div>
+                          </div>
+
+                          <div class="table-responsive table-sticky" data-scroll-wrap="1">
+                            <table class="table table-bordered table-sm align-middle"
+                                  data-scoring-table="1"
+                                  data-group="{{ group.key }}"
+                                  data-exercici="{{ ex }}"
+                                  data-comp-aparell-id="{{ app.id }}">
+                              <thead></thead>
+                              <tbody></tbody>
+                            </table>
+                          </div>
+
+                        </div>
+                      {% endif %}
+                    {% endfor %}
+                  </div>
+
+
+                </div>
+              {% endfor %}
+            </div>
+
+          </div>
+        {% endfor %}
+        {% for group in out_of_program_groups_render %}
+          <div class="tab-pane fade {% if not groups_render and forloop.first %}show active{% endif %}"
+               id="off-pane-{{ group.key }}"
+               role="tabpanel">
+
+            <ul class="nav nav-pills mb-3" role="tablist">
+              {% for app in group.apps %}
+                <li class="nav-item" role="presentation">
+                  <a class="nav-link {% if forloop.first %}active{% endif %}"
+                     data-toggle="tab"
+                     href="#off-pane-{{ group.key }}-app-{{ app.id }}"
+                     role="tab"
+                     aria-controls="off-pane-{{ group.key }}-app-{{ app.id }}"
+                     aria-selected="{% if forloop.first %}true{% else %}false{% endif %}">
+                    {{ app.display_nom }}
+                  </a>
+                </li>
+              {% endfor %}
+            </ul>
+
+            <div class="tab-content">
+              {% for app in group.apps %}
+                <div class="tab-pane fade {% if forloop.first %}show active{% endif %}"
+                     id="off-pane-{{ group.key }}-app-{{ app.id }}"
+                     role="tabpanel"
+                     data-comp-aparell-id="{{ app.id }}"
+                     data-group="{{ group.key }}"
+                     data-group-kind="{{ group.kind }}">
+
+                  <ul class="nav nav-tabs mb-3" role="tablist">
+                    {% for ex in exercicis %}
+                    {% if ex <= app.nombre_exercicis %}
+                      <li class="nav-item" role="presentation">
+                        <a class="nav-link {% if forloop.first %}active{% endif %}"
+                           data-toggle="tab"
+                           href="#off-pane-{{ group.key }}-app-{{ app.id }}-ex-{{ ex }}"
+                           role="tab"
+                           aria-controls="off-pane-{{ group.key }}-app-{{ app.id }}-ex-{{ ex }}"
+                           aria-selected="{% if forloop.first %}true{% else %}false{% endif %}">
+                          Exercici {{ ex }}
+                        </a>
+                      </li>
+                    {% endif %}
+                    {% endfor %}
+                  </ul>
+
+                  <div class="tab-content">
+                    {% for ex in exercicis %}
+                      {% if ex <= app.nombre_exercicis %}
+                        <div class="tab-pane fade {% if ex == 1 %}show active{% endif %}"
+                            id="off-pane-{{ group.key }}-app-{{ app.id }}-ex-{{ ex }}"
+                            role="tabpanel">
+
+                          <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="mini-help">
+                              Fora de programa · {{ group.label }} ·
+                              {{ app.display_nom }} · Exercici {{ ex }}
+                            </div>
+                            <div>
+                              <a class="btn btn-sm btn-outline-secondary"
+                                href="{% url 'scoring_schema_update' competicio.id app.id %}">
+                                Camps i funcions
+                              </a>
+                              <a class="btn btn-sm btn-outline-primary"
+                                href="{% url 'qr_admin_home' competicio.id %}">
+                                Administrador QRs
+                              </a>
+                            </div>
+                          </div>
+                          {% with appkey=app.id|stringformat:"s" %}
+                          {% if team_issues_by_app|get_item:appkey %}
+                          <div class="alert alert-warning py-2 small">
+                            <div class="fw-semibold">Incidencies d'equips</div>
+                            {% for issue in team_issues_by_app|get_item:appkey %}
+                            <div>{{ issue.team_label }}: {{ issue.reasons|join:", " }}</div>
+                            {% endfor %}
+                          </div>
+                          {% endif %}
+                          {% endwith %}
+
+                          <div class="table-scrollbar-top" data-scrollbar-top="1">
+                            <div data-scrollbar-inner="1"></div>
+                          </div>
+
+                          <div class="table-responsive table-sticky" data-scroll-wrap="1">
+                            <table class="table table-bordered table-sm align-middle"
+                                  data-scoring-table="1"
+                                  data-group="{{ group.key }}"
+                                  data-exercici="{{ ex }}"
+                                  data-comp-aparell-id="{{ app.id }}">
+                              <thead></thead>
+                              <tbody></tbody>
+                            </table>
+                          </div>
+
+                        </div>
+                      {% endif %}
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="text-muted">Encara no hi ha inscripcions en aquesta competició.</div>
+    {% endif %}
+  </div>

@@ -1,0 +1,3570 @@
+window.initGroupsWorkspace = async function () {
+  const groupsWorkspaceShell = document.getElementById('groups-workspace-shell');
+  const groupsMainCard = document.getElementById('groups-main-card');
+  if (!groupsWorkspaceShell || !groupsMainCard) return null;
+  if (window.__groupsWorkspaceInitialized && window.__groupsWorkspaceRoot === groupsWorkspaceShell) {
+    return window.__groupsWorkspaceApi || null;
+  }
+  window.__groupsWorkspaceInitialized = true;
+  window.__groupsWorkspaceRoot = groupsWorkspaceShell;
+  const appApi = window.InscripcionsApp || {};
+  const groupParticipantsIcon = String(groupsWorkspaceShell.dataset.groupsParticipantsIcon || '').trim();
+  const groupDetailIcon = String(groupsWorkspaceShell.dataset.groupsDetailIcon || '').trim();
+  const transformIcons = {
+    merge: String(groupsWorkspaceShell.dataset.groupsTransformMergeIcon || '').trim(),
+    split: String(groupsWorkspaceShell.dataset.groupsTransformSplitIcon || '').trim(),
+    balance: String(groupsWorkspaceShell.dataset.groupsTransformBalanceIcon || '').trim(),
+    bucket: String(groupsWorkspaceShell.dataset.groupsTransformBucketIcon || '').trim(),
+  };
+
+  const groupsWorkspaceUrl = "{% url 'groups_workspace' competicio.id %}";
+  const groupsDetailUrl = "{% url 'groups_detail' competicio.id %}";
+  const groupsPreviewUrl = "{% url 'groups_preview' competicio.id %}";
+  const groupsTransformPreviewUrl = "{% url 'groups_transform_preview' competicio.id %}";
+  const groupsTransformApplyUrl = "{% url 'groups_transform_apply' competicio.id %}";
+  const groupsCreateUrl = "{% url 'groups_create' competicio.id %}";
+  const groupsAssignUrl = "{% url 'groups_assign' competicio.id %}";
+  const groupsUnassignUrl = "{% url 'groups_unassign' competicio.id %}";
+  const groupsDeleteUrl = "{% url 'groups_delete' competicio.id %}";
+  const groupsDeleteAllUrl = "{% url 'groups_delete_all' competicio.id %}";
+  const groupsDeleteEmptyUrl = "{% url 'groups_delete_empty' competicio.id %}";
+  const groupsSetGroupNameUrl = "{% url 'inscripcions_set_group_name' competicio.id %}";
+  const bulkGroupOrderPreviewUrl = appApi.app?.urls?.bulkGroupCompetitionOrderPreview || '';
+  const bulkGroupOrderApplyUrl = appApi.app?.urls?.bulkGroupCompetitionOrderApply || '';
+
+  const state = {
+    filters: Object.assign({
+      group_state: 'all',
+      categories: [],
+      subcategories: [],
+      entitats: [],
+      group_ids: [],
+    }, getCurrentInscripcioFilters()),
+    boardFilters: {
+      q: '',
+      categories: [],
+      subcategories: [],
+      entitats: [],
+      members_state: 'all',
+      program_state: 'all',
+      min_size: null,
+      max_size: null,
+    },
+    boardFiltersExpanded: false,
+    selectedIds: new Set((typeof getSelectedInscripcioIds === 'function' ? getSelectedInscripcioIds() : []).map(String)),
+    page: 1,
+    pageSize: 40,
+    selectedGroupId: '',
+    selectedGroupDetail: null,
+    selectedGroupMembersPage: 1,
+    selectedRightPaneTab: 'preview',
+    transformPreview: null,
+    transformPayload: null,
+    transformBusy: false,
+    activeTransformOperation: '',
+    bulkGroupOrderPreview: null,
+    bulkGroupOrderPayload: null,
+    bulkGroupOrderBusy: false,
+    transformActionsExpanded: false,
+    transformTargetQuery: '',
+    detailMemberFilters: {
+      q: '',
+      entitats: [],
+      order_state: 'all',
+    },
+    autoContextExpanded: false,
+    filterTimer: null,
+    workspace: null,
+    selectionSummaryFresh: false,
+    editingGroupIds: new Set(),
+    loadingGroupIds: new Set(),
+    groupDetailCache: {},
+    dragBusy: false,
+    sortables: [],
+  };
+
+  const editable = () => typeof canEditInscripcions !== 'undefined' && !!canEditInscripcions;
+  const dndEnabled = () => editable() && typeof Sortable !== 'undefined';
+  const selectedIds = () => Array.from(state.selectedIds).map(String).filter(Boolean);
+  const selectedOptionValues = (selectEl) => (
+    Array.from(selectEl?.selectedOptions || [])
+      .map((option) => String(option?.value || '').trim())
+      .filter(Boolean)
+  );
+  const alertBox = (message) => typeof showAlert === 'function' ? showAlert(message) : window.alert(message);
+  const confirmBox = async (message, options = {}) => {
+    if (typeof window.showWorkspaceActionConfirm === 'function') {
+      return !!(await window.showWorkspaceActionConfirm(Object.assign({ body: message }, options || {})));
+    }
+    return typeof showConfirm === 'function' ? !!(await showConfirm(message)) : window.confirm(message);
+  };
+  const text = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value ?? '');
+  };
+  const showRequestError = (prefix, err) => {
+    const detail = err?.message || err;
+    alertBox(detail ? `${prefix}\n${detail}` : prefix);
+  };
+  const mainSelectionApi = () => (
+    window.__inscripcionsSelectionApi && typeof window.__inscripcionsSelectionApi.getSelectedIds === 'function'
+      ? window.__inscripcionsSelectionApi
+      : null
+  );
+  const getExternalSelectionIds = () => (
+    typeof getSelectedInscripcioIds === 'function'
+      ? getSelectedInscripcioIds().map(String).filter(Boolean)
+      : []
+  );
+  const selectionSummaryKey = () => selectedIds().slice().sort().join(',');
+  const normalizeWorkspace = (data) => (data && data.workspace && typeof data.workspace === 'object') ? data.workspace : (data || {});
+  const normalizeSearchText = (value) => String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+  const uniqueSortedStrings = (values) => Array.from(new Set(
+    (Array.isArray(values) ? values : [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b, 'ca'));
+  const parseBoardSizeFilter = (value, minValue = 0) => {
+    const raw = String(value ?? '').trim();
+    if (!raw) return null;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= minValue ? parsed : null;
+  };
+  const normalizeBoardFilters = (raw) => {
+    const data = raw && typeof raw === 'object' ? raw : {};
+    const membersState = String(data.members_state || 'all').trim() || 'all';
+    const programState = String(data.program_state || 'all').trim() || 'all';
+    let minSize = parseBoardSizeFilter(data.min_size, 1);
+    let maxSize = parseBoardSizeFilter(data.max_size, 0);
+    if (minSize !== null && maxSize !== null && minSize > maxSize) {
+      const previousMin = minSize;
+      minSize = maxSize;
+      maxSize = previousMin;
+    }
+    return {
+      q: String(data.q || '').trim(),
+      categories: uniqueSortedStrings(data.categories),
+      subcategories: uniqueSortedStrings(data.subcategories),
+      entitats: uniqueSortedStrings(data.entitats),
+      members_state: ['all', 'with_members', 'empty'].includes(membersState) ? membersState : 'all',
+      program_state: ['all', 'programmed', 'out_of_program'].includes(programState) ? programState : 'all',
+      min_size: minSize,
+      max_size: maxSize,
+    };
+  };
+  const invalidateAllGroupDetails = () => {
+    state.groupDetailCache = {};
+    state.loadingGroupIds = new Set();
+    state.selectedGroupDetail = null;
+  };
+
+  function destroySortables() {
+    (state.sortables || []).forEach((sortable) => {
+      try {
+        sortable?.destroy?.();
+      } catch (_err) {}
+    });
+    state.sortables = [];
+    clearDragTargets();
+    document.body.classList.remove('dragging');
+    groupsWorkspaceShell.classList.remove('is-team-dragging');
+  }
+
+  function clearDragTargets() {
+    document
+      .querySelectorAll('.team-context-drop-target.is-drag-target, .team-context-member-list.is-drag-target')
+      .forEach((node) => node.classList.remove('is-drag-target'));
+  }
+
+  function markDragTarget(target) {
+    clearDragTargets();
+    const node = target?.closest?.('.team-context-team-card') || target?.closest?.('.team-context-drop-target');
+    if (node) node.classList.add('is-drag-target');
+  }
+
+  function getSavedUiState() {
+    if (typeof getUiStateKey !== 'function') return {};
+    try {
+      return JSON.parse(sessionStorage.getItem(getUiStateKey()) || '{}') || {};
+    } catch (_err) {
+      return {};
+    }
+  }
+
+  function saveWorkspaceState(extra = {}) {
+    if (typeof saveUiState !== 'function') return;
+    saveUiState({
+      groupsWorkspaceState: {
+        page: state.page,
+        pageSize: state.pageSize,
+        selectedGroupId: state.selectedGroupId,
+        selectedGroupMembersPage: state.selectedGroupMembersPage,
+        selectedRightPaneTab: state.selectedRightPaneTab,
+        autoContextExpanded: !!state.autoContextExpanded,
+        filters: { ...state.filters },
+        boardFilters: { ...state.boardFilters },
+        boardFiltersExpanded: !!state.boardFiltersExpanded,
+        ...extra,
+      },
+    });
+  }
+
+  function restoreWorkspaceState() {
+    const saved = getSavedUiState().groupsWorkspaceState || {};
+    if (saved && typeof saved === 'object') {
+      if (saved.filters && typeof saved.filters === 'object') {
+        state.filters = Object.assign({}, state.filters, saved.filters);
+      }
+      if (saved.boardFilters && typeof saved.boardFilters === 'object') {
+        state.boardFilters = normalizeBoardFilters(saved.boardFilters);
+      }
+      if (Object.prototype.hasOwnProperty.call(saved, 'boardFiltersExpanded')) {
+        state.boardFiltersExpanded = !!saved.boardFiltersExpanded;
+      }
+      if (saved.page) state.page = Math.max(1, Number(saved.page) || 1);
+      if (saved.pageSize) state.pageSize = Math.max(1, Number(saved.pageSize) || 40);
+      if (saved.selectedGroupId) state.selectedGroupId = String(saved.selectedGroupId);
+      if (saved.selectedGroupMembersPage) {
+        state.selectedGroupMembersPage = Math.max(1, Number(saved.selectedGroupMembersPage) || 1);
+      }
+      if (saved.selectedRightPaneTab === 'detail' || saved.selectedRightPaneTab === 'preview') {
+        state.selectedRightPaneTab = saved.selectedRightPaneTab;
+      }
+      if (Object.prototype.hasOwnProperty.call(saved, 'autoContextExpanded')) {
+        state.autoContextExpanded = !!saved.autoContextExpanded;
+      }
+    }
+  }
+
+  function fillSelect(selectEl, items, selectedValue, emptyLabel, mapItem) {
+    if (!selectEl) return;
+    const isMultiple = !!selectEl.multiple;
+    const currentValues = isMultiple
+      ? new Set((Array.isArray(selectedValue) ? selectedValue : []).map((value) => String(value ?? '')).filter(Boolean))
+      : new Set([String(selectedValue ?? '')]);
+    const frag = document.createDocumentFragment();
+    if (!isMultiple) {
+      const first = document.createElement('option');
+      first.value = '';
+      first.textContent = emptyLabel || 'Totes';
+      frag.appendChild(first);
+    }
+    (items || []).forEach((item) => {
+      const row = typeof mapItem === 'function' ? mapItem(item) : { value: item, label: item };
+      const option = document.createElement('option');
+      option.value = String(row?.value ?? '');
+      option.textContent = String(row?.label ?? '');
+      option.selected = currentValues.has(option.value);
+      frag.appendChild(option);
+    });
+    selectEl.innerHTML = '';
+    selectEl.appendChild(frag);
+    const allowed = new Set(Array.from(selectEl.options).map((option) => String(option.value)));
+    if (isMultiple) {
+      Array.from(selectEl.options).forEach((option) => {
+        option.selected = currentValues.has(String(option.value || ''));
+      });
+    } else {
+      const current = Array.from(currentValues)[0] || '';
+      selectEl.value = allowed.has(current) ? current : '';
+    }
+  }
+
+  function syncTargetGroupSelectors() {
+    ['groups-workspace-target-group', 'groups-compact-target-group'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = String(state.selectedGroupId || '');
+    });
+  }
+
+  function readFilters() {
+    return {
+      q: String(document.getElementById('groups-filter-q')?.value || '').trim(),
+      categoria: '',
+      subcategoria: '',
+      entitat: '',
+      categories: selectedOptionValues(document.getElementById('groups-filter-categoria')),
+      subcategories: selectedOptionValues(document.getElementById('groups-filter-subcategoria')),
+      entitats: selectedOptionValues(document.getElementById('groups-filter-entitat')),
+      group_state: String(document.getElementById('groups-filter-group-state')?.value || 'all').trim() || 'all',
+      group_id: '',
+      group_ids: selectedOptionValues(document.getElementById('groups-filter-group-id')),
+    };
+  }
+
+  function setFiltersToDom(filters, options) {
+    const data = filters || {};
+    const filterOptions = options || {};
+    const q = document.getElementById('groups-filter-q');
+    if (q) q.value = String(data.q || '');
+    fillSelect(document.getElementById('groups-filter-categoria'), filterOptions.categories || [], data.categories || [], 'Totes');
+    fillSelect(document.getElementById('groups-filter-subcategoria'), filterOptions.subcategories || [], data.subcategories || [], 'Totes');
+    fillSelect(document.getElementById('groups-filter-entitat'), filterOptions.entitats || [], data.entitats || [], 'Totes');
+    fillSelect(
+      document.getElementById('groups-filter-group-id'),
+      filterOptions.groups || [],
+      data.group_ids || [],
+      'Qualsevol',
+      (item) => ({ value: item?.id, label: item?.label || `Grup ${item?.display_num || ''}` })
+    );
+    const stateSelect = document.getElementById('groups-filter-group-state');
+    if (stateSelect) stateSelect.value = String(data.group_state || 'all');
+    renderGroupsFilterPopovers();
+  }
+
+  function filterSummaryLabel(selectEl) {
+    if (!selectEl) return 'Qualsevol';
+    if (!selectEl.multiple) {
+      const option = selectEl.selectedOptions?.[0];
+      return option?.textContent?.trim() || 'Totes';
+    }
+    const selected = Array.from(selectEl.selectedOptions || []);
+    if (!selected.length) return 'Qualsevol';
+    if (selected.length === 1) return selected[0].textContent?.trim() || '1 opcio';
+    return `${selected.length} seleccionades`;
+  }
+
+  function renderGroupsFilterActiveChips() {
+    const wrap = document.getElementById('groups-filter-active-chips');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const filters = [
+      { id: 'groups-filter-categoria', label: 'Categoria' },
+      { id: 'groups-filter-subcategoria', label: 'Subcategoria' },
+      { id: 'groups-filter-entitat', label: 'Entitat' },
+      { id: 'groups-filter-group-state', label: 'Estat' },
+      { id: 'groups-filter-group-id', label: 'Grup' },
+    ];
+    const frag = document.createDocumentFragment();
+    let activeCount = 0;
+    filters.forEach((filter) => {
+      const selectEl = document.getElementById(filter.id);
+      if (!selectEl) return;
+      const selected = selectEl.multiple
+        ? Array.from(selectEl.selectedOptions || [])
+        : Array.from(selectEl.selectedOptions || []).filter((option) => String(option.value || '') && String(option.value || '') !== 'all');
+      selected.forEach((option) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'groups-filter-chip';
+        chip.setAttribute('data-groups-filter-chip-select', filter.id);
+        chip.setAttribute('data-groups-filter-chip-value', String(option.value || ''));
+        chip.textContent = `${filter.label}: ${option.textContent?.trim() || option.value} x`;
+        frag.appendChild(chip);
+        activeCount += 1;
+      });
+    });
+    if (activeCount) {
+      const clearAll = document.createElement('button');
+      clearAll.type = 'button';
+      clearAll.className = 'groups-filter-chip groups-filter-chip-clear-all';
+      clearAll.setAttribute('data-groups-filter-clear-all', '1');
+      clearAll.textContent = 'Netejar filtres';
+      frag.appendChild(clearAll);
+    }
+    wrap.classList.toggle('is-empty', activeCount === 0);
+    wrap.appendChild(frag);
+  }
+
+  function renderGroupsFilterPopovers() {
+    document.querySelectorAll('[data-groups-filter-popover]').forEach((popover) => {
+      const selectId = String(popover.getAttribute('data-select-id') || '').trim();
+      const selectEl = document.getElementById(selectId);
+      if (!selectEl) return;
+      const summary = popover.querySelector('[data-filter-summary]');
+      if (summary) summary.textContent = filterSummaryLabel(selectEl);
+      popover.classList.toggle('is-active', selectEl.multiple ? selectedOptionValues(selectEl).length > 0 : !['', 'all'].includes(String(selectEl.value || '')));
+      const optionsWrap = popover.querySelector(`[data-filter-options-for="${selectId}"]`);
+      if (!optionsWrap) return;
+      optionsWrap.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      Array.from(selectEl.options || []).forEach((option) => {
+        const optionValue = String(option.value || '');
+        if (!selectEl.multiple && optionValue === '') return;
+        const label = document.createElement('label');
+        label.className = 'groups-filter-option';
+        const input = document.createElement('input');
+        input.type = selectEl.multiple ? 'checkbox' : 'radio';
+        input.className = 'js-groups-filter-choice';
+        input.name = `groups-filter-choice-${selectId}`;
+        input.value = optionValue;
+        input.checked = !!option.selected;
+        input.setAttribute('data-select-id', selectId);
+        const textSpan = document.createElement('span');
+        textSpan.textContent = option.textContent || optionValue;
+        label.appendChild(input);
+        label.appendChild(textSpan);
+        frag.appendChild(label);
+      });
+      if (!frag.childNodes.length) {
+        const empty = document.createElement('div');
+        empty.className = 'groups-filter-empty';
+        empty.textContent = 'Sense opcions disponibles';
+        frag.appendChild(empty);
+      }
+      optionsWrap.appendChild(frag);
+    });
+    renderGroupsFilterActiveChips();
+  }
+
+  function boardSizeSummaryLabel(filters = state.boardFilters) {
+    const current = normalizeBoardFilters(filters);
+    if (current.min_size !== null && current.max_size !== null) {
+      return current.min_size === current.max_size ? String(current.min_size) : `${current.min_size}-${current.max_size}`;
+    }
+    if (current.min_size !== null) return `>= ${current.min_size}`;
+    if (current.max_size !== null) return `<= ${current.max_size}`;
+    return 'Qualsevol';
+  }
+
+  function renderBoardFilterActiveChips() {
+    const wrap = document.getElementById('groups-board-filter-active-chips');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const filters = [
+      { id: 'groups-board-filter-categoria', label: 'Categoria' },
+      { id: 'groups-board-filter-subcategoria', label: 'Subcategoria' },
+      { id: 'groups-board-filter-entitat', label: 'Entitat' },
+      { id: 'groups-board-filter-members-state', label: 'Estat' },
+      { id: 'groups-board-filter-program-state', label: 'Programa' },
+    ];
+    const frag = document.createDocumentFragment();
+    let activeCount = 0;
+    if (state.boardFilters.q) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'groups-filter-chip';
+      chip.setAttribute('data-groups-board-filter-search-clear', '1');
+      chip.textContent = `Cerca: ${state.boardFilters.q} x`;
+      frag.appendChild(chip);
+      activeCount += 1;
+    }
+    filters.forEach((filter) => {
+      const selectEl = document.getElementById(filter.id);
+      if (!selectEl) return;
+      const selected = selectEl.multiple
+        ? Array.from(selectEl.selectedOptions || [])
+        : Array.from(selectEl.selectedOptions || []).filter((option) => String(option.value || '') !== 'all');
+      selected.forEach((option) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'groups-filter-chip';
+        chip.setAttribute('data-groups-board-filter-chip-select', filter.id);
+        chip.setAttribute('data-groups-board-filter-chip-value', String(option.value || ''));
+        chip.textContent = `${filter.label}: ${option.textContent?.trim() || option.value} x`;
+        frag.appendChild(chip);
+        activeCount += 1;
+      });
+    });
+    if (state.boardFilters.min_size !== null || state.boardFilters.max_size !== null) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'groups-filter-chip';
+      chip.setAttribute('data-groups-board-size-clear', '1');
+      chip.textContent = `Mida: ${boardSizeSummaryLabel()} x`;
+      frag.appendChild(chip);
+      activeCount += 1;
+    }
+    wrap.classList.toggle('is-empty', activeCount === 0);
+    wrap.appendChild(frag);
+  }
+
+  function renderBoardFilterPopovers() {
+    document.querySelectorAll('[data-groups-board-filter-popover]').forEach((popover) => {
+      const selectId = String(popover.getAttribute('data-select-id') || '').trim();
+      const selectEl = document.getElementById(selectId);
+      if (!selectEl) return;
+      const summary = popover.querySelector('[data-filter-summary]');
+      if (summary) summary.textContent = filterSummaryLabel(selectEl);
+      popover.classList.toggle('is-active', selectEl.multiple ? selectedOptionValues(selectEl).length > 0 : String(selectEl.value || 'all') !== 'all');
+      const optionsWrap = popover.querySelector(`[data-filter-options-for="${selectId}"]`);
+      if (!optionsWrap) return;
+      optionsWrap.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      Array.from(selectEl.options || []).forEach((option) => {
+        const optionValue = String(option.value || '');
+        const label = document.createElement('label');
+        label.className = 'groups-filter-option';
+        const input = document.createElement('input');
+        input.type = selectEl.multiple ? 'checkbox' : 'radio';
+        input.className = 'js-groups-board-filter-choice';
+        input.name = `groups-board-filter-choice-${selectId}`;
+        input.value = optionValue;
+        input.checked = !!option.selected;
+        input.setAttribute('data-select-id', selectId);
+        const textSpan = document.createElement('span');
+        textSpan.textContent = option.textContent || optionValue;
+        label.appendChild(input);
+        label.appendChild(textSpan);
+        frag.appendChild(label);
+      });
+      if (!frag.childNodes.length) {
+        const empty = document.createElement('div');
+        empty.className = 'groups-filter-empty';
+        empty.textContent = 'Sense opcions disponibles';
+        frag.appendChild(empty);
+      }
+      optionsWrap.appendChild(frag);
+    });
+    const sizeSummary = document.getElementById('groups-board-size-summary');
+    if (sizeSummary) sizeSummary.textContent = boardSizeSummaryLabel();
+    const sizePopover = document.querySelector('[data-groups-board-size-popover]');
+    if (sizePopover) sizePopover.classList.toggle('is-active', state.boardFilters.min_size !== null || state.boardFilters.max_size !== null);
+    renderBoardFilterActiveChips();
+  }
+
+  function normalizeDetailMemberFilters(raw) {
+    const data = raw && typeof raw === 'object' ? raw : {};
+    const orderState = String(data.order_state || 'all').trim();
+    return {
+      q: String(data.q || '').trim(),
+      entitats: Array.isArray(data.entitats) ? data.entitats.map(String).filter(Boolean) : [],
+      order_state: ['all', 'with_order', 'without_order'].includes(orderState) ? orderState : 'all',
+    };
+  }
+
+  function setDetailMemberFilters(nextFilters) {
+    state.detailMemberFilters = normalizeDetailMemberFilters(Object.assign({}, state.detailMemberFilters, nextFilters || {}));
+  }
+
+  function renderDetailFilterActiveChips() {
+    const wrap = document.getElementById('groups-detail-filter-active-chips');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    let activeCount = 0;
+    const filters = normalizeDetailMemberFilters(state.detailMemberFilters);
+    if (filters.q) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'groups-filter-chip';
+      chip.setAttribute('data-groups-detail-filter-search-clear', '1');
+      chip.textContent = `Cerca: ${filters.q} x`;
+      frag.appendChild(chip);
+      activeCount += 1;
+    }
+    [
+      { id: 'groups-detail-filter-entitat', label: 'Entitat' },
+      { id: 'groups-detail-filter-order-state', label: 'Ordre' },
+    ].forEach((filter) => {
+      const selectEl = document.getElementById(filter.id);
+      if (!selectEl) return;
+      const selected = selectEl.multiple
+        ? Array.from(selectEl.selectedOptions || [])
+        : Array.from(selectEl.selectedOptions || []).filter((option) => String(option.value || '') !== 'all');
+      selected.forEach((option) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'groups-filter-chip';
+        chip.setAttribute('data-groups-detail-filter-chip-select', filter.id);
+        chip.setAttribute('data-groups-detail-filter-chip-value', String(option.value || ''));
+        chip.textContent = `${filter.label}: ${option.textContent?.trim() || option.value} x`;
+        frag.appendChild(chip);
+        activeCount += 1;
+      });
+    });
+    wrap.classList.toggle('is-empty', activeCount === 0);
+    wrap.appendChild(frag);
+  }
+
+  function renderDetailFilterPopovers() {
+    document.querySelectorAll('[data-groups-detail-filter-popover]').forEach((popover) => {
+      const selectId = String(popover.getAttribute('data-select-id') || '').trim();
+      const selectEl = document.getElementById(selectId);
+      if (!selectEl) return;
+      const summary = popover.querySelector('[data-filter-summary]');
+      if (summary) summary.textContent = filterSummaryLabel(selectEl);
+      popover.classList.toggle('is-active', selectEl.multiple ? selectedOptionValues(selectEl).length > 0 : String(selectEl.value || 'all') !== 'all');
+      const optionsWrap = popover.querySelector(`[data-filter-options-for="${selectId}"]`);
+      if (!optionsWrap) return;
+      optionsWrap.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      Array.from(selectEl.options || []).forEach((option) => {
+        const optionValue = String(option.value || '');
+        const label = document.createElement('label');
+        label.className = 'groups-filter-option';
+        const input = document.createElement('input');
+        input.type = selectEl.multiple ? 'checkbox' : 'radio';
+        input.className = 'js-groups-detail-filter-choice';
+        input.name = `groups-detail-filter-choice-${selectId}`;
+        input.value = optionValue;
+        input.checked = !!option.selected;
+        input.setAttribute('data-select-id', selectId);
+        const textSpan = document.createElement('span');
+        textSpan.textContent = option.textContent || optionValue;
+        label.appendChild(input);
+        label.appendChild(textSpan);
+        frag.appendChild(label);
+      });
+      if (!frag.childNodes.length) {
+        const empty = document.createElement('div');
+        empty.className = 'groups-filter-empty';
+        empty.textContent = 'Sense opcions disponibles';
+        frag.appendChild(empty);
+      }
+      optionsWrap.appendChild(frag);
+    });
+    renderDetailFilterActiveChips();
+  }
+
+  function populateDetailMemberFilters(members) {
+    const filters = normalizeDetailMemberFilters(state.detailMemberFilters);
+    const qInput = document.getElementById('groups-detail-member-q');
+    if (qInput) qInput.value = filters.q;
+    const entitatSelect = document.getElementById('groups-detail-filter-entitat');
+    if (entitatSelect) {
+      const entitats = uniqueSortedStrings((Array.isArray(members) ? members : []).map((member) => member?.entitat || member?.secondary_label));
+      fillSelect(entitatSelect, entitats, filters.entitats, 'Qualsevol', (value) => ({ value, label: value }));
+    }
+    const orderSelect = document.getElementById('groups-detail-filter-order-state');
+    if (orderSelect) orderSelect.value = filters.order_state;
+    renderDetailFilterPopovers();
+  }
+
+  function applyDetailMemberFilters() {
+    const filters = normalizeDetailMemberFilters(state.detailMemberFilters);
+    const q = normalizeSearchText(filters.q);
+    const entitats = new Set(filters.entitats.map(String));
+    let visibleCount = 0;
+    let totalCount = 0;
+    document.querySelectorAll('#groups-detail-members-list .team-context-member-row').forEach((row) => {
+      totalCount += 1;
+      const matchesQ = !q || String(row.dataset.searchText || '').includes(q);
+      const matchesEntitat = !entitats.size || entitats.has(String(row.dataset.entitat || ''));
+      const matchesOrder = filters.order_state === 'all' || String(row.dataset.orderState || '') === filters.order_state;
+      const visible = matchesQ && matchesEntitat && matchesOrder;
+      row.classList.toggle('d-none', !visible);
+      if (visible) visibleCount += 1;
+    });
+    const count = document.getElementById('groups-detail-filter-count');
+    if (count) count.textContent = totalCount ? `${visibleCount} de ${totalCount} visibles` : '0 participants';
+    renderDetailFilterActiveChips();
+  }
+
+  function setDetailMemberFilterValue(selectId, value, checked) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+    const valueText = String(value || '');
+    if (selectEl.multiple) {
+      Array.from(selectEl.options || []).forEach((option) => {
+        if (String(option.value || '') === valueText) option.selected = !!checked;
+      });
+    } else {
+      selectEl.value = valueText;
+    }
+    setDetailMemberFilters({
+      entitats: selectedOptionValues(document.getElementById('groups-detail-filter-entitat')),
+      order_state: String(document.getElementById('groups-detail-filter-order-state')?.value || 'all'),
+    });
+    renderDetailFilterPopovers();
+    applyDetailMemberFilters();
+  }
+
+  function clearDetailMemberFilter(selectId, value = null) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+    if (selectEl.multiple) {
+      Array.from(selectEl.options || []).forEach((option) => {
+        if (value === null || String(option.value || '') === String(value || '')) option.selected = false;
+      });
+    } else {
+      selectEl.value = 'all';
+    }
+    setDetailMemberFilters({
+      entitats: selectedOptionValues(document.getElementById('groups-detail-filter-entitat')),
+      order_state: String(document.getElementById('groups-detail-filter-order-state')?.value || 'all'),
+    });
+    renderDetailFilterPopovers();
+    applyDetailMemberFilters();
+  }
+
+  function clearAllDetailMemberFilters() {
+    const q = document.getElementById('groups-detail-member-q');
+    if (q) q.value = '';
+    clearDetailMemberFilter('groups-detail-filter-entitat');
+    clearDetailMemberFilter('groups-detail-filter-order-state');
+    setDetailMemberFilters({ q: '', entitats: [], order_state: 'all' });
+    renderDetailFilterPopovers();
+    applyDetailMemberFilters();
+  }
+
+  function setUniverseFilterValue(selectId, value, checked) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+    if (selectEl.multiple) {
+      Array.from(selectEl.options || []).forEach((option) => {
+        if (String(option.value || '') === String(value || '')) option.selected = !!checked;
+      });
+    } else {
+      selectEl.value = String(value || 'all');
+    }
+    renderGroupsFilterPopovers();
+  }
+
+  function clearUniverseFilter(selectId, value = null) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+    if (selectEl.multiple) {
+      Array.from(selectEl.options || []).forEach((option) => {
+        if (value === null || String(option.value || '') === String(value || '')) option.selected = false;
+      });
+    } else {
+      selectEl.value = 'all';
+    }
+    renderGroupsFilterPopovers();
+  }
+
+  function clearAllUniverseFilters() {
+    const q = document.getElementById('groups-filter-q');
+    if (q) q.value = '';
+    ['groups-filter-categoria', 'groups-filter-subcategoria', 'groups-filter-entitat', 'groups-filter-group-state', 'groups-filter-group-id']
+      .forEach((id) => clearUniverseFilter(id));
+  }
+
+  function setBoardFilterValue(selectId, value, checked) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+    if (selectEl.multiple) {
+      Array.from(selectEl.options || []).forEach((option) => {
+        if (String(option.value || '') === String(value || '')) option.selected = !!checked;
+      });
+    } else {
+      selectEl.value = String(value || 'all');
+    }
+    renderBoardFilterPopovers();
+  }
+
+  function clearBoardFilter(selectId, value = null) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+    if (selectEl.multiple) {
+      Array.from(selectEl.options || []).forEach((option) => {
+        if (value === null || String(option.value || '') === String(value || '')) option.selected = false;
+      });
+    } else {
+      selectEl.value = 'all';
+    }
+    renderBoardFilterPopovers();
+  }
+
+  function clearBoardSizeFilters() {
+    const minSize = document.getElementById('groups-board-filter-min-size');
+    const maxSize = document.getElementById('groups-board-filter-max-size');
+    if (minSize) minSize.value = '';
+    if (maxSize) maxSize.value = '';
+    renderBoardFilterPopovers();
+  }
+
+  function clearAllBoardFilters() {
+    const q = document.getElementById('groups-board-filter-q');
+    if (q) q.value = '';
+    ['groups-board-filter-categoria', 'groups-board-filter-subcategoria', 'groups-board-filter-entitat', 'groups-board-filter-members-state', 'groups-board-filter-program-state']
+      .forEach((id) => clearBoardFilter(id));
+    clearBoardSizeFilters();
+  }
+
+  function readBoardFilters() {
+    return normalizeBoardFilters({
+      q: document.getElementById('groups-board-filter-q')?.value || '',
+      categories: selectedOptionValues(document.getElementById('groups-board-filter-categoria')),
+      subcategories: selectedOptionValues(document.getElementById('groups-board-filter-subcategoria')),
+      entitats: selectedOptionValues(document.getElementById('groups-board-filter-entitat')),
+      members_state: document.getElementById('groups-board-filter-members-state')?.value || 'all',
+      program_state: document.getElementById('groups-board-filter-program-state')?.value || 'all',
+      min_size: document.getElementById('groups-board-filter-min-size')?.value || '',
+      max_size: document.getElementById('groups-board-filter-max-size')?.value || '',
+    });
+  }
+
+  function setBoardFiltersToDom(filters, options) {
+    const data = normalizeBoardFilters(filters);
+    const boardOptions = options || {};
+    const q = document.getElementById('groups-board-filter-q');
+    if (q) q.value = String(data.q || '');
+    fillSelect(document.getElementById('groups-board-filter-categoria'), boardOptions.categories || [], data.categories || [], 'Totes');
+    fillSelect(document.getElementById('groups-board-filter-subcategoria'), boardOptions.subcategories || [], data.subcategories || [], 'Totes');
+    fillSelect(document.getElementById('groups-board-filter-entitat'), boardOptions.entitats || [], data.entitats || [], 'Totes');
+    const membersState = document.getElementById('groups-board-filter-members-state');
+    if (membersState) membersState.value = String(data.members_state || 'all');
+    const programState = document.getElementById('groups-board-filter-program-state');
+    if (programState) programState.value = String(data.program_state || 'all');
+    const minSize = document.getElementById('groups-board-filter-min-size');
+    if (minSize) minSize.value = data.min_size === null ? '' : String(data.min_size);
+    const maxSize = document.getElementById('groups-board-filter-max-size');
+    if (maxSize) maxSize.value = data.max_size === null ? '' : String(data.max_size);
+    renderBoardFilterPopovers();
+  }
+
+  function buildBoardFilterOptions(groups) {
+    const categories = new Set();
+    const subcategories = new Set();
+    const entitats = new Set();
+    (Array.isArray(groups) ? groups : []).forEach((group) => {
+      (group?.categories || []).forEach((value) => {
+        const clean = String(value || '').trim();
+        if (clean) categories.add(clean);
+      });
+      (group?.subcategories || []).forEach((value) => {
+        const clean = String(value || '').trim();
+        if (clean) subcategories.add(clean);
+      });
+      (group?.entitats || []).forEach((value) => {
+        const clean = String(value || '').trim();
+        if (clean) entitats.add(clean);
+      });
+    });
+    return {
+      categories: Array.from(categories).sort((a, b) => a.localeCompare(b, 'ca')),
+      subcategories: Array.from(subcategories).sort((a, b) => a.localeCompare(b, 'ca')),
+      entitats: Array.from(entitats).sort((a, b) => a.localeCompare(b, 'ca')),
+    };
+  }
+
+  function boardFiltersAreActive(filters = state.boardFilters) {
+    const current = normalizeBoardFilters(filters);
+    return !!(
+      current.q
+      || current.categories.length
+      || current.subcategories.length
+      || current.entitats.length
+      || current.members_state !== 'all'
+      || current.program_state !== 'all'
+      || current.min_size !== null
+      || current.max_size !== null
+    );
+  }
+
+  function boardFilterSummaryText(filters = state.boardFilters) {
+    const current = normalizeBoardFilters(filters);
+    const parts = [];
+    if (current.q) parts.push(`text: ${current.q}`);
+    if (current.categories.length) parts.push(`${current.categories.length} categories`);
+    if (current.subcategories.length) parts.push(`${current.subcategories.length} subcategories`);
+    if (current.entitats.length) parts.push(`${current.entitats.length} entitats`);
+    if (current.members_state === 'with_members') parts.push('amb participants');
+    if (current.members_state === 'empty') parts.push('nomes buits');
+    if (current.program_state === 'programmed') parts.push('programats');
+    if (current.program_state === 'out_of_program') parts.push('fora de programa');
+    if (current.min_size !== null && current.max_size !== null) {
+      parts.push(current.min_size === current.max_size ? `mida ${current.min_size}` : `mida ${current.min_size}-${current.max_size}`);
+    } else if (current.min_size !== null) {
+      parts.push(`mida >= ${current.min_size}`);
+    } else if (current.max_size !== null) {
+      parts.push(`mida <= ${current.max_size}`);
+    }
+    if (!parts.length) return 'Nom del grup, participants i facetes agregades del board actual.';
+    return `Filtres actius: ${parts.join(' | ')}.`;
+  }
+
+  function setBoardFiltersExpanded(expanded, options = {}) {
+    state.boardFiltersExpanded = !!expanded;
+    const panel = document.getElementById('groups-board-filters-panel');
+    const toggle = document.getElementById('btn-groups-board-filters-toggle');
+    const summary = document.getElementById('groups-board-filters-summary');
+    if (panel) panel.classList.toggle('d-none', !state.boardFiltersExpanded);
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', state.boardFiltersExpanded ? 'true' : 'false');
+      toggle.textContent = state.boardFiltersExpanded ? 'Amagar filtres del board' : 'Veure filtres del board';
+    }
+    if (summary) summary.textContent = boardFilterSummaryText();
+    renderBoardFilterPopovers();
+    if (!options.skipSave) saveWorkspaceState();
+  }
+
+  function groupMatchesBoardFilters(group, filters = state.boardFilters) {
+    const current = normalizeBoardFilters(filters);
+    const membersCount = Number(group?.members_count || 0);
+    if (current.members_state === 'with_members' && membersCount <= 0) return false;
+    if (current.members_state === 'empty' && membersCount > 0) return false;
+    if (current.program_state === 'programmed' && !group?.is_programmed) return false;
+    if (current.program_state === 'out_of_program' && !group?.is_out_of_program) return false;
+    if (current.min_size !== null && membersCount < current.min_size) return false;
+    if (current.max_size !== null && membersCount > current.max_size) return false;
+    if (current.categories.length && !current.categories.some((value) => (group?.categories || []).includes(value))) return false;
+    if (current.subcategories.length && !current.subcategories.some((value) => (group?.subcategories || []).includes(value))) return false;
+    if (current.entitats.length && !current.entitats.some((value) => (group?.entitats || []).includes(value))) return false;
+    if (current.q) {
+      const haystack = normalizeSearchText([
+        group?.search_text,
+        group?.label,
+        group?.name,
+      ].filter(Boolean).join(' '));
+      if (!haystack.includes(normalizeSearchText(current.q))) return false;
+    }
+    return true;
+  }
+
+  function renderBoardFilterControls(groups) {
+    const options = buildBoardFilterOptions(groups);
+    setBoardFiltersToDom(state.boardFilters, options);
+    state.boardFilters = readBoardFilters();
+    setBoardFiltersExpanded(state.boardFiltersExpanded, { skipSave: true });
+  }
+
+  function buildPayload(extra = {}) {
+    return Object.assign({
+      selected_ids: selectedIds(),
+      filters: state.filters,
+      page: state.page,
+      page_size: state.pageSize,
+    }, extra || {});
+  }
+
+  function sumMembers(rows) {
+    return (Array.isArray(rows) ? rows : []).reduce((acc, row) => acc + Number(row?.members_count || 0), 0);
+  }
+
+  function dispatchGroupCreationContextChanged() {
+    document.dispatchEvent(new CustomEvent('inscripcions:group-creation-context-changed', {
+      detail: {
+        source: 'groups_workspace',
+        selectedIds: selectedIds(),
+        filters: { ...state.filters },
+        filteredCount: Number(state.workspace?.paging?.total || 0),
+      },
+    }));
+  }
+
+  function updateWorkspaceActionAvailability() {
+    const hasSelection = selectedIds().length > 0;
+    [
+      'preview-create',
+      'create',
+      'compact-create',
+      'assign',
+      'compact-assign',
+      'unassign',
+      'compact-unassign',
+    ].forEach((action) => {
+      document.querySelectorAll(`[data-group-action="${action}"]`).forEach((button) => {
+        button.disabled = !hasSelection;
+      });
+    });
+  }
+
+  function renderSelectionSummary() {
+    const workspace = state.workspace || {};
+    const selectedCount = selectedIds().length;
+    const filteredCount = Number(workspace?.paging?.total || 0);
+    text('groups-selection-count', `${selectedCount} seleccionades`);
+    text('groups-selection-mode-label', 'Seleccio activa');
+    text('groups-selection-detail', `${filteredCount} filtrades`);
+    updateWorkspaceActionAvailability();
+  }
+
+  function setAutoContextExpanded(expanded, options = {}) {
+    state.autoContextExpanded = !!expanded;
+    const panel = document.getElementById('groups-auto-context-panel');
+    const toggle = document.getElementById('btn-groups-auto-context-toggle');
+    if (panel) panel.classList.toggle('d-none', !state.autoContextExpanded);
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', state.autoContextExpanded ? 'true' : 'false');
+      toggle.textContent = state.autoContextExpanded ? 'Amagar estratègies de creacio massiva' : 'Veure estratègies de creacio massiva';
+    }
+    if (!options.skipSave) saveWorkspaceState();
+  }
+
+  function syncExternalSelection(ids, options = {}) {
+    updateSelection(ids, 'set', { ...options, skipSyncToMain: true });
+  }
+
+  async function refreshInscripcionsListAfterGroupMutation(action) {
+    if (!['create', 'assign', 'unassign'].includes(String(action || ''))) return;
+    const api = window.InscripcionsApp || null;
+    if (!api || typeof api.refreshLightMutation !== 'function') return;
+    await api.refreshLightMutation({ includeActivePanel: false });
+  }
+
+  function resolveRenamedGroupSelectionId(details = {}) {
+    const groupId = String(details?.groupId || '').trim();
+    if (groupId) return groupId;
+    const groupNum = String(details?.groupNum || '').trim();
+    if (!groupNum) return '';
+    const selectedId = String(state.selectedGroupId || '').trim();
+    if (!selectedId) return '';
+    const groups = Array.isArray(state.workspace?.groups) ? state.workspace.groups : [];
+    const selectedGroup = groups.find((group) => String(group?.id || '').trim() === selectedId);
+    if (selectedGroup && String(selectedGroup?.display_num || '').trim() === groupNum) {
+      return selectedId;
+    }
+    return '';
+  }
+
+  async function refreshAfterGroupRename(details = {}) {
+    const selectedGroupId = resolveRenamedGroupSelectionId(details);
+    if (selectedGroupId) {
+      state.editingGroupIds.delete(selectedGroupId);
+      delete state.groupDetailCache[selectedGroupId];
+      if (String(state.selectedGroupId || '') === selectedGroupId) {
+        state.selectedGroupDetail = null;
+      }
+    }
+    await fetchWorkspace();
+    if (selectedGroupId) {
+      await selectGroup(selectedGroupId, { scroll: false, resetPage: false, forceReload: true });
+    }
+  }
+
+  function scrollSelectedGroupCardIntoView(groupId) {
+    const cleanId = String(groupId || state.selectedGroupId || '').trim();
+    if (!cleanId) return;
+    const node = document.querySelector(`[data-group-card-id="${CSS.escape(cleanId)}"]`);
+    if (node && typeof node.scrollIntoView === 'function') {
+      node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+
+  function getCurrentSelectedGroupSummary() {
+    const cleanId = String(state.selectedGroupId || '').trim();
+    if (!cleanId) return null;
+    const groups = Array.isArray(state.workspace?.groups) ? state.workspace.groups : [];
+    return groups.find((group) => String(group?.id || '').trim() === cleanId) || null;
+  }
+
+  function updateRightPaneTabUi() {
+    const card = document.getElementById('groups-right-pane-card');
+    const detailView = document.getElementById('groups-right-pane-detail');
+    const previewView = document.getElementById('groups-right-pane-preview');
+    const detailBtn = document.getElementById('btn-groups-right-tab-detail');
+    const previewBtn = document.getElementById('btn-groups-right-tab-preview');
+    const activeTab = state.selectedRightPaneTab === 'detail' ? 'detail' : 'preview';
+
+    if (card) card.classList.toggle('is-preview-active', activeTab === 'preview');
+    if (detailView) detailView.classList.toggle('d-none', activeTab !== 'detail');
+    if (previewView) previewView.classList.toggle('d-none', activeTab !== 'preview');
+    if (detailBtn) {
+      detailBtn.classList.toggle('is-active', activeTab === 'detail');
+      detailBtn.setAttribute('aria-selected', activeTab === 'detail' ? 'true' : 'false');
+    }
+    if (previewBtn) {
+      previewBtn.classList.toggle('is-active', activeTab === 'preview');
+      previewBtn.setAttribute('aria-selected', activeTab === 'preview' ? 'true' : 'false');
+    }
+  }
+
+  function setRightPaneTab(tab, options = {}) {
+    state.selectedRightPaneTab = tab === 'detail' ? 'detail' : 'preview';
+    updateRightPaneTabUi();
+    if (!options.skipSave) saveWorkspaceState();
+  }
+
+  const groupBandPalette = [
+    { accent: '#2563eb', bg: '#dbeafe' },
+    { accent: '#0f766e', bg: '#ccfbf1' },
+    { accent: '#b45309', bg: '#ffedd5' },
+    { accent: '#be123c', bg: '#ffe4e6' },
+    { accent: '#7c3aed', bg: '#ede9fe' },
+    { accent: '#0e7490', bg: '#cffafe' },
+    { accent: '#b91c1c', bg: '#fee2e2' },
+    { accent: '#4d7c0f', bg: '#ecfccb' },
+  ];
+
+  function groupBandIndexFromDisplayNum(displayNum) {
+    const clean = Number.parseInt(displayNum, 10);
+    return Number.isFinite(clean) ? clean % 8 : null;
+  }
+
+  function groupDisplayNumForCandidate(item) {
+    const ownGroupNum = groupBandIndexFromDisplayNum(item?.group_num);
+    if (ownGroupNum !== null) return Number.parseInt(item?.group_num, 10);
+    const groupId = String(item?.group_id || '').trim();
+    if (!groupId) return null;
+    const groups = Array.isArray(state.workspace?.groups) ? state.workspace.groups : [];
+    const group = groups.find((row) => String(row?.id || '').trim() === groupId);
+    const displayNum = Number.parseInt(group?.display_num, 10);
+    return Number.isFinite(displayNum) ? displayNum : null;
+  }
+
+  function groupPaletteForCandidate(item) {
+    const displayNum = groupDisplayNumForCandidate(item);
+    const bandIndex = groupBandIndexFromDisplayNum(displayNum);
+    return bandIndex === null ? { accent: '#94a3b8', bg: '#f1f5f9' } : groupBandPalette[bandIndex];
+  }
+
+  function groupBandClass(group) {
+    const bandIndex = groupBandIndexFromDisplayNum(group?.display_num);
+    return bandIndex === null ? '' : ` group-band-${bandIndex}`;
+  }
+
+  function groupPaletteForGroup(group) {
+    const bandIndex = groupBandIndexFromDisplayNum(group?.display_num);
+    return bandIndex === null ? { accent: '#0f766e', bg: '#ccfbf1' } : groupBandPalette[bandIndex];
+  }
+
+  function initialsForLabel(label) {
+    const parts = String(label || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (!parts.length) return '?';
+    return parts.slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join('');
+  }
+
+  function candidateRow(item) {
+    const id = String(item?.id || '').trim();
+    const groupPalette = groupPaletteForCandidate(item);
+    const row = document.createElement('div');
+    row.className = `team-candidate-row${state.selectedIds.has(id) ? ' is-selected' : ''}${dndEnabled() ? ' can-drag' : ''}`;
+    row.dataset.candidateId = id;
+    row.dataset.inscripcioId = id;
+    row.style.setProperty('--candidate-group-accent', groupPalette.accent);
+    row.style.setProperty('--candidate-group-bg', groupPalette.bg);
+
+    const checkboxWrap = document.createElement('div');
+    checkboxWrap.className = 'custom-control custom-checkbox groups-candidate-check-wrap';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = `groups-candidate-check-${id}`;
+    checkbox.className = 'custom-control-input js-groups-workspace-candidate-check';
+    checkbox.value = id;
+    checkbox.checked = state.selectedIds.has(id);
+    checkbox.addEventListener('click', (event) => event.stopPropagation());
+    const checkboxLabel = document.createElement('label');
+    checkboxLabel.className = 'custom-control-label';
+    checkboxLabel.setAttribute('for', checkbox.id);
+    checkboxLabel.setAttribute('aria-label', `Seleccionar ${String(item?.label || `Inscripcio ${id}`)}`);
+    checkboxWrap.appendChild(checkbox);
+    checkboxWrap.appendChild(checkboxLabel);
+    row.appendChild(checkboxWrap);
+
+    const avatar = document.createElement('span');
+    avatar.className = 'team-candidate-avatar';
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.textContent = initialsForLabel(item?.label || id);
+    row.appendChild(avatar);
+
+    const main = document.createElement('div');
+    main.className = 'team-candidate-main';
+    const head = document.createElement('div');
+    head.className = 'team-candidate-head';
+    head.style.gap = '10px';
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'team-candidate-title-wrap';
+    const title = document.createElement('div');
+    title.className = 'team-candidate-title';
+    title.textContent = String(item?.label || `Inscripcio ${id}`);
+    titleWrap.appendChild(title);
+
+    const groupDetails = document.createElement('details');
+    groupDetails.className = `team-candidate-group-details${item?.group_id ? ' has-group' : ' is-unassigned'}`;
+    const groupSummary = document.createElement('summary');
+    groupSummary.innerHTML = `<span class="team-candidate-group-dot" aria-hidden="true"></span><span>${item?.group_id ? 'Grup' : 'Sense grup'}</span>`;
+    const groupText = document.createElement('span');
+    groupText.className = 'team-candidate-group-full';
+    groupText.textContent = String(item?.group_label || 'Sense grup');
+    groupDetails.appendChild(groupSummary);
+    groupDetails.appendChild(groupText);
+    titleWrap.appendChild(groupDetails);
+    head.appendChild(titleWrap);
+
+    main.appendChild(head);
+
+    const meta = document.createElement('div');
+    meta.className = 'team-candidate-meta';
+    meta.textContent = [item?.secondary_label, item?.categoria, item?.subcategoria]
+      .filter(Boolean)
+      .join(' | ') || 'Sense metadades';
+    main.appendChild(meta);
+
+    row.appendChild(main);
+    return row;
+  }
+
+  function renderCandidates(workspace) {
+    const list = document.getElementById('groups-candidates-list');
+    const status = document.getElementById('groups-candidates-status');
+    const badge = document.getElementById('groups-candidates-count-badge');
+    const pageLabel = document.getElementById('groups-candidates-page-label');
+    const prev = document.getElementById('btn-groups-candidates-prev');
+    const next = document.getElementById('btn-groups-candidates-next');
+    if (!list) return;
+    const items = Array.isArray(workspace?.candidates) ? workspace.candidates : (workspace?.candidates?.items || []);
+    const page = Number(workspace?.paging?.page || workspace?.candidates?.page || 1);
+    const pages = Number(workspace?.paging?.pages || 1);
+    const total = Number(workspace?.paging?.total || workspace?.candidates?.total || items.length);
+    list.innerHTML = '';
+    list.setAttribute('data-groups-candidate-source', '1');
+    items.forEach((item) => list.appendChild(candidateRow(item)));
+    if (badge) badge.textContent = `${total} candidates`;
+    if (pageLabel) pageLabel.textContent = `Pagina ${page} de ${pages}`;
+    if (prev) prev.disabled = page <= 1;
+    if (next) next.disabled = page >= pages;
+  }
+
+  function renderCompactSummary(summary) {
+    const metrics = document.getElementById('groups-compact-summary-metrics');
+    if (metrics) {
+      metrics.innerHTML = '';
+      metrics.appendChild(createGroupPreviewBadge(`${Number(summary?.groups_total || 0)} grups`));
+      metrics.appendChild(createGroupPreviewBadge(`${Number(summary?.groups_with_members || 0)} amb participants`));
+      metrics.appendChild(createGroupPreviewBadge(`${Number(summary?.unassigned_count || 0)} sense grup`));
+      metrics.appendChild(createGroupPreviewBadge(`${Number(summary?.out_of_program_groups || 0)} fora de programa`));
+    }
+    const banners = document.getElementById('groups-quick-summary-banners');
+    if (banners) {
+      banners.innerHTML = '';
+      [
+        `${Number(summary?.groups_total || 0)} grups disponibles`,
+        `${Number(summary?.groups_with_members || 0)} amb participants`,
+        `${Number(summary?.unassigned_count || 0)} inscripcions sense grup`,
+      ].forEach((label) => {
+        const badge = document.createElement('span');
+        badge.className = 'quick-actions-banner';
+        badge.textContent = label;
+        banners.appendChild(badge);
+      });
+    }
+  }
+
+  function renderCompactList(groups) {
+    const wrap = document.getElementById('groups-compact-list');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    (Array.isArray(groups) ? groups : []).slice(0, 6).forEach((group) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn btn-sm btn-light border';
+      button.setAttribute('data-group-open', String(group?.id || ''));
+      button.textContent = `${String(group?.label || `Grup ${group?.display_num || '?'}`)} | ${Number(group?.members_count || 0)}`;
+      wrap.appendChild(button);
+    });
+    if (!wrap.children.length) wrap.appendChild(createGroupPreviewBadge('Cap grup disponible'));
+  }
+
+  function groupMemberRow(member, groupId) {
+    const id = String(member?.id || '').trim();
+    const sourceBlocked = !editable();
+    const row = document.createElement('div');
+    row.className = `team-context-member-row${dndEnabled() && !sourceBlocked ? ' can-drag' : ''}`;
+    row.dataset.inscripcioId = id;
+    row.dataset.entitat = String(member?.entitat || member?.secondary_label || '').trim();
+    row.dataset.orderState = member?.order_competicio ? 'with_order' : 'without_order';
+    row.dataset.searchText = normalizeSearchText([
+      member?.nom,
+      member?.label,
+      member?.name,
+      member?.entitat,
+      member?.secondary_label,
+      member?.order_competicio ? `ordre ${member.order_competicio}` : '',
+    ].filter(Boolean).join(' '));
+
+    const main = document.createElement('div');
+    main.className = 'team-context-member-main';
+    const title = document.createElement('div');
+    title.className = 'team-context-member-title';
+    title.textContent = String(member?.nom || member?.label || `Inscripcio ${id}`);
+    main.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'team-context-member-meta';
+    meta.textContent = [member?.entitat || member?.secondary_label, member?.order_competicio ? `Ordre ${member.order_competicio}` : '']
+      .filter(Boolean)
+      .join(' | ') || 'Sense metadades';
+    main.appendChild(meta);
+    row.appendChild(main);
+
+    if (dndEnabled() && !sourceBlocked) {
+      const drag = document.createElement('button');
+      drag.type = 'button';
+      drag.className = 'btn btn-sm btn-outline-secondary team-member-drag-handle';
+      drag.textContent = 'Moure';
+      drag.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      row.appendChild(drag);
+    }
+
+    if (editable() || sourceBlocked) {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn btn-sm btn-outline-warning js-group-member-unassign';
+      remove.dataset.inscripcioId = id;
+      remove.dataset.groupId = String(groupId || '');
+      remove.textContent = 'Treure';
+      remove.disabled = sourceBlocked;
+      remove.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (remove.disabled) return;
+        await unassignSingleMember(id);
+      });
+      row.appendChild(remove);
+    }
+    return row;
+  }
+
+  function renderUnassigned(workspace) {
+    const root = document.getElementById('groups-context-unassigned-dropzone');
+    if (!root) return;
+    root.innerHTML = '';
+    root.classList.add('team-context-drop-target');
+    root.dataset.dropKind = 'unassigned';
+
+    const title = document.createElement('div');
+    title.className = 'fw-semibold';
+    title.textContent = 'Sense grup';
+    root.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'small text-muted';
+    meta.textContent = `${Number(workspace?.summary?.unassigned_count || 0)} inscripcions estan sense grup.`;
+    root.appendChild(meta);
+
+    const placeholder = document.createElement('div');
+    placeholder.className = 'team-context-drop-placeholder';
+    placeholder.textContent = editable()
+      ? "Deixa aqui una inscripcio per deixar-la sense grup."
+      : 'Vista de nomes lectura del workspace actual.';
+    root.appendChild(placeholder);
+  }
+
+  function groupTransformAvailableTargets(groupId) {
+    return (Array.isArray(state.workspace?.groups) ? state.workspace.groups : [])
+      .filter((group) => String(group?.id || '') !== String(groupId || ''))
+      .filter((group) => !group?.is_programmed && group?.actiu !== false)
+      .sort((a, b) => Number(a?.display_num || 0) - Number(b?.display_num || 0));
+  }
+
+  function groupTransformTargetSearchText(group) {
+    return normalizeSearchText([
+      group?.label,
+      group?.name,
+      group?.display_num ? `grup ${group.display_num}` : '',
+      group?.members_count ? `${group.members_count} participants` : '',
+      group?.search_text,
+      ...(group?.categories || []),
+      ...(group?.subcategories || []),
+      ...(group?.entitats || []),
+    ].filter(Boolean).join(' '));
+  }
+
+  function appendGroupTransformField(parent, labelText, control, options = {}) {
+    const wrap = document.createElement('div');
+    if (options?.wide) wrap.className = 'groups-transform-field-wide';
+    const label = document.createElement('label');
+    label.className = 'small text-muted mb-1 d-block';
+    label.textContent = labelText;
+    wrap.appendChild(label);
+    wrap.appendChild(control);
+    parent.appendChild(wrap);
+    return wrap;
+  }
+
+  function createGroupTransformButton(label, operation, variant = 'outline-secondary') {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `btn btn-sm btn-${variant}`;
+    button.setAttribute('data-group-transform-preview', operation);
+    button.textContent = label;
+    return button;
+  }
+
+  function populateGroupTransformTargets(select, groupId) {
+    if (!select) return;
+    select.innerHTML = '';
+    groupTransformAvailableTargets(groupId).forEach((group) => {
+      const option = document.createElement('option');
+      option.value = String(group?.id || '');
+      option.textContent = String(group?.label || `Grup ${group?.display_num || ''}`);
+      option.dataset.searchText = groupTransformTargetSearchText(group);
+      select.appendChild(option);
+    });
+  }
+
+  function applyGroupTransformTargetSearch() {
+    const select = document.getElementById('groups-transform-target-groups');
+    if (!select) return;
+    const query = normalizeSearchText(state.transformTargetQuery);
+    Array.from(select.options || []).forEach((option) => {
+      const matches = !query || String(option.dataset.searchText || '').includes(query);
+      option.hidden = !matches && !option.selected;
+    });
+  }
+
+  function populateGroupTransformBucketFields(select) {
+    if (!select) return;
+    select.innerHTML = '';
+    const source = document.getElementById('groups-workspace-bucket-fields');
+    Array.from(source?.options || []).forEach((sourceOption) => {
+      const option = document.createElement('option');
+      option.value = String(sourceOption.value || '');
+      option.textContent = String(sourceOption.textContent || sourceOption.value || '');
+      select.appendChild(option);
+    });
+  }
+
+  function renderGroupTransformPreview(previewData = state.transformPreview) {
+    const root = document.getElementById('groups-detail-transform-preview');
+    if (!root) return;
+    root.innerHTML = '';
+    if (!previewData) {
+      root.classList.add('d-none');
+      return;
+    }
+    root.classList.remove('d-none');
+
+    const title = document.createElement('div');
+    title.className = 'fw-semibold';
+    title.textContent = previewData.can_apply === false ? 'Previsualitzacio bloquejada' : 'Previsualitzacio de transformacio';
+    root.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'small text-muted mb-2';
+    meta.textContent = `${Number(previewData.members_total || 0)} participants en ${Number(previewData.groups_total || 0)} grup(s) resultants.`;
+    root.appendChild(meta);
+
+    const list = document.createElement('div');
+    list.className = 'list-group list-group-flush mb-2';
+    (Array.isArray(previewData.planned_groups) ? previewData.planned_groups : []).forEach((group) => {
+      const item = document.createElement('div');
+      item.className = 'list-group-item px-0 py-2';
+      const label = String(group?.suggested_name || group?.label || `Grup ${group?.group_num || ''}`).trim();
+      const kind = group?.impact_kind === 'removed'
+        ? 'desactivat'
+        : (group?.preview_kind === 'created' ? 'nou' : 'actualitzat');
+      item.textContent = `${label} - ${Number(group?.members_count || 0)} participants (${kind})`;
+      list.appendChild(item);
+    });
+    root.appendChild(list);
+
+    const actions = document.createElement('div');
+    actions.className = 'd-flex align-items-center flex-wrap';
+    actions.style.gap = '8px';
+    const confirm = document.createElement('button');
+    confirm.type = 'button';
+    confirm.className = 'btn btn-sm btn-primary';
+    confirm.setAttribute('data-group-transform-apply', '1');
+    confirm.textContent = state.transformBusy ? 'Aplicant...' : 'Confirmar transformacio';
+    confirm.disabled = !editable() || state.transformBusy || previewData.can_apply === false;
+    actions.appendChild(confirm);
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'btn btn-sm btn-outline-secondary';
+    clear.setAttribute('data-group-transform-clear', '1');
+    clear.textContent = 'Netejar';
+    actions.appendChild(clear);
+    root.appendChild(actions);
+  }
+
+  function renderGroupTransformQuickActions(detailGroup, groupId) {
+    const root = document.getElementById('groups-detail-quick-actions');
+    if (!root) return;
+    root.innerHTML = '';
+    if (!groupId || !detailGroup) {
+      renderGroupTransformPreview(null);
+      return;
+    }
+
+    const blocked = !editable() || !!detailGroup?.is_programmed;
+    const operations = [
+      { op: 'merge_into_current', title: 'Unir', copy: 'Fusiona altres grups amb aquest.', button: 'Configurar', icon: transformIcons.merge, needsTargets: true },
+      { op: 'split_count', title: 'Dividir en N', copy: 'Reparteix aquest grup en N grups.', button: 'Configurar', icon: transformIcons.split, needsCount: true },
+      { op: 'split_size', title: 'Dividir per mida', copy: 'Crea grups amb una mida fixa.', button: 'Configurar', icon: transformIcons.split, needsSize: true },
+      { op: 'split_bucket', title: 'Dividir per criteri', copy: 'Separa per camps de classificacio.', button: 'Configurar', icon: transformIcons.bucket, needsBuckets: true },
+      { op: 'extract_selection', title: 'Extreure seleccio', copy: 'Mou la seleccio a un grup nou.', button: 'Previsualitzar', icon: transformIcons.split },
+      { op: 'rebalance', title: 'Reequilibrar', copy: 'Compensa aquest grup amb altres.', button: 'Configurar', icon: transformIcons.balance, needsTargets: true, needsCount: true },
+    ];
+    if (!operations.some((row) => row.op === state.activeTransformOperation)) {
+      state.activeTransformOperation = '';
+    }
+
+    const shell = document.createElement('details');
+    shell.className = 'groups-transform-shell';
+    shell.open = !!state.transformActionsExpanded;
+    root.appendChild(shell);
+
+    const header = document.createElement('summary');
+    header.className = 'groups-transform-head';
+    header.setAttribute('data-group-transform-accordion', '1');
+    const headCopy = document.createElement('div');
+    const title = document.createElement('div');
+    title.className = 'groups-transform-title';
+    title.textContent = 'Accions';
+    headCopy.appendChild(title);
+    const subtitle = document.createElement('div');
+    subtitle.className = 'small text-muted';
+    subtitle.textContent = blocked
+      ? (detailGroup?.is_programmed ? 'Aquest grup esta programat: les accions es mostren desactivades.' : 'Accions disponibles nomes en mode edicio.')
+      : 'Tria una accio i configura nomes els camps necessaris.';
+    headCopy.appendChild(subtitle);
+    header.appendChild(headCopy);
+    if (detailGroup?.is_programmed) {
+      const badge = document.createElement('span');
+      badge.className = 'badge badge-warning groups-transform-programmed-badge';
+      badge.textContent = 'Programat';
+      header.appendChild(badge);
+    }
+    shell.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'groups-transform-body';
+    shell.appendChild(body);
+
+    const grid = document.createElement('div');
+    grid.className = 'groups-transform-action-grid';
+    operations.forEach((operation) => {
+      const card = document.createElement('div');
+      card.className = `groups-transform-action-card${state.activeTransformOperation === operation.op ? ' is-active' : ''}${blocked ? ' is-disabled' : ''}`;
+      const cardHead = document.createElement('div');
+      cardHead.className = 'groups-transform-action-card-head';
+      if (operation.icon) {
+        const icon = document.createElement('img');
+        icon.src = operation.icon;
+        icon.alt = '';
+        icon.loading = 'lazy';
+        cardHead.appendChild(icon);
+      }
+      const cardTitle = document.createElement('div');
+      cardTitle.className = 'groups-transform-action-title';
+      cardTitle.textContent = operation.title;
+      cardHead.appendChild(cardTitle);
+      card.appendChild(cardHead);
+      const cardCopy = document.createElement('div');
+      cardCopy.className = 'groups-transform-action-copy';
+      cardCopy.textContent = operation.copy;
+      card.appendChild(cardCopy);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn btn-sm btn-outline-primary groups-transform-config-btn';
+      button.setAttribute(operation.op === 'extract_selection' ? 'data-group-transform-preview' : 'data-group-transform-config', operation.op);
+      button.textContent = operation.button;
+      button.disabled = blocked;
+      card.appendChild(button);
+      grid.appendChild(card);
+    });
+    body.appendChild(grid);
+
+    const activeOperation = operations.find((row) => row.op === state.activeTransformOperation);
+    if (activeOperation && !blocked) {
+      const config = document.createElement('div');
+      config.className = 'groups-transform-config-panel';
+      const configTitle = document.createElement('div');
+      configTitle.className = 'groups-transform-config-title';
+      configTitle.textContent = activeOperation.title;
+      config.appendChild(configTitle);
+
+      const fields = document.createElement('div');
+      fields.className = 'team-filters-grid groups-transform-grid';
+
+      if (activeOperation.needsTargets) {
+        const targets = document.createElement('select');
+        targets.id = 'groups-transform-target-groups';
+        targets.className = 'form-control form-control-sm';
+        targets.multiple = true;
+        targets.size = 4;
+        populateGroupTransformTargets(targets, groupId);
+        const targetWrap = document.createElement('div');
+        const targetSearch = document.createElement('input');
+        targetSearch.type = 'search';
+        targetSearch.id = 'groups-transform-target-search';
+        targetSearch.className = 'form-control form-control-sm mb-1';
+        targetSearch.placeholder = 'Cerca grup...';
+        targetSearch.value = String(state.transformTargetQuery || '');
+        targetWrap.appendChild(targetSearch);
+        targetWrap.appendChild(targets);
+        appendGroupTransformField(fields, 'Altres grups', targetWrap, { wide: true });
+        applyGroupTransformTargetSearch();
+      }
+
+      if (activeOperation.needsCount) {
+        const countInput = document.createElement('input');
+        countInput.type = 'number';
+        countInput.id = 'groups-transform-count';
+        countInput.className = 'form-control form-control-sm';
+        countInput.min = '2';
+        countInput.step = '1';
+        countInput.placeholder = activeOperation.op === 'rebalance' ? 'Opcional' : 'Nombre de grups';
+        appendGroupTransformField(fields, activeOperation.op === 'rebalance' ? 'Nombre final opcional' : 'Nombre de grups', countInput);
+      }
+
+      if (activeOperation.needsSize) {
+        const sizeInput = document.createElement('input');
+        sizeInput.type = 'number';
+        sizeInput.id = 'groups-transform-size';
+        sizeInput.className = 'form-control form-control-sm';
+        sizeInput.min = '1';
+        sizeInput.step = '1';
+        sizeInput.placeholder = 'Mida fixa';
+        appendGroupTransformField(fields, 'Mida fixa', sizeInput);
+      }
+
+      if (activeOperation.needsBuckets) {
+        const bucketFields = document.createElement('select');
+        bucketFields.id = 'groups-transform-bucket-fields';
+        bucketFields.className = 'form-control form-control-sm';
+        bucketFields.multiple = true;
+        bucketFields.size = 4;
+        populateGroupTransformBucketFields(bucketFields);
+        appendGroupTransformField(fields, 'Criteris per dividir', bucketFields, { wide: true });
+      }
+
+      config.appendChild(fields);
+      const actions = document.createElement('div');
+      actions.className = 'groups-transform-config-actions';
+      actions.appendChild(createGroupTransformButton('Previsualitzar', activeOperation.op, 'primary'));
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'btn btn-sm btn-outline-secondary';
+      close.setAttribute('data-group-transform-config', '');
+      close.textContent = 'Tancar';
+      actions.appendChild(close);
+      config.appendChild(actions);
+      body.appendChild(config);
+    }
+    renderGroupTransformPreview(state.transformPreview);
+  }
+
+  function readGroupTransformPayload(operation) {
+    const payload = {
+      operation,
+      source_group_id: state.selectedGroupId,
+      target_group_ids: selectedOptionValues(document.getElementById('groups-transform-target-groups')),
+      selected_ids: selectedIds(),
+    };
+    const count = Number.parseInt(document.getElementById('groups-transform-count')?.value || '', 10);
+    if (Number.isFinite(count) && count > 0) payload.group_count = count;
+    const size = Number.parseInt(document.getElementById('groups-transform-size')?.value || '', 10);
+    if (Number.isFinite(size) && size > 0) payload.group_size = size;
+    const minSize = Number.parseInt(document.getElementById('groups-transform-min-size')?.value || '', 10);
+    const maxSize = Number.parseInt(document.getElementById('groups-transform-max-size')?.value || '', 10);
+    if (Number.isFinite(minSize) && minSize > 0) payload.min_size = minSize;
+    if (Number.isFinite(maxSize) && maxSize > 0) payload.max_size = maxSize;
+    payload.bucket_fields = selectedOptionValues(document.getElementById('groups-transform-bucket-fields'));
+    return payload;
+  }
+
+  async function previewGroupTransform(operation) {
+    if (!editable()) return;
+    const currentGroup = state.selectedGroupDetail || getCurrentSelectedGroupSummary();
+    if (currentGroup?.is_programmed) return;
+    state.transformActionsExpanded = true;
+    const payload = readGroupTransformPayload(operation);
+    try {
+      state.transformBusy = true;
+      renderGroupTransformPreview(state.transformPreview);
+      const data = await postJson(groupsTransformPreviewUrl, payload);
+      state.transformPayload = payload;
+      state.transformPreview = data?.preview || null;
+      renderGroupTransformPreview(state.transformPreview);
+    } catch (err) {
+      showRequestError("No s'ha pogut previsualitzar la transformacio.", err);
+    } finally {
+      state.transformBusy = false;
+      renderGroupTransformPreview(state.transformPreview);
+    }
+  }
+
+  async function applyGroupTransform() {
+    if (!editable() || !state.transformPayload) return;
+    const ok = await confirmBox('Aplicar aquesta transformacio de grups?', {
+      title: 'Aplicar transformacio',
+      confirmLabel: 'Aplicar',
+      tone: 'primary',
+    });
+    if (!ok) return;
+    try {
+      state.transformBusy = true;
+      renderGroupTransformPreview(state.transformPreview);
+      const data = await postJson(groupsTransformApplyUrl, state.transformPayload);
+      invalidateAllGroupDetails();
+      state.transformPreview = null;
+      state.transformPayload = null;
+      if (data?.selected_group_id) {
+        state.selectedGroupId = String(data.selected_group_id);
+        state.selectedRightPaneTab = 'detail';
+      }
+      await (window.InscripcionsApp?.refreshLightMutation?.({ includeActivePanel: false }) || Promise.resolve());
+      await fetchWorkspace();
+      if (typeof clearGroupPreview === 'function') clearGroupPreview('La transformacio de grups s\'ha aplicat.');
+    } catch (err) {
+      showRequestError("No s'ha pogut aplicar la transformacio.", err);
+    } finally {
+      state.transformBusy = false;
+      renderGroupTransformPreview(state.transformPreview);
+    }
+  }
+
+  function getGroupDetail(groupId) {
+    return state.groupDetailCache[String(groupId || '').trim()] || null;
+  }
+
+  function renderDetailPane() {
+    const empty = document.getElementById('groups-detail-empty');
+    const panel = document.getElementById('groups-detail-panel');
+    const title = document.getElementById('groups-detail-title');
+    const meta = document.getElementById('groups-detail-meta');
+    const summary = document.getElementById('groups-detail-summary');
+    const actions = document.getElementById('groups-detail-actions');
+    const editor = document.getElementById('groups-detail-editor');
+    const nameNote = document.getElementById('groups-detail-name-note');
+    const membersList = document.getElementById('groups-detail-members-list');
+    const pager = document.getElementById('groups-detail-members-pager');
+    if (!empty || !panel || !title || !meta || !summary || !actions || !editor || !nameNote || !membersList || !pager) return;
+    const membersToolbar = document.getElementById('groups-detail-members-toolbar');
+
+    const group = getCurrentSelectedGroupSummary();
+    const groupId = String(group?.id || state.selectedGroupId || '').trim();
+    const detail = getGroupDetail(groupId)
+      || (String(state.selectedGroupDetail?.id || '') === groupId ? state.selectedGroupDetail : null);
+    const loading = !!(groupId && state.loadingGroupIds.has(groupId));
+    const editing = !!(groupId && state.editingGroupIds.has(groupId));
+    const detailGroup = detail || group;
+    const canDelete = detail ? !!detail.can_delete : !Number(group?.members_count || 0);
+
+    if (!groupId || !group) {
+      empty.classList.remove('d-none');
+      panel.classList.add('d-none');
+      empty.textContent = "Selecciona un grup de la board per veure'n el detall sense deformar la graella.";
+      membersList.innerHTML = '';
+      if (membersToolbar) membersToolbar.classList.add('d-none');
+      pager.innerHTML = '';
+      pager.classList.add('d-none');
+      state.selectedGroupDetail = null;
+      state.transformPreview = null;
+      state.transformPayload = null;
+      state.transformActionsExpanded = false;
+      state.activeTransformOperation = '';
+      state.transformTargetQuery = '';
+      setDetailMemberFilters({ q: '', entitats: [], order_state: 'all' });
+      renderGroupTransformQuickActions(null, '');
+      return;
+    }
+
+    empty.classList.add('d-none');
+    panel.classList.remove('d-none');
+    state.selectedGroupDetail = detail || null;
+    const palette = groupPaletteForGroup(detailGroup);
+    panel.style.setProperty('--group-accent', palette.accent);
+    panel.style.setProperty('--group-bg', palette.bg);
+
+    title.textContent = String(detailGroup?.label || `Grup ${detailGroup?.display_num || '?'}`);
+    const membersTotal = Number(detailGroup?.members_total ?? detailGroup?.members_count ?? group?.members_count ?? 0);
+    const entitatsTotal = uniqueSortedStrings([...(detailGroup?.entitats || []), ...(group?.entitats || [])]).length;
+    const categoriesTotal = uniqueSortedStrings([...(detailGroup?.categories || []), ...(group?.categories || [])]).length;
+    meta.textContent = detailGroup?.name
+      ? `Nom intern: ${detailGroup.name}`
+      : (group?.name ? `Nom intern: ${group.name}` : 'Resum del grup seleccionat');
+
+    summary.innerHTML = '';
+    const addMetric = (label, value, options = {}) => {
+      const item = document.createElement('div');
+      item.className = `groups-detail-metric${options.status ? ' groups-detail-metric-status' : ''}`;
+      if (options.icon) {
+        const icon = document.createElement('img');
+        icon.src = options.icon;
+        icon.alt = '';
+        icon.loading = 'lazy';
+        item.appendChild(icon);
+      }
+      const copy = document.createElement('div');
+      const valueNode = document.createElement('span');
+      valueNode.className = 'groups-detail-metric-value';
+      valueNode.textContent = String(value);
+      const labelNode = document.createElement('span');
+      labelNode.className = 'groups-detail-metric-label';
+      labelNode.textContent = label;
+      copy.appendChild(valueNode);
+      copy.appendChild(labelNode);
+      item.appendChild(copy);
+      summary.appendChild(item);
+      return item;
+    };
+    addMetric('participants', membersTotal, { icon: groupParticipantsIcon });
+    addMetric('entitats', entitatsTotal);
+    addMetric('categories', categoriesTotal);
+    addMetric('estat', detailGroup?.is_programmed ? 'Programat' : 'No programat', { status: true });
+    if (detailGroup?.is_out_of_program) addMetric('programa', 'Fora de programa', { status: true });
+    if (canDelete) addMetric('manteniment', 'Desactivable', { status: true });
+    if (loading) addMetric('detall', 'Carregant', { icon: groupDetailIcon, status: true });
+
+    actions.innerHTML = '';
+    const detailBtn = document.createElement('button');
+    detailBtn.type = 'button';
+    detailBtn.className = 'btn btn-sm btn-outline-dark';
+    detailBtn.setAttribute('data-group-open', groupId);
+    detailBtn.textContent = loading ? 'Carregant...' : 'Refrescar detall';
+    actions.appendChild(detailBtn);
+
+    const actionsMenu = document.createElement('details');
+    actionsMenu.className = 'groups-existing-actions-menu groups-detail-actions-menu';
+    const menuTrigger = document.createElement('summary');
+    menuTrigger.className = 'groups-existing-actions-trigger';
+    menuTrigger.setAttribute('aria-label', 'Accions del grup');
+    menuTrigger.textContent = '...';
+    actionsMenu.appendChild(menuTrigger);
+    const popover = document.createElement('div');
+    popover.className = 'groups-existing-actions-popover groups-detail-actions-popover';
+    actionsMenu.appendChild(popover);
+    actions.appendChild(actionsMenu);
+    const actionDisabled = !editable();
+
+    const assign = document.createElement('button');
+    assign.type = 'button';
+    assign.className = 'groups-existing-action-item';
+    assign.setAttribute('data-group-assign-to', groupId);
+    assign.textContent = 'Assignar seleccio';
+    assign.disabled = actionDisabled;
+    popover.appendChild(assign);
+
+    const order = document.createElement('button');
+    order.type = 'button';
+    order.className = 'groups-existing-action-item';
+    order.setAttribute('data-group-order', String(detailGroup?.display_num || group?.display_num || ''));
+    order.textContent = 'Ordre competicio';
+    order.disabled = actionDisabled;
+    popover.appendChild(order);
+
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.className = 'groups-existing-action-item';
+    rename.setAttribute('data-group-rename', groupId);
+    rename.textContent = 'Renombrar';
+    rename.disabled = actionDisabled;
+    popover.appendChild(rename);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'groups-existing-action-item groups-existing-action-danger';
+    remove.setAttribute('data-group-delete', groupId);
+    remove.textContent = 'Eliminar grup';
+    remove.disabled = actionDisabled || !!detailGroup?.is_programmed || !canDelete;
+    popover.appendChild(remove);
+
+    editor.innerHTML = '';
+    editor.classList.toggle('d-none', !editing);
+    if (editing) {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'form-control form-control-sm';
+      input.style.minWidth = '220px';
+      input.style.maxWidth = '320px';
+      input.value = String(detailGroup?.name || group?.name || '');
+      input.setAttribute('data-group-name-input', groupId);
+      input.placeholder = 'Nom del grup';
+      editor.appendChild(input);
+
+      const save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'btn btn-sm btn-primary js-workspace-save-group-name';
+      save.dataset.groupId = groupId;
+      save.dataset.groupNum = String(detailGroup?.display_num || group?.display_num || '');
+      save.textContent = 'Desar';
+      editor.appendChild(save);
+
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'btn btn-sm btn-light js-workspace-cancel-group-name';
+      cancel.dataset.groupId = groupId;
+      cancel.textContent = 'Cancelar';
+      editor.appendChild(cancel);
+    }
+
+    nameNote.textContent = detailGroup?.is_programmed
+      ? 'Aquest grup esta programat: pots modificar-ne el nom, els participants i l ordre de competicio, pero no eliminar-lo.'
+      : 'Grup editable: pots revisar participants, filtrar la llista i preparar accions.';
+    renderGroupTransformQuickActions(detailGroup, groupId);
+
+    membersList.innerHTML = '';
+    membersList.dataset.groupId = groupId;
+    if (loading && !detail) {
+      const loadingNode = document.createElement('div');
+      loadingNode.className = 'team-context-drop-placeholder';
+      loadingNode.textContent = 'Carregant participants...';
+      membersList.appendChild(loadingNode);
+    } else if (detail) {
+      const members = Array.isArray(detail?.members) ? detail.members : [];
+      if (members.length) {
+        members.forEach((member) => membersList.appendChild(groupMemberRow(member, groupId)));
+      } else {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'team-context-drop-placeholder';
+        placeholder.textContent = editable()
+          ? "Aquest grup es buit. Pots deixar-hi una inscripcio directament sobre la targeta."
+          : 'Aquest grup no te participants.';
+        membersList.appendChild(placeholder);
+      }
+    } else {
+      const emptyState = document.createElement('div');
+      emptyState.className = 'team-context-drop-placeholder';
+      emptyState.textContent = 'Detall no carregat encara.';
+      membersList.appendChild(emptyState);
+    }
+
+    if (membersToolbar) membersToolbar.classList.toggle('d-none', !detail);
+    if (detail) {
+      populateDetailMemberFilters(Array.isArray(detail?.members) ? detail.members : []);
+      applyDetailMemberFilters();
+    }
+
+    const currentPage = Number(detail?.members_page || state.selectedGroupMembersPage || 1);
+    const totalPages = Number(detail?.members_total_pages || 1);
+    const pageSize = Number(detail?.members_page_size || 10);
+    pager.innerHTML = '';
+    pager.classList.toggle('d-none', totalPages <= 1);
+    if (totalPages > 1) {
+      const start = membersTotal > 0 ? ((currentPage - 1) * pageSize) + 1 : 0;
+      const end = membersTotal > 0 ? Math.min(currentPage * pageSize, membersTotal) : 0;
+      const label = document.createElement('div');
+      label.className = 'small text-muted';
+      label.textContent = `Mostrant ${start}-${end} de ${membersTotal}`;
+      pager.appendChild(label);
+
+      const controls = document.createElement('div');
+      controls.className = 'd-flex align-items-center flex-wrap';
+      controls.style.gap = '8px';
+
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.className = 'btn btn-sm btn-outline-secondary';
+      prevBtn.setAttribute('data-group-members-page', String(Math.max(1, currentPage - 1)));
+      prevBtn.textContent = 'Anterior';
+      prevBtn.disabled = currentPage <= 1 || loading;
+      controls.appendChild(prevBtn);
+
+      const pageLabel = document.createElement('span');
+      pageLabel.className = 'small text-muted';
+      pageLabel.textContent = `Pagina ${currentPage} de ${totalPages}`;
+      controls.appendChild(pageLabel);
+
+      const nextBtn = document.createElement('button');
+      nextBtn.type = 'button';
+      nextBtn.className = 'btn btn-sm btn-outline-secondary';
+      nextBtn.setAttribute('data-group-members-page', String(Math.min(totalPages, currentPage + 1)));
+      nextBtn.textContent = 'Seguent';
+      nextBtn.disabled = currentPage >= totalPages || loading;
+      controls.appendChild(nextBtn);
+
+      pager.appendChild(controls);
+    }
+  }
+
+  function groupCard(group) {
+    const groupId = String(group?.id || '').trim();
+    const detail = getGroupDetail(groupId);
+    const loading = state.loadingGroupIds.has(groupId);
+    const canDelete = detail ? !!detail.can_delete : !Number(group?.members_count || 0);
+    const isCurrent = String(state.selectedGroupId || '') === groupId;
+    const actionDisabled = !editable();
+
+    const wrap = document.createElement('div');
+    wrap.className = `team-context-team-card team-context-drop-target${groupBandClass(group)}${Number(group?.members_count || 0) === 0 ? ' is-empty' : ''}${isCurrent ? ' is-current' : ''}${group?.is_programmed ? ' is-programmed' : ''}${group?.is_out_of_program ? ' is-out-of-program' : ''}`;
+    wrap.dataset.groupId = groupId;
+    wrap.dataset.groupCardId = groupId;
+    wrap.setAttribute('data-group-card-id', groupId);
+
+    const head = document.createElement('div');
+    head.className = 'team-context-team-head';
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'team-context-team-title-wrap';
+    const title = document.createElement('div');
+    title.className = 'fw-semibold team-context-team-name';
+    title.textContent = String(group?.label || `Grup ${group?.display_num || '?'}`);
+    titleWrap.appendChild(title);
+    const meta = document.createElement('div');
+    meta.className = 'team-context-team-meta groups-existing-card-meta';
+    const participants = document.createElement('span');
+    participants.className = 'groups-existing-participants';
+    if (groupParticipantsIcon) {
+      const icon = document.createElement('img');
+      icon.src = groupParticipantsIcon;
+      icon.alt = '';
+      icon.loading = 'lazy';
+      participants.appendChild(icon);
+    }
+    const participantsText = document.createElement('span');
+    participantsText.textContent = `${Number(group?.members_count || 0)} participants`;
+    participants.appendChild(participantsText);
+    meta.appendChild(participants);
+    const statuses = document.createElement('span');
+    statuses.className = 'groups-existing-status-pills';
+    [
+      group?.is_programmed ? 'Programat' : '',
+      group?.is_out_of_program ? 'Fora de programa' : '',
+      canDelete ? 'Es pot desactivar' : '',
+      loading ? 'Carregant detall' : '',
+    ].filter(Boolean).forEach((label) => {
+      const pill = document.createElement('span');
+      pill.className = 'groups-existing-status-pill';
+      pill.textContent = label;
+      statuses.appendChild(pill);
+    });
+    if (statuses.childNodes.length) meta.appendChild(statuses);
+    titleWrap.appendChild(meta);
+    if (Array.isArray(group?.member_names_preview) && group.member_names_preview.length) {
+      const preview = document.createElement('div');
+      preview.className = 'small text-muted mt-1 team-context-team-preview';
+      const shownNames = group.member_names_preview.slice(0, 3);
+      const remaining = Math.max(0, Number(group?.members_count || 0) - shownNames.length);
+      preview.textContent = `${shownNames.join(', ')}${remaining ? ` +${remaining} participants` : ''}`;
+      titleWrap.appendChild(preview);
+    }
+    head.appendChild(titleWrap);
+
+    const actions = document.createElement('div');
+    actions.className = 'team-context-team-actions';
+
+    const assign = document.createElement('button');
+    assign.type = 'button';
+    assign.className = 'btn btn-sm btn-outline-primary';
+    assign.setAttribute('data-group-assign-to', groupId);
+    assign.textContent = 'Assignar seleccio';
+    assign.disabled = actionDisabled;
+    actions.appendChild(assign);
+
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.className = 'btn btn-sm btn-outline-secondary';
+    rename.setAttribute('data-group-rename', groupId);
+    rename.textContent = 'Renombrar';
+    rename.disabled = actionDisabled;
+    actions.appendChild(rename);
+
+    if (!Number(group?.members_count || 0) || canDelete) {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn btn-sm btn-outline-danger';
+      remove.setAttribute('data-group-delete', groupId);
+      remove.textContent = 'Desactivar';
+      remove.disabled = actionDisabled || !!group?.is_programmed || !canDelete;
+      actions.appendChild(remove);
+    }
+    head.appendChild(actions);
+    wrap.appendChild(head);
+
+    const dropSurface = document.createElement('div');
+    dropSurface.className = `team-context-team-drop-surface${!editable() ? ' is-drop-disabled' : ''}`;
+    dropSurface.dataset.groupId = groupId;
+    dropSurface.dataset.dropKind = editable() ? 'group' : 'blocked';
+    if (!editable()) dropSurface.dataset.dropDisabled = '1';
+    const dropHint = document.createElement('div');
+    dropHint.className = 'team-context-team-drop-hint';
+    dropHint.textContent = editable()
+      ? (group?.is_programmed
+        ? "Grup programat: pots modificar participants mentre el grup no quedi buit."
+        : "Deixa aqui una inscripcio per afegir-la a aquest grup.")
+      : 'Aquest grup es mostra en mode lectura.';
+    dropSurface.appendChild(dropHint);
+    wrap.appendChild(dropSurface);
+    return wrap;
+  }
+
+  function renderCards(workspace) {
+    const activeList = document.getElementById('groups-active-list');
+    const emptyList = document.getElementById('groups-empty-list');
+    const emptyWrap = document.getElementById('groups-empty-wrap');
+    const badge = document.getElementById('groups-existing-count-badge');
+    const status = document.getElementById('groups-existing-status');
+    if (!activeList || !emptyList) return;
+    const groups = Array.isArray(workspace?.groups) ? workspace.groups : [];
+    const visibleGroups = groups.filter((group) => groupMatchesBoardFilters(group));
+    const active = visibleGroups.filter((group) => Number(group?.members_count || 0) > 0);
+    const empty = visibleGroups.filter((group) => Number(group?.members_count || 0) === 0);
+    const filtersActive = boardFiltersAreActive();
+
+    renderUnassigned(workspace);
+    activeList.innerHTML = '';
+    emptyList.innerHTML = '';
+    active.forEach((group) => activeList.appendChild(groupCard(group)));
+    empty.forEach((group) => emptyList.appendChild(groupCard(group)));
+    if (!active.length) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'groups-board-placeholder';
+      placeholder.textContent = filtersActive
+        ? 'Cap grup amb participants coincideix amb els filtres del board.'
+        : 'Encara no hi ha grups amb participants en aquesta vista.';
+      activeList.appendChild(placeholder);
+    }
+    if (!empty.length) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'groups-board-placeholder';
+      placeholder.textContent = filtersActive
+        ? 'Cap grup buit coincideix amb els filtres del board.'
+        : 'No hi ha grups buits disponibles ara mateix.';
+      emptyList.appendChild(placeholder);
+    }
+    if (emptyWrap) emptyWrap.classList.remove('d-none');
+    if (badge) badge.textContent = `${groups.length} grups`;
+    text('groups-board-filter-count', `${visibleGroups.length} de ${groups.length} grups`);
+    if (status) {
+      status.textContent = groups.length
+        ? `${active.length} grups amb participants i ${empty.length} grups buits visibles${filtersActive ? ` de ${groups.length} totals` : ''}.`
+        : 'Encara no hi ha grups disponibles.';
+    }
+    renderDetailPane();
+  }
+
+  function getBulkGroupOrderEls() {
+    return {
+      backdrop: document.getElementById('group-competition-modal-backdrop'),
+      modal: document.getElementById('bulk-group-order-modal'),
+      close: document.getElementById('bulk-group-order-modal-close'),
+      sortKey: document.getElementById('bulk-group-order-sort-key'),
+      sortDir: document.getElementById('bulk-group-order-sort-dir'),
+      scope: document.getElementById('bulk-group-order-scope'),
+      status: document.getElementById('bulk-group-order-modal-status'),
+      preview: document.getElementById('bulk-group-order-modal-preview'),
+      previewBtn: document.getElementById('bulk-group-order-modal-preview-btn'),
+      applyBtn: document.getElementById('bulk-group-order-modal-apply'),
+      footnote: document.getElementById('bulk-group-order-modal-footnote'),
+    };
+  }
+
+  function visibleBoardGroupIds() {
+    return Array.from(document.querySelectorAll('#groups-active-list .team-context-team-card[data-group-id], #groups-empty-list .team-context-team-card[data-group-id]'))
+      .map((node) => String(node.dataset.groupId || '').trim())
+      .filter(Boolean);
+  }
+
+  function selectedBulkGroupIds(scope) {
+    if (scope === 'all') return [];
+    if (scope === 'selected') {
+      const selected = String(state.selectedGroupId || '').trim();
+      return selected ? [selected] : [];
+    }
+    return visibleBoardGroupIds();
+  }
+
+  function updateBulkGroupOrderCustomAvailability() {
+    const els = getBulkGroupOrderEls();
+    const selectedOption = els.sortKey?.selectedOptions?.[0] || null;
+    const hasCustom = String(selectedOption?.dataset?.customEnabled || '') === '1';
+    const customOption = Array.from(els.sortDir?.options || []).find((option) => String(option.value || '') === 'custom');
+    if (customOption) customOption.disabled = !hasCustom;
+    if (!hasCustom && String(els.sortDir?.value || '') === 'custom') {
+      els.sortDir.value = 'asc';
+    }
+  }
+
+  function buildBulkGroupOrderPayload() {
+    const els = getBulkGroupOrderEls();
+    const scope = String(els.scope?.value || 'all').trim() || 'all';
+    return {
+      sort_key: String(els.sortKey?.value || '').trim(),
+      sort_dir: String(els.sortDir?.value || 'asc').trim(),
+      scope,
+      group_ids: selectedBulkGroupIds(scope),
+    };
+  }
+
+  function setBulkGroupOrderBusy(busy) {
+    state.bulkGroupOrderBusy = !!busy;
+    const els = getBulkGroupOrderEls();
+    if (els.previewBtn) els.previewBtn.disabled = state.bulkGroupOrderBusy;
+    if (els.applyBtn) els.applyBtn.disabled = state.bulkGroupOrderBusy || !state.bulkGroupOrderPreview?.can_apply;
+  }
+
+  function closeBulkGroupOrderModal() {
+    const els = getBulkGroupOrderEls();
+    state.bulkGroupOrderPreview = null;
+    state.bulkGroupOrderPayload = null;
+    if (els.backdrop) els.backdrop.classList.remove('is-visible');
+    if (els.modal) {
+      els.modal.classList.remove('is-visible');
+      els.modal.classList.add('d-none');
+      els.modal.setAttribute('aria-hidden', 'true');
+    }
+    document.body.classList.remove('group-competition-modal-open');
+  }
+
+  function openBulkGroupOrderModal() {
+    const els = getBulkGroupOrderEls();
+    if (!els.modal) return;
+    if (els.backdrop && els.backdrop.parentNode !== document.body) document.body.appendChild(els.backdrop);
+    if (els.modal.parentNode !== document.body) document.body.appendChild(els.modal);
+    updateBulkGroupOrderCustomAvailability();
+    state.bulkGroupOrderPreview = null;
+    state.bulkGroupOrderPayload = null;
+    if (els.status) els.status.textContent = "Tria un criteri i previsualitza abans d'aplicar.";
+    if (els.preview) els.preview.innerHTML = "<div class=\"group-competition-modal-empty\">Encara no s'ha calculat cap previsualitzacio.</div>";
+    if (els.applyBtn) els.applyBtn.disabled = true;
+    if (els.backdrop) els.backdrop.classList.add('is-visible');
+    els.modal.classList.remove('d-none');
+    els.modal.classList.add('is-visible');
+    els.modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('group-competition-modal-open');
+  }
+
+  function renderBulkGroupOrderPreview(preview) {
+    const els = getBulkGroupOrderEls();
+    if (!els.preview) return;
+    const data = preview && typeof preview === 'object' ? preview : {};
+    const groups = Array.isArray(data.groups) ? data.groups : [];
+    els.preview.innerHTML = '';
+    if (els.status) {
+      els.status.textContent = `${Number(data.groups_total || 0)} grups, ${Number(data.members_total || 0)} participants. Canvis detectats en ${Number(data.changed_groups || 0)} grups.`;
+    }
+    const summary = document.createElement('div');
+    summary.className = 'team-action-note';
+    summary.textContent = `${String(data.sort_label || data.sort_key || 'Criteri')} - ${String(data.sort_dir || 'asc')} - ${Number(data.changed_members || 0)} posicions canviaran.`;
+    els.preview.appendChild(summary);
+    if (!groups.length) {
+      const empty = document.createElement('div');
+      empty.className = 'group-competition-modal-empty';
+      empty.textContent = 'No hi ha grups amb participants en aquest ambit.';
+      els.preview.appendChild(empty);
+      if (els.applyBtn) els.applyBtn.disabled = true;
+      return;
+    }
+    groups.slice(0, 10).forEach((group) => {
+      const card = document.createElement('div');
+      card.className = 'border rounded p-2 bg-white';
+      const title = document.createElement('div');
+      title.className = 'd-flex justify-content-between align-items-start flex-wrap';
+      title.style.gap = '8px';
+      const name = document.createElement('div');
+      const groupName = document.createElement('div');
+      groupName.className = 'fw-semibold';
+      groupName.textContent = String(group.group_label || `Grup ${group.group_num || ''}`);
+      const groupMeta = document.createElement('div');
+      groupMeta.className = 'small text-muted';
+      groupMeta.textContent = `${Number(group.members_count || 0)} participants - ${Number(group.changed_count || 0)} canvi(s)`;
+      name.appendChild(groupName);
+      name.appendChild(groupMeta);
+      title.appendChild(name);
+      card.appendChild(title);
+      const list = document.createElement('div');
+      list.className = 'small mt-2';
+      (Array.isArray(group.sample_rows) ? group.sample_rows : []).forEach((row) => {
+        const item = document.createElement('div');
+        item.className = 'd-flex justify-content-between border-top py-1';
+        item.style.gap = '8px';
+        const label = document.createElement('span');
+        label.textContent = String(row.label || row.id || '');
+        const order = document.createElement('span');
+        order.className = 'text-muted';
+        order.textContent = `${row.old_order || '?'} -> ${row.new_order || '?'}`;
+        item.appendChild(label);
+        item.appendChild(order);
+        list.appendChild(item);
+      });
+      card.appendChild(list);
+      els.preview.appendChild(card);
+    });
+    if (groups.length > 10) {
+      const more = document.createElement('div');
+      more.className = 'small text-muted';
+      more.textContent = `Mostrant 10 de ${groups.length} grups.`;
+      els.preview.appendChild(more);
+    }
+    if (els.applyBtn) els.applyBtn.disabled = !editable() || !data.can_apply;
+  }
+
+  async function previewBulkGroupOrder() {
+    if (!bulkGroupOrderPreviewUrl) return;
+    const payload = buildBulkGroupOrderPayload();
+    if (!payload.sort_key) {
+      alertBox('Selecciona un criteri.');
+      return;
+    }
+    if (payload.scope !== 'all' && !payload.group_ids.length) {
+      alertBox(payload.scope === 'selected' ? 'Selecciona un grup del board.' : 'No hi ha grups visibles al board.');
+      return;
+    }
+    setBulkGroupOrderBusy(true);
+    try {
+      const data = await postJson(bulkGroupOrderPreviewUrl, payload);
+      if (!data?.ok) throw new Error("No s'ha pogut calcular la previsualitzacio.");
+      state.bulkGroupOrderPreview = data.preview || null;
+      state.bulkGroupOrderPayload = payload;
+      renderBulkGroupOrderPreview(state.bulkGroupOrderPreview);
+    } catch (err) {
+      showRequestError("No s'ha pogut calcular la reordenacio.", err);
+    } finally {
+      setBulkGroupOrderBusy(false);
+    }
+  }
+
+  async function applyBulkGroupOrder() {
+    if (!bulkGroupOrderApplyUrl || !state.bulkGroupOrderPayload || !state.bulkGroupOrderPreview?.can_apply) return;
+    const preview = state.bulkGroupOrderPreview;
+    const ok = await confirmBox(`Aplicar la reordenacio a ${Number(preview.groups_total || 0)} grup(s) i ${Number(preview.members_total || 0)} participant(s)?`, {
+      title: 'Aplicar reordenacio',
+      confirmLabel: 'Aplicar',
+      tone: 'primary',
+    });
+    if (!ok) return;
+    setBulkGroupOrderBusy(true);
+    try {
+      const data = await postJson(bulkGroupOrderApplyUrl, state.bulkGroupOrderPayload);
+      if (!data?.ok) throw new Error("No s'ha pogut aplicar la reordenacio.");
+      closeBulkGroupOrderModal();
+      invalidateAllGroupDetails();
+      await fetchWorkspace();
+      await (window.InscripcionsApp?.refreshLightMutation?.({ includeActivePanel: false }) || Promise.resolve());
+      alertBox(`Ordre de competicio actualitzat: ${Number(data.changed_groups || data.groups_total || 0)} grup(s) i ${Number(data.changed_members || data.members_total || 0)} inscripcio(ns) reordenades.`);
+    } catch (err) {
+      showRequestError("No s'ha pogut aplicar la reordenacio.", err);
+    } finally {
+      setBulkGroupOrderBusy(false);
+    }
+  }
+
+  function previewPayload(preview) {
+    const existing = Array.isArray(preview?.existing_groups) ? preview.existing_groups : [];
+    const planned = (Array.isArray(preview?.groups) ? preview.groups : (preview?.planned_groups || [])).map((group) => ({
+      ...group,
+      group_label: group?.group_label || group?.label || group?.suggested_name || `Grup ${group?.group_num || '?'}`,
+      suggested_name: group?.suggested_name || group?.label || group?.group_label || '',
+    }));
+    return {
+      existing_groups: existing,
+      existing_groups_total: existing.length,
+      existing_members_total: sumMembers(existing),
+      groups: planned,
+      groups_total: planned.length,
+      members_total: sumMembers(planned),
+      selection_count: Number(preview?.selection?.count || preview?.target_ids_count || 0),
+    };
+  }
+
+  function renderManualPreview(preview, action) {
+    setRightPaneTab('preview');
+    if (typeof renderGroupPreview === 'function') renderGroupPreview(previewPayload(preview), action || 'manual');
+    const blocked = Array.isArray(preview?.blocked_groups) ? preview.blocked_groups : [];
+    const warned = Array.isArray(preview?.warning_groups) ? preview.warning_groups : [];
+    if (blocked.length && typeof setGroupPreviewStatus === 'function') {
+      setGroupPreviewStatus(`Accio bloquejada: ${blocked.map((row) => row?.label || `Grup ${row?.display_num || '?'}`).join(', ')} no poden quedar buits.`, 'warning');
+    } else if (warned.length && typeof setGroupPreviewStatus === 'function') {
+      setGroupPreviewStatus(`Atencio: es modificaran grups programats (${warned.map((row) => row?.label || `Grup ${row?.display_num || '?'}`).join(', ')}).`, 'warning');
+    }
+  }
+
+  function syncManualPreviewConfirmIntent(preview, action, extra = {}) {
+    const previewApi = window.__groupsPreviewApi;
+    if (!previewApi || typeof previewApi.setConfirmIntent !== 'function' || typeof previewApi.clearConfirmIntent !== 'function') return;
+    if (action !== 'create') {
+      previewApi.clearConfirmIntent();
+      return;
+    }
+    const normalized = previewPayload(preview);
+    const plannedGroups = Array.isArray(normalized?.groups) ? normalized.groups : [];
+    if (!plannedGroups.length) {
+      previewApi.clearConfirmIntent();
+      return;
+    }
+    previewApi.setConfirmIntent({
+      label: 'Previsualitzacio de: Crear un grup amb la seleccio',
+      buttonLabel: 'Confirmar aquesta creacio',
+      canConfirm: true,
+      execute: () => runAction('create', groupsCreateUrl, extra, { skipConfirm: true }),
+    });
+  }
+
+  async function loadGroupDetail(groupId, options = {}) {
+    const cleanId = String(groupId || '').trim();
+    if (!cleanId) return null;
+    const opts = options || {};
+    const requestedPage = Math.max(1, Number(opts.page || state.selectedGroupMembersPage || 1) || 1);
+    const requestedPageSize = Math.max(1, Number(opts.pageSize || 10) || 10);
+    try {
+      const data = await postJson(groupsDetailUrl, {
+        group_id: cleanId,
+        page: requestedPage,
+        page_size: requestedPageSize,
+      });
+      state.groupDetailCache[cleanId] = data?.group || null;
+      if (String(state.selectedGroupId || '') === cleanId) {
+        state.selectedGroupDetail = state.groupDetailCache[cleanId];
+        state.selectedGroupMembersPage = Number(state.groupDetailCache[cleanId]?.members_page || requestedPage);
+      }
+      return state.groupDetailCache[cleanId];
+    } catch (err) {
+      delete state.groupDetailCache[cleanId];
+      state.editingGroupIds.delete(cleanId);
+      if (String(state.selectedGroupId || '') === cleanId) {
+        state.selectedGroupDetail = null;
+      }
+      if (opts.showError !== false) showRequestError("No s'ha pogut carregar el detall del grup.", err);
+      return null;
+    } finally {
+      state.loadingGroupIds.delete(cleanId);
+    }
+  }
+
+  async function ensureSelectedGroupDetail() {
+    const cleanId = String(state.selectedGroupId || '').trim();
+    const groupsById = new Set((Array.isArray(state.workspace?.groups) ? state.workspace.groups : []).map((group) => String(group?.id || '')));
+    if (!cleanId || !groupsById.has(cleanId) || state.groupDetailCache[cleanId] || state.loadingGroupIds.has(cleanId)) {
+      renderDetailPane();
+      return;
+    }
+    state.loadingGroupIds.add(cleanId);
+    renderCards(state.workspace);
+    setupDnd();
+    await loadGroupDetail(cleanId, {
+      showError: true,
+      page: state.selectedGroupMembersPage,
+      pageSize: 10,
+    });
+    renderCards(state.workspace);
+    setupDnd();
+  }
+
+  async function selectGroup(groupId, options = {}) {
+    const cleanId = String(groupId || '').trim();
+    if (!cleanId) return null;
+    const opts = options || {};
+    const preserveViewport = opts.preserveViewport !== false && opts.scroll === false;
+    const viewportState = preserveViewport ? captureWorkspaceViewportState() : null;
+    if (opts.openWorkspace === true) openWorkspaceCard();
+    if (cleanId !== String(state.selectedGroupId || '')) {
+      state.transformPreview = null;
+      state.transformPayload = null;
+      state.transformActionsExpanded = false;
+      state.activeTransformOperation = '';
+      state.transformTargetQuery = '';
+      setDetailMemberFilters({ q: '', entitats: [], order_state: 'all' });
+    }
+    state.selectedGroupId = cleanId;
+    state.selectedGroupDetail = state.groupDetailCache[cleanId] || null;
+    state.selectedRightPaneTab = 'detail';
+    if (opts.resetPage !== false) {
+      state.selectedGroupMembersPage = Math.max(1, Number(opts.page || 1) || 1);
+    } else if (opts.page) {
+      state.selectedGroupMembersPage = Math.max(1, Number(opts.page) || 1);
+    }
+    syncTargetGroupSelectors();
+    saveWorkspaceState();
+    updateRightPaneTabUi();
+    if (opts.forceReload || !state.groupDetailCache[cleanId]) {
+      state.loadingGroupIds.add(cleanId);
+      renderCards(state.workspace);
+      setupDnd();
+      await loadGroupDetail(cleanId, {
+        showError: true,
+        page: state.selectedGroupMembersPage,
+        pageSize: 10,
+      });
+    } else {
+      state.selectedGroupDetail = state.groupDetailCache[cleanId];
+    }
+    renderCards(state.workspace);
+    setupDnd();
+    if (viewportState) restoreWorkspaceViewportState(viewportState);
+    if (opts.scroll !== false) {
+      requestAnimationFrame(() => scrollSelectedGroupCardIntoView(cleanId));
+    }
+    return state.groupDetailCache[cleanId] || null;
+  }
+
+  async function fetchWorkspace() {
+    const selectionKeyAtRequest = selectionSummaryKey();
+    const viewportState = captureWorkspaceViewportState();
+    destroySortables();
+    try {
+      const data = await postJson(groupsWorkspaceUrl, buildPayload());
+      const workspace = normalizeWorkspace(data);
+      state.workspace = workspace;
+      state.selectionSummaryFresh = selectionKeyAtRequest === selectionSummaryKey();
+      state.filters = Object.assign({}, state.filters, workspace.filters || {});
+
+      const groups = Array.isArray(workspace.groups) ? workspace.groups : [];
+      const availableIds = new Set(groups.map((group) => String(group?.id || '')));
+      state.editingGroupIds = new Set(Array.from(state.editingGroupIds).filter((id) => availableIds.has(String(id || ''))));
+      Object.keys(state.groupDetailCache).forEach((groupId) => {
+        if (!availableIds.has(String(groupId || ''))) delete state.groupDetailCache[groupId];
+      });
+      if (state.selectedGroupId && !availableIds.has(String(state.selectedGroupId || ''))) {
+        state.selectedGroupId = '';
+        state.selectedGroupDetail = null;
+        state.selectedGroupMembersPage = 1;
+        state.transformPreview = null;
+        state.transformPayload = null;
+        state.transformActionsExpanded = false;
+        state.activeTransformOperation = '';
+        state.transformTargetQuery = '';
+        setDetailMemberFilters({ q: '', entitats: [], order_state: 'all' });
+      }
+
+      setFiltersToDom(state.filters, workspace.filter_options || {});
+      renderBoardFilterControls(groups);
+      renderCompactSummary(workspace.summary || {});
+      renderCompactList(groups);
+      renderCandidates(workspace);
+      renderCards(workspace);
+      renderSelectionSummary();
+
+      const summary = workspace.summary || {};
+      text('groups-nav-badge', Number(summary.groups_total || 0));
+      text('groups-summary-total', Number(summary.groups_total || 0));
+      text('groups-summary-with-members', Number(summary.groups_with_members || 0));
+      text('groups-summary-empty', Number(summary.empty_groups || 0));
+      text('groups-summary-assigned', Number(summary.assigned_count || 0));
+      text('groups-summary-unassigned', Number(summary.unassigned_count || 0));
+      text('groups-summary-programmed', Number(summary.programmed_groups || 0));
+      text('groups-summary-out-of-program', Number(summary.out_of_program_groups || 0));
+      text(
+        'groups-workspace-description',
+        workspace.rotacions_active
+          ? 'Rotacions actives: no es poden buidar grups programats.'
+          : 'Rotacions inactives: sense bloquejos per programacio.'
+      );
+
+      fillSelect(
+        document.getElementById('groups-workspace-target-group'),
+        groups,
+        state.selectedGroupId,
+        'Selecciona grup',
+        (item) => ({ value: item?.id, label: `${item?.label || `Grup ${item?.display_num || ''}`} | ${Number(item?.members_count || 0)}` })
+      );
+      fillSelect(
+        document.getElementById('groups-compact-target-group'),
+        groups,
+        state.selectedGroupId,
+        'Selecciona grup',
+        (item) => ({ value: item?.id, label: `${item?.label || `Grup ${item?.display_num || ''}`} | ${Number(item?.members_count || 0)}` })
+      );
+      syncTargetGroupSelectors();
+      await ensureSelectedGroupDetail();
+      setupDnd();
+      restoreWorkspaceViewportState(viewportState);
+      dispatchGroupCreationContextChanged();
+      return workspace;
+    } catch (err) {
+      showRequestError("No s'ha pogut carregar el gestor de grups.", err);
+      return null;
+    }
+  }
+
+  function openWorkspaceCard() {
+    if (typeof getExpandedGroupCardId === 'function' && typeof setExpandedGroupCard === 'function') {
+      if (getExpandedGroupCardId() !== 'groups-main-card') {
+        setExpandedGroupCard('groups-main-card');
+      }
+      saveWorkspaceState({ expandedGroupCardId: 'groups-main-card' });
+      return;
+    }
+    const btn = document.querySelector('[data-expand-target="groups-main-card"]');
+    if (btn && btn.getAttribute('aria-expanded') !== 'true') btn.click();
+  }
+
+  function captureWorkspaceViewportState() {
+    const scrollTops = {};
+    ['groups-candidates-list', 'groups-active-list', 'groups-empty-list', 'groups-detail-members-list'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) scrollTops[id] = el.scrollTop;
+    });
+    return {
+      cardTop: groupsMainCard ? groupsMainCard.getBoundingClientRect().top : null,
+      scrollTops,
+    };
+  }
+
+  function restoreWorkspaceViewportState(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return;
+    const scrollTops = snapshot.scrollTops && typeof snapshot.scrollTops === 'object'
+      ? snapshot.scrollTops
+      : {};
+    requestAnimationFrame(() => {
+      Object.entries(scrollTops).forEach(([id, value]) => {
+        const el = document.getElementById(id);
+        if (el) el.scrollTop = Number(value) || 0;
+      });
+      if (!groupsMainCard || !Number.isFinite(snapshot.cardTop)) return;
+      const nextTop = groupsMainCard.getBoundingClientRect().top;
+      const delta = nextTop - snapshot.cardTop;
+      if (Math.abs(delta) > 1 && typeof window.scrollBy === 'function') {
+        window.scrollBy(0, delta);
+      }
+    });
+  }
+
+  function visibleCandidateIds() {
+    const items = Array.isArray(state.workspace?.candidates) ? state.workspace.candidates : (state.workspace?.candidates?.items || []);
+    return items.map((item) => String(item?.id || '')).filter(Boolean);
+  }
+
+  async function resolveFilteredCandidateIds() {
+    if (Number(state.workspace?.paging?.total || 0) === 0) return [];
+    try {
+      const data = await postJson(groupsWorkspaceUrl, buildPayload({ operation: 'resolve_filtered_ids' }));
+      return Array.isArray(data?.target_ids) ? data.target_ids.map(String).filter(Boolean) : [];
+    } catch (err) {
+      showRequestError("No s'ha pogut resoldre el conjunt filtrat del workspace.", err);
+      return null;
+    }
+  }
+
+  function ensureSelection() {
+    if (selectedIds().length) return true;
+    alertBox('Selecciona com a minim una inscripcio.');
+    return false;
+  }
+
+  function updateSelection(ids, mode, options = {}) {
+    const rows = Array.isArray(ids) ? ids.map(String).filter(Boolean) : [];
+    if (mode === 'set') state.selectedIds = new Set(rows);
+    if (mode === 'add') rows.forEach((id) => state.selectedIds.add(id));
+    if (mode === 'remove') rows.forEach((id) => state.selectedIds.delete(id));
+    if (mode === 'clear') state.selectedIds = new Set();
+    state.selectionSummaryFresh = false;
+    if (state.workspace) {
+      renderCandidates(state.workspace);
+      renderSelectionSummary();
+      setupDnd();
+    }
+    saveWorkspaceState();
+    if (!options.skipPreviewDirty && typeof markGroupPreviewDirty === 'function') markGroupPreviewDirty();
+    dispatchGroupCreationContextChanged();
+    if (!options.skipSyncToMain) {
+      const api = mainSelectionApi();
+      if (api) {
+        if (mode === 'set') api.set(selectedIds(), { source: 'groups_workspace' });
+        else if (mode === 'add') api.add(rows, { source: 'groups_workspace' });
+        else if (mode === 'remove') api.remove(rows, { source: 'groups_workspace' });
+        else if (mode === 'clear') api.clear({ source: 'groups_workspace' });
+      }
+    }
+  }
+
+  const postAssignIds = (groupId, ids) => postJson(
+    groupsAssignUrl,
+    buildPayload({
+      group_id: String(groupId || '').trim(),
+      selected_ids: (ids || []).map(String).filter(Boolean),
+    })
+  );
+
+  const postUnassignIds = (ids) => postJson(
+    groupsUnassignUrl,
+    buildPayload({
+      selected_ids: (ids || []).map(String).filter(Boolean),
+    })
+  );
+
+  async function previewAction(action, extra = {}) {
+    if (action !== 'delete' && !ensureSelection()) return;
+    try {
+      const data = await postJson(groupsPreviewUrl, buildPayload(Object.assign({ action }, extra || {})));
+      renderManualPreview(data?.preview || {}, action);
+      syncManualPreviewConfirmIntent(data?.preview || {}, action, extra || {});
+    } catch (err) {
+      if (window.__groupsPreviewApi && typeof window.__groupsPreviewApi.clearConfirmIntent === 'function') {
+        window.__groupsPreviewApi.clearConfirmIntent();
+      }
+      showRequestError("No s'ha pogut calcular la previsualitzacio del gestor de grups.", err);
+    }
+  }
+
+  async function runAction(action, url, extra = {}, options = {}) {
+    if (!editable()) return;
+    if (action !== 'delete' && !ensureSelection()) return;
+    if (!options?.skipConfirm) {
+      const selectedCount = selectedIds().length;
+      const targetGroup = extra?.group_id
+        ? (state.workspace?.groups || []).find((group) => String(group?.id || '').trim() === String(extra.group_id || '').trim())
+        : null;
+      const targetLabel = String(targetGroup?.label || '').trim();
+      const ok = await confirmBox(
+        action === 'create'
+          ? `Crear un grup nou amb ${selectedCount} inscripcio(ns) de la seleccio activa?`
+          : action === 'assign'
+            ? `Enviar ${selectedCount} inscripcio(ns) al grup${targetLabel ? ` "${targetLabel}"` : ' seleccionat'}?`
+            : action === 'unassign'
+              ? `Deixar ${selectedCount} inscripcio(ns) de la seleccio activa sense grup?`
+              : 'Eliminar aquest grup buit?',
+        {
+          title: action === 'create'
+            ? 'Crear grup'
+            : action === 'assign'
+              ? 'Assignar seleccio'
+              : action === 'unassign'
+                ? 'Treure seleccio del grup'
+                : 'Desactivar grup',
+          confirmLabel: action === 'delete' ? 'Desactivar' : 'Confirmar',
+          tone: action === 'delete' || action === 'unassign' ? 'danger' : 'primary',
+        }
+      );
+      if (!ok) return;
+    }
+    try {
+      const data = await postJson(url, buildPayload(extra));
+      invalidateAllGroupDetails();
+      if (data?.notice) alertBox(data.notice);
+      if (action === 'assign' || action === 'create') {
+        const nextGroupId = String(data?.group?.id || extra?.group_id || state.selectedGroupId || '').trim();
+        if (nextGroupId) {
+          state.selectedGroupId = nextGroupId;
+          state.selectedGroupMembersPage = 1;
+          state.selectedRightPaneTab = 'detail';
+        }
+      }
+      if (action === 'delete' && extra?.group_id && String(extra.group_id) === String(state.selectedGroupId || '')) {
+        state.selectedGroupId = '';
+        state.selectedGroupDetail = null;
+        state.selectedGroupMembersPage = 1;
+      }
+      await fetchWorkspace();
+      await refreshInscripcionsListAfterGroupMutation(action);
+      if (window.__groupsPreviewApi && typeof window.__groupsPreviewApi.clearConfirmIntent === 'function') {
+        window.__groupsPreviewApi.clearConfirmIntent();
+      }
+      if (typeof markGroupPreviewDirty === 'function') markGroupPreviewDirty();
+      if (action === 'assign' || action === 'create') {
+        const updated = Number(data?.updated || 0);
+        const skipped = Array.isArray(data?.skipped_ids) ? data.skipped_ids.length : 0;
+        const groupLabel = String(data?.group?.label || '').trim();
+        if (updated > 0) {
+          alertBox(`${updated} inscripcio(ns) moguda(es)${groupLabel ? ` a ${groupLabel}` : ''}.`);
+        } else if (skipped > 0) {
+          alertBox("Les inscripcions seleccionades ja eren al grup desti.");
+        }
+      } else if (action === 'unassign') {
+        const updated = Number(data?.updated || 0);
+        alertBox(updated > 0 ? `${updated} inscripcio(ns) ha(n) quedat sense grup.` : "Cap inscripcio ha canviat de grup.");
+      } else if (action === 'delete') {
+        alertBox('Grup eliminat.');
+      }
+    } catch (err) {
+      const prefix = action === 'create'
+        ? "No s'ha pogut crear el grup."
+        : action === 'assign'
+          ? "No s'ha pogut assignar la seleccio al grup."
+          : action === 'unassign'
+            ? "No s'ha pogut treure la seleccio del grup."
+            : "No s'ha pogut desactivar el grup.";
+      showRequestError(prefix, err);
+    }
+  }
+
+  async function unassignSingleMember(inscripcioId) {
+    const cleanId = String(inscripcioId || '').trim();
+    if (!cleanId || state.dragBusy) return;
+    const memberRow = document.querySelector(`.js-group-member-unassign[data-inscripcio-id="${CSS.escape(cleanId)}"]`)?.closest('.team-context-member-row');
+    const memberName = String(memberRow?.querySelector('.team-context-member-title')?.textContent || `Inscripcio ${cleanId}`).trim();
+    const groupName = String(getCurrentSelectedGroupSummary()?.label || 'aquest grup').trim();
+    const ok = await confirmBox(`Vols treure ${memberName} del grup "${groupName}"? La inscripcio quedara sense grup.`, {
+      title: 'Treure membre del grup',
+      confirmLabel: 'Treure',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      state.dragBusy = true;
+      await postUnassignIds([cleanId]);
+      invalidateAllGroupDetails();
+      await fetchWorkspace();
+    } catch (err) {
+      showRequestError("No s'ha pogut treure la inscripcio del grup.", err);
+      await fetchWorkspace();
+    } finally {
+      state.dragBusy = false;
+    }
+  }
+
+  function setupDnd() {
+    destroySortables();
+    if (!dndEnabled()) return;
+
+    const groupName = 'groups-workspace-members';
+    const onChoose = () => {
+      document.body.classList.add('dragging');
+      groupsWorkspaceShell.classList.add('is-team-dragging');
+      clearDragTargets();
+    };
+    const onEnd = () => {
+      document.body.classList.remove('dragging');
+      groupsWorkspaceShell.classList.remove('is-team-dragging');
+      clearDragTargets();
+    };
+
+    const onAdd = async (event) => {
+      const item = event?.item;
+      const target = event?.to;
+      const inscripcioId = String(item?.dataset?.inscripcioId || '').trim();
+      const kind = String(target?.dataset?.dropKind || '').trim();
+      const groupId = String(target?.dataset?.groupId || '').trim();
+
+      if (item && item.parentNode === target) {
+        try {
+          item.remove();
+        } catch (_err) {}
+      }
+      clearDragTargets();
+      document.body.classList.remove('dragging');
+      groupsWorkspaceShell.classList.remove('is-team-dragging');
+
+      if (!inscripcioId || state.dragBusy) {
+        await fetchWorkspace();
+        return;
+      }
+      try {
+        state.dragBusy = true;
+        if (kind === 'unassigned') await postUnassignIds([inscripcioId]);
+        else if (kind === 'group' && groupId) await postAssignIds(groupId, [inscripcioId]);
+        invalidateAllGroupDetails();
+        await fetchWorkspace();
+      } catch (err) {
+        showRequestError("No s'ha pogut moure la inscripcio entre grups.", err);
+        await fetchWorkspace();
+      } finally {
+        state.dragBusy = false;
+      }
+    };
+
+    const candidateSource = document.getElementById('groups-candidates-list');
+    if (candidateSource) {
+      state.sortables.push(Sortable.create(candidateSource, {
+        group: { name: groupName, pull: 'clone', put: false },
+        sort: false,
+        animation: 120,
+        forceFallback: true,
+        fallbackOnBody: true,
+        fallbackTolerance: 4,
+        removeCloneOnHide: true,
+        draggable: '.team-candidate-row',
+        handle: '.team-candidate-drag-handle',
+        filter: 'input,a,select,textarea',
+        preventOnFilter: false,
+        onChoose,
+        onEnd,
+      }));
+    }
+
+    document.querySelectorAll('.team-context-member-list[data-group-member-source="1"]').forEach((source) => {
+      state.sortables.push(Sortable.create(source, {
+        group: { name: groupName, pull: 'clone', put: false },
+        sort: false,
+        animation: 120,
+        forceFallback: true,
+        fallbackOnBody: true,
+        fallbackTolerance: 4,
+        removeCloneOnHide: true,
+        draggable: '.team-context-member-row',
+        handle: '.team-member-drag-handle',
+        filter: 'button.js-group-member-unassign,input,a,select,textarea',
+        preventOnFilter: false,
+        onChoose,
+        onEnd,
+      }));
+    });
+
+    document.querySelectorAll('.team-context-team-drop-surface:not([data-drop-disabled="1"]),#groups-context-unassigned-dropzone').forEach((target) => {
+      state.sortables.push(Sortable.create(target, {
+        group: { name: groupName, pull: false, put: true },
+        sort: false,
+        animation: 140,
+        forceFallback: true,
+        fallbackOnBody: true,
+        fallbackTolerance: 4,
+        removeCloneOnHide: true,
+        draggable: '.team-context-member-row, .team-candidate-row',
+        handle: '.team-member-drag-handle, .team-candidate-drag-handle',
+        filter: 'button.js-group-member-unassign,input,a,select,textarea,[data-group-rename],[data-group-delete]',
+        preventOnFilter: false,
+        onMove: () => {
+          markDragTarget(target);
+          return true;
+        },
+        onAdd,
+        onEnd,
+      }));
+    });
+  }
+
+  function wireEvents() {
+    const syncSelectedGroup = async (value, options = {}) => {
+      const cleanValue = String(value || '').trim();
+      if (!cleanValue) {
+        state.selectedGroupId = '';
+        state.selectedGroupDetail = null;
+        state.selectedGroupMembersPage = 1;
+        syncTargetGroupSelectors();
+        renderCards(state.workspace);
+        setupDnd();
+        saveWorkspaceState();
+        return;
+      }
+      await selectGroup(cleanValue, { scroll: false, ...options });
+    };
+
+    if (!window.__groupsWorkspaceSelectionBridgeBound) {
+      window.__groupsWorkspaceSelectionBridgeBound = true;
+      document.addEventListener('inscripcions:selection-changed', (event) => {
+        const detail = event?.detail || {};
+        if (detail.source === 'groups_workspace') return;
+        const ids = Array.isArray(detail.ids) ? detail.ids : [];
+        const workspaceApi = window.__groupsWorkspaceApi;
+        if (workspaceApi && typeof workspaceApi.setExternalSelection === 'function') {
+          workspaceApi.setExternalSelection(ids, { source: 'main' });
+        }
+      });
+    }
+
+    ['groups-workspace-target-group', 'groups-compact-target-group'].forEach((id) => {
+      const select = document.getElementById(id);
+      if (!select) return;
+      select.addEventListener('change', async () => syncSelectedGroup(select.value));
+    });
+
+    const scheduleFilterRefresh = (immediate = false) => {
+      state.filters = Object.assign({}, state.filters, readFilters());
+      state.page = 1;
+      saveWorkspaceState();
+      if (typeof markGroupPreviewDirty === 'function') markGroupPreviewDirty();
+      if (state.filterTimer) window.clearTimeout(state.filterTimer);
+      const run = async () => { await fetchWorkspace(); };
+      if (immediate) run();
+      else state.filterTimer = window.setTimeout(run, 220);
+    };
+
+    const applyBoardFilterChange = () => {
+      state.boardFilters = readBoardFilters();
+      if (boardFiltersAreActive()) state.boardFiltersExpanded = true;
+      saveWorkspaceState();
+      setBoardFiltersExpanded(state.boardFiltersExpanded, { skipSave: true });
+      renderBoardFilterPopovers();
+      renderCards(state.workspace);
+      setupDnd();
+    };
+
+    const q = document.getElementById('groups-filter-q');
+    if (q) q.addEventListener('input', () => scheduleFilterRefresh(false));
+
+    ['groups-filter-categoria', 'groups-filter-subcategoria', 'groups-filter-entitat', 'groups-filter-group-state', 'groups-filter-group-id']
+      .forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', () => {
+          renderGroupsFilterPopovers();
+          scheduleFilterRefresh(true);
+        });
+      });
+
+    groupsWorkspaceShell.addEventListener('change', (event) => {
+      const choice = event.target.closest('.js-groups-filter-choice');
+      if (!choice) return;
+      const selectId = String(choice.getAttribute('data-select-id') || '').trim();
+      setUniverseFilterValue(selectId, choice.value, choice.checked);
+      scheduleFilterRefresh(true);
+    });
+
+    groupsWorkspaceShell.addEventListener('change', (event) => {
+      const choice = event.target.closest('.js-groups-board-filter-choice');
+      if (!choice) return;
+      const selectId = String(choice.getAttribute('data-select-id') || '').trim();
+      setBoardFilterValue(selectId, choice.value, choice.checked);
+      applyBoardFilterChange();
+    });
+
+    groupsWorkspaceShell.addEventListener('change', (event) => {
+      const choice = event.target.closest('.js-groups-detail-filter-choice');
+      if (!choice) return;
+      const selectId = String(choice.getAttribute('data-select-id') || '').trim();
+      setDetailMemberFilterValue(selectId, choice.value, choice.checked);
+    });
+
+    groupsWorkspaceShell.addEventListener('click', (event) => {
+      const clearBtn = event.target.closest('[data-groups-filter-clear]');
+      if (clearBtn) {
+        event.preventDefault();
+        clearUniverseFilter(String(clearBtn.getAttribute('data-groups-filter-clear') || '').trim());
+        scheduleFilterRefresh(true);
+        return;
+      }
+      const chip = event.target.closest('[data-groups-filter-chip-select]');
+      if (chip) {
+        event.preventDefault();
+        clearUniverseFilter(
+          String(chip.getAttribute('data-groups-filter-chip-select') || '').trim(),
+          String(chip.getAttribute('data-groups-filter-chip-value') || '').trim()
+        );
+        scheduleFilterRefresh(true);
+        return;
+      }
+      const clearAll = event.target.closest('[data-groups-filter-clear-all]');
+      if (clearAll) {
+        event.preventDefault();
+        clearAllUniverseFilters();
+        scheduleFilterRefresh(true);
+      }
+    });
+
+    groupsWorkspaceShell.addEventListener('click', (event) => {
+      const clearBtn = event.target.closest('[data-groups-board-filter-clear]');
+      if (clearBtn) {
+        event.preventDefault();
+        clearBoardFilter(String(clearBtn.getAttribute('data-groups-board-filter-clear') || '').trim());
+        applyBoardFilterChange();
+        return;
+      }
+      const chip = event.target.closest('[data-groups-board-filter-chip-select]');
+      if (chip) {
+        event.preventDefault();
+        clearBoardFilter(
+          String(chip.getAttribute('data-groups-board-filter-chip-select') || '').trim(),
+          String(chip.getAttribute('data-groups-board-filter-chip-value') || '').trim()
+        );
+        applyBoardFilterChange();
+        return;
+      }
+      if (event.target.closest('[data-groups-board-size-clear]')) {
+        event.preventDefault();
+        clearBoardSizeFilters();
+        applyBoardFilterChange();
+        return;
+      }
+      if (event.target.closest('[data-groups-board-filter-search-clear]')) {
+        event.preventDefault();
+        const q = document.getElementById('groups-board-filter-q');
+        if (q) q.value = '';
+        applyBoardFilterChange();
+      }
+    });
+
+    groupsWorkspaceShell.addEventListener('click', (event) => {
+      const clearBtn = event.target.closest('[data-groups-detail-filter-clear]');
+      if (clearBtn) {
+        event.preventDefault();
+        clearDetailMemberFilter(String(clearBtn.getAttribute('data-groups-detail-filter-clear') || '').trim());
+        return;
+      }
+      const chip = event.target.closest('[data-groups-detail-filter-chip-select]');
+      if (chip) {
+        event.preventDefault();
+        clearDetailMemberFilter(
+          String(chip.getAttribute('data-groups-detail-filter-chip-select') || '').trim(),
+          String(chip.getAttribute('data-groups-detail-filter-chip-value') || '').trim()
+        );
+        return;
+      }
+      if (event.target.closest('[data-groups-detail-filter-search-clear]')) {
+        event.preventDefault();
+        const q = document.getElementById('groups-detail-member-q');
+        if (q) q.value = '';
+        setDetailMemberFilters({ q: '' });
+        applyDetailMemberFilters();
+      }
+    });
+
+    document.addEventListener('click', (event) => {
+      if (!event.target.closest('.groups-existing-actions-menu')) {
+        document.querySelectorAll('.groups-existing-actions-menu[open]').forEach((details) => {
+          details.removeAttribute('open');
+        });
+      }
+      if (event.target.closest('[data-groups-filter-popover], [data-groups-board-filter-popover], [data-groups-board-size-popover], [data-groups-detail-filter-popover]')) return;
+      document.querySelectorAll('[data-groups-filter-popover] details[open], [data-groups-board-filter-popover] details[open], [data-groups-board-size-popover] details[open], [data-groups-detail-filter-popover] details[open]').forEach((details) => {
+        details.removeAttribute('open');
+      });
+    });
+
+    const boardQ = document.getElementById('groups-board-filter-q');
+    if (boardQ) boardQ.addEventListener('input', applyBoardFilterChange);
+    ['groups-board-filter-categoria', 'groups-board-filter-subcategoria', 'groups-board-filter-entitat', 'groups-board-filter-members-state', 'groups-board-filter-program-state']
+      .forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', applyBoardFilterChange);
+      });
+    ['groups-board-filter-min-size', 'groups-board-filter-max-size']
+      .forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.addEventListener('input', applyBoardFilterChange);
+          el.addEventListener('change', applyBoardFilterChange);
+        }
+      });
+    document.getElementById('btn-groups-board-filters-clear')?.addEventListener('click', () => {
+      clearAllBoardFilters();
+      state.boardFilters = readBoardFilters();
+      setBoardFiltersToDom(state.boardFilters, buildBoardFilterOptions(Array.isArray(state.workspace?.groups) ? state.workspace.groups : []));
+      setBoardFiltersExpanded(false, { skipSave: true });
+      saveWorkspaceState();
+      renderCards(state.workspace);
+      setupDnd();
+    });
+    document.getElementById('btn-groups-board-filters-toggle')?.addEventListener('click', () => {
+      setBoardFiltersExpanded(!state.boardFiltersExpanded);
+    });
+    const detailQ = document.getElementById('groups-detail-member-q');
+    if (detailQ) {
+      detailQ.addEventListener('input', () => {
+        setDetailMemberFilters({ q: detailQ.value });
+        applyDetailMemberFilters();
+      });
+    }
+    ['groups-detail-filter-entitat', 'groups-detail-filter-order-state'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('change', () => {
+          setDetailMemberFilters({
+            entitats: selectedOptionValues(document.getElementById('groups-detail-filter-entitat')),
+            order_state: String(document.getElementById('groups-detail-filter-order-state')?.value || 'all'),
+          });
+          renderDetailFilterPopovers();
+          applyDetailMemberFilters();
+        });
+      }
+    });
+    document.getElementById('btn-groups-detail-filters-clear')?.addEventListener('click', clearAllDetailMemberFilters);
+
+    const prev = document.getElementById('btn-groups-candidates-prev');
+    if (prev) {
+      prev.addEventListener('click', async () => {
+        if (Number(state.workspace?.paging?.page || 1) <= 1) return;
+        state.page = Math.max(1, Number(state.page || 1) - 1);
+        saveWorkspaceState();
+        await fetchWorkspace();
+      });
+    }
+
+    const next = document.getElementById('btn-groups-candidates-next');
+    if (next) {
+      next.addEventListener('click', async () => {
+        const pages = Number(state.workspace?.paging?.pages || 1);
+        if (Number(state.workspace?.paging?.page || 1) >= pages) return;
+        state.page = Math.min(pages, Number(state.page || 1) + 1);
+        saveWorkspaceState();
+        await fetchWorkspace();
+      });
+    }
+
+    groupsWorkspaceShell.addEventListener('change', async (event) => {
+      const candidateCheck = event.target.closest('.js-groups-workspace-candidate-check');
+      if (candidateCheck) {
+        const id = String(candidateCheck.value || '').trim();
+        if (candidateCheck.checked) updateSelection([id], 'add');
+        else updateSelection([id], 'remove');
+        return;
+      }
+    });
+
+    groupsWorkspaceShell.addEventListener('click', async (event) => {
+      const row = event.target.closest('.team-candidate-row');
+      if (!row) return;
+      if (event.target.closest('input,button,a,label,select,textarea,summary,details')) return;
+      const checkbox = row.querySelector('.js-groups-workspace-candidate-check');
+      if (!checkbox) return;
+      checkbox.checked = !checkbox.checked;
+      checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    groupsMainCard.addEventListener('input', (event) => {
+      const targetSearch = event.target.closest('#groups-transform-target-search');
+      if (!targetSearch) return;
+      state.transformTargetQuery = String(targetSearch.value || '');
+      applyGroupTransformTargetSearch();
+    });
+
+    groupsMainCard.addEventListener('change', (event) => {
+      if (!event.target.closest('#groups-transform-target-groups')) return;
+      applyGroupTransformTargetSearch();
+    });
+
+    const resolveTargetGroupId = () => {
+      const workspaceValue = String(document.getElementById('groups-workspace-target-group')?.value || '').trim();
+      if (workspaceValue) return workspaceValue;
+      return String(document.getElementById('groups-compact-target-group')?.value || '').trim();
+    };
+
+    groupsMainCard.addEventListener('click', async (event) => {
+      const tabBtn = event.target.closest('[data-groups-right-tab]');
+      if (tabBtn) {
+        event.preventDefault();
+        setRightPaneTab(String(tabBtn.getAttribute('data-groups-right-tab') || '').trim());
+        return;
+      }
+
+      const transformToggleBtn = event.target.closest('[data-group-transform-toggle]');
+      if (transformToggleBtn) {
+        event.preventDefault();
+        state.transformActionsExpanded = !state.transformActionsExpanded;
+        renderDetailPane();
+        return;
+      }
+
+      const transformAccordion = event.target.closest('[data-group-transform-accordion]');
+      if (transformAccordion) {
+        const details = transformAccordion.closest('.groups-transform-shell');
+        state.transformActionsExpanded = !details?.open;
+        return;
+      }
+
+      const transformConfigBtn = event.target.closest('[data-group-transform-config]');
+      if (transformConfigBtn) {
+        event.preventDefault();
+        state.transformActionsExpanded = true;
+        state.activeTransformOperation = String(transformConfigBtn.getAttribute('data-group-transform-config') || '').trim();
+        state.transformPreview = null;
+        state.transformPayload = null;
+        renderDetailPane();
+        return;
+      }
+
+      const transformPreviewBtn = event.target.closest('[data-group-transform-preview]');
+      if (transformPreviewBtn) {
+        event.preventDefault();
+        await previewGroupTransform(String(transformPreviewBtn.getAttribute('data-group-transform-preview') || '').trim());
+        return;
+      }
+
+      const transformApplyBtn = event.target.closest('[data-group-transform-apply]');
+      if (transformApplyBtn) {
+        event.preventDefault();
+        await applyGroupTransform();
+        return;
+      }
+
+      const transformClearBtn = event.target.closest('[data-group-transform-clear]');
+      if (transformClearBtn) {
+        event.preventDefault();
+        state.transformPreview = null;
+        state.transformPayload = null;
+        renderGroupTransformPreview(null);
+        return;
+      }
+
+      const openBtn = event.target.closest('[data-group-open]');
+      if (openBtn) {
+        event.preventDefault();
+        const groupId = String(openBtn.getAttribute('data-group-open') || '').trim();
+        const preservePage = !!openBtn.closest('#groups-right-pane-detail') || groupId === String(state.selectedGroupId || '');
+        await selectGroup(groupId, { openWorkspace: true, scroll: true, resetPage: !preservePage, forceReload: true });
+        return;
+      }
+
+      const assignBtn = event.target.closest('[data-group-assign-to]');
+      if (assignBtn) {
+        event.preventDefault();
+        const groupId = String(assignBtn.getAttribute('data-group-assign-to') || '').trim();
+        if (!groupId) return;
+        await runAction('assign', groupsAssignUrl, { group_id: groupId });
+        return;
+      }
+
+      const orderBtn = event.target.closest('[data-group-order]');
+      if (orderBtn) {
+        event.preventDefault();
+        const groupNum = String(orderBtn.getAttribute('data-group-order') || '').trim();
+        if (!groupNum) return;
+        if (typeof openGroupCompetitionOrderModal === 'function') {
+          await openGroupCompetitionOrderModal(groupNum, {
+            trigger: orderBtn,
+            source: 'groups_workspace',
+          });
+        }
+        return;
+      }
+
+      const renameBtn = event.target.closest('[data-group-rename]');
+      if (renameBtn) {
+        event.preventDefault();
+        const groupId = String(renameBtn.getAttribute('data-group-rename') || '').trim();
+        if (!groupId) return;
+        await selectGroup(groupId, { scroll: false, resetPage: false });
+        state.editingGroupIds.add(groupId);
+        renderCards(state.workspace);
+        setupDnd();
+        const input = document.querySelector(`[data-group-name-input="${CSS.escape(groupId)}"]`);
+        if (input) {
+          input.focus();
+          input.select?.();
+        }
+        return;
+      }
+
+      const cancelRenameBtn = event.target.closest('.js-workspace-cancel-group-name');
+      if (cancelRenameBtn) {
+        event.preventDefault();
+        const groupId = String(cancelRenameBtn.getAttribute('data-group-id') || '').trim();
+        if (groupId) state.editingGroupIds.delete(groupId);
+        renderCards(state.workspace);
+        setupDnd();
+        return;
+      }
+
+      const saveRenameBtn = event.target.closest('.js-workspace-save-group-name');
+      if (saveRenameBtn) {
+        event.preventDefault();
+        const groupId = String(saveRenameBtn.getAttribute('data-group-id') || '').trim();
+        const groupNum = String(saveRenameBtn.getAttribute('data-group-num') || '').trim();
+        const input = document.querySelector(`[data-group-name-input="${CSS.escape(groupId)}"]`);
+        const nextName = String(input?.value || '').trim();
+        if (!groupId || !groupNum) return;
+        const group = getGroupDetail(groupId) || getCurrentSelectedGroupSummary();
+        const currentName = String(group?.name || group?.label || `Grup ${groupNum}`).trim();
+        const ok = await confirmBox(`Vols canviar el nom de "${currentName}" a "${nextName || `Grup ${groupNum}`}"?`, {
+          title: 'Renombrar grup',
+          confirmLabel: 'Renombrar',
+          tone: 'primary',
+        });
+        if (!ok) return;
+        try {
+          const data = await postJson(groupsSetGroupNameUrl, { group: groupNum, name: nextName });
+          if (!data?.ok) throw new Error("No s'ha pogut desar el nom del grup.");
+          const postRenameRefresh = window.__inscripcionsPostGroupRenameRefresh;
+          if (typeof postRenameRefresh === 'function') {
+            await postRenameRefresh({ groupId, groupNum });
+          } else {
+            const app = window.InscripcionsApp || null;
+            if (app && typeof app.refreshHtmlFragments === 'function') {
+              await app.refreshHtmlFragments(['header', 'history', 'table']);
+            }
+            await refreshAfterGroupRename({ groupId, groupNum });
+          }
+          alertBox('Nom del grup desat.');
+        } catch (err) {
+          showRequestError("No s'ha pogut desar el nom del grup.", err);
+        }
+        return;
+      }
+
+      const detailPagerBtn = event.target.closest('[data-group-members-page]');
+      if (detailPagerBtn) {
+        event.preventDefault();
+        const nextPage = Number(detailPagerBtn.getAttribute('data-group-members-page') || 1);
+        await selectGroup(state.selectedGroupId, { scroll: false, resetPage: false, page: nextPage, forceReload: true });
+        return;
+      }
+
+      const memberUnassignBtn = event.target.closest('.js-group-member-unassign');
+      if (memberUnassignBtn) {
+        event.preventDefault();
+        const inscripcioId = String(memberUnassignBtn.getAttribute('data-inscripcio-id') || '').trim();
+        await unassignSingleMember(inscripcioId);
+        return;
+      }
+
+      const deleteCardBtn = event.target.closest('[data-group-delete]');
+      if (deleteCardBtn) {
+        event.preventDefault();
+        const groupId = String(deleteCardBtn.getAttribute('data-group-delete') || '').trim();
+        if (!groupId) return;
+        await runAction('delete', groupsDeleteUrl, { group_id: groupId });
+        return;
+      }
+
+      const card = event.target.closest('.team-context-team-card[data-group-id]');
+      if (card) {
+        if (event.target.closest('button,input,a,select,textarea,label')) return;
+        const groupId = String(card.getAttribute('data-group-id') || '').trim();
+        if (!groupId) return;
+        const preservePage = groupId === String(state.selectedGroupId || '');
+        await selectGroup(groupId, { scroll: false, resetPage: !preservePage, forceReload: true });
+        return;
+      }
+
+      const actionBtn = event.target.closest('[data-group-action]');
+      if (!actionBtn) return;
+      event.preventDefault();
+      const action = String(actionBtn.getAttribute('data-group-action') || '').trim();
+      if (!action) return;
+
+      if (action === 'open-workspace') {
+        openWorkspaceCard();
+        return;
+      }
+      if (action === 'select-filtered') {
+        const ids = await resolveFilteredCandidateIds();
+        if (ids === null) return;
+        updateSelection(ids, 'set');
+        return;
+      }
+      if (action === 'add-filtered') {
+        const ids = await resolveFilteredCandidateIds();
+        if (ids === null) return;
+        updateSelection(ids, 'add');
+        return;
+      }
+      if (action === 'remove-filtered') {
+        const ids = await resolveFilteredCandidateIds();
+        if (ids === null) return;
+        updateSelection(ids, 'remove');
+        return;
+      }
+      if (action === 'import-selection') {
+        syncExternalSelection(getExternalSelectionIds());
+        return;
+      }
+      if (action === 'clear-selection') {
+        updateSelection([], 'clear');
+        return;
+      }
+      if (action === 'preview-create') {
+        const name = String(document.getElementById('groups-workspace-name')?.value || '').trim();
+        await previewAction('create', name ? { name } : {});
+        return;
+      }
+
+      if (action === 'create' || action === 'compact-create') {
+        const name = String(document.getElementById('groups-workspace-name')?.value || '').trim();
+        await runAction('create', groupsCreateUrl, name ? { name } : {});
+        return;
+      }
+
+      if (action === 'assign' || action === 'compact-assign') {
+        const groupId = resolveTargetGroupId();
+        if (!groupId) {
+          alertBox('Selecciona un grup desti.');
+          return;
+        }
+        await runAction('assign', groupsAssignUrl, { group_id: groupId });
+        return;
+      }
+
+      if (action === 'unassign' || action === 'compact-unassign') {
+        await runAction('unassign', groupsUnassignUrl, {});
+        return;
+      }
+
+      if (action === 'delete') {
+        const groupId = resolveTargetGroupId() || String(state.selectedGroupId || '').trim();
+        if (!groupId) {
+          alertBox('Selecciona un grup per desactivar.');
+          return;
+        }
+        await runAction('delete', groupsDeleteUrl, { group_id: groupId });
+        return;
+      }
+
+      if (action === 'delete-empty') {
+        if (!(await confirmBox('Desactivar tots els grups buits?', {
+          title: 'Desactivar grups buits',
+          confirmLabel: 'Desactivar',
+          tone: 'danger',
+        }))) return;
+        try {
+          const data = await postJson(groupsDeleteEmptyUrl, {});
+          invalidateAllGroupDetails();
+          await fetchWorkspace();
+          const deleted = Number(data?.deleted || 0);
+          alertBox(
+            deleted > 0
+              ? `${deleted} grup(s) buit(s) desactivat(s).`
+              : 'No hi havia cap grup buit per desactivar.'
+          );
+        } catch (err) {
+          showRequestError("No s'han pogut desactivar els grups buits.", err);
+        }
+      }
+
+      if (action === 'delete-all') {
+        const programmedCount = Number(state.workspace?.summary?.programmed_groups || 0);
+        const protectedHint = programmedCount > 0
+          ? ` ${programmedCount} grup(s) programat(s) no s'esborraran.`
+          : '';
+        const warning = state.workspace?.rotacions_active
+          ? `S'esborraran tots els grups no programats. Els grups presents a rotacions o al programa no s'esborraran.${protectedHint}`
+          : `S'esborraran tots els grups no programats.${protectedHint}`;
+        if (!(await confirmBox(`${warning}\n\nVols continuar?`, {
+          title: 'Esborrar grups no programats',
+          confirmLabel: 'Esborrar',
+          tone: 'danger',
+        }))) return;
+        try {
+          const data = await postJson(groupsDeleteAllUrl, {});
+          invalidateAllGroupDetails();
+          if (window.__groupsPreviewApi && typeof window.__groupsPreviewApi.clearConfirmIntent === 'function') {
+            window.__groupsPreviewApi.clearConfirmIntent();
+          }
+          if (typeof clearGroupPreview === 'function') {
+            clearGroupPreview('La previsualitzacio s\'ha netejat despres de l\'esborrada massiva de grups.');
+          }
+          await fetchWorkspace();
+          const deleted = Number(data?.deleted || 0);
+          const protectedCount = Number(data?.protected || 0);
+          const protectedLabels = (Array.isArray(data?.protected_groups) ? data.protected_groups : [])
+            .map((row) => String(row?.label || '').trim())
+            .filter(Boolean);
+          let message = deleted > 0
+            ? `${deleted} grup(s) no programat(s) desactivat(s).`
+            : "No s'ha desactivat cap grup no programat.";
+          if (protectedCount > 0) {
+            const preview = protectedLabels.slice(0, 4).join(', ');
+            const suffix = protectedLabels.length > 4 ? '...' : '';
+            message += ` ${protectedCount} grup(s) s'han mantingut per estar al programa${preview ? `: ${preview}${suffix}` : '.'}`;
+          }
+          alertBox(message);
+        } catch (err) {
+          showRequestError("No s'han pogut esborrar els grups no programats.", err);
+        }
+      }
+    });
+
+    const previewClear = document.getElementById('btn-groups-preview-clear');
+    if (previewClear) {
+      previewClear.addEventListener('click', () => {
+        if (typeof clearGroupPreview === 'function') clearGroupPreview();
+      });
+    }
+
+    const bulkOrderOpen = document.getElementById('btn-groups-bulk-order');
+    if (bulkOrderOpen) {
+      bulkOrderOpen.addEventListener('click', (event) => {
+        event.preventDefault();
+        openBulkGroupOrderModal();
+      });
+    }
+
+    const bulkEls = getBulkGroupOrderEls();
+    bulkEls.close?.addEventListener('click', closeBulkGroupOrderModal);
+    bulkEls.sortKey?.addEventListener('change', () => {
+      updateBulkGroupOrderCustomAvailability();
+      state.bulkGroupOrderPreview = null;
+      state.bulkGroupOrderPayload = null;
+      if (bulkEls.applyBtn) bulkEls.applyBtn.disabled = true;
+    });
+    bulkEls.sortDir?.addEventListener('change', () => {
+      state.bulkGroupOrderPreview = null;
+      state.bulkGroupOrderPayload = null;
+      if (bulkEls.applyBtn) bulkEls.applyBtn.disabled = true;
+    });
+    bulkEls.scope?.addEventListener('change', () => {
+      state.bulkGroupOrderPreview = null;
+      state.bulkGroupOrderPayload = null;
+      if (bulkEls.applyBtn) bulkEls.applyBtn.disabled = true;
+    });
+    bulkEls.previewBtn?.addEventListener('click', (event) => {
+      event.preventDefault();
+      previewBulkGroupOrder();
+    });
+    bulkEls.applyBtn?.addEventListener('click', (event) => {
+      event.preventDefault();
+      applyBulkGroupOrder();
+    });
+
+    const autoContextToggle = document.getElementById('btn-groups-auto-context-toggle');
+    if (autoContextToggle) {
+      autoContextToggle.addEventListener('click', () => {
+        setAutoContextExpanded(!state.autoContextExpanded);
+      });
+    }
+  }
+
+  window.__groupsWorkspaceApi = {
+    root: groupsWorkspaceShell,
+    refresh: fetchWorkspace,
+    refreshAfterRename: refreshAfterGroupRename,
+    resolveAutoContext: (extra = {}) => postJson(groupsWorkspaceUrl, buildPayload({ operation: 'resolve_auto_context', ...extra })),
+    applyAutoContextSelection: (extra = {}) => postJson(groupsWorkspaceUrl, buildPayload({ operation: 'apply_auto_context_selection', ...extra })),
+    selectGroup: (groupId, options = {}) => selectGroup(groupId, { scroll: true, resetPage: true, ...options }),
+    preview: previewAction,
+    setExternalSelection: syncExternalSelection,
+    setSelection: (ids, options = {}) => updateSelection(ids, 'set', options),
+    getState: () => ({
+      selectedIds: selectedIds(),
+      selectionCount: selectedIds().length,
+      selectedGroupId: state.selectedGroupId,
+      selectedGroupMembersPage: state.selectedGroupMembersPage,
+      selectedRightPaneTab: state.selectedRightPaneTab,
+      filteredCount: Number(state.workspace?.paging?.total || 0),
+      filters: { ...state.filters },
+      boardFilters: { ...state.boardFilters },
+    }),
+  };
+
+  restoreWorkspaceState();
+  state.selectedIds = new Set(getExternalSelectionIds());
+  wireEvents();
+  renderSelectionSummary();
+  setAutoContextExpanded(state.autoContextExpanded, { skipSave: true });
+  setBoardFiltersExpanded(state.boardFiltersExpanded, { skipSave: true });
+  updateRightPaneTabUi();
+
+  await fetchWorkspace();
+  return window.__groupsWorkspaceApi;
+};

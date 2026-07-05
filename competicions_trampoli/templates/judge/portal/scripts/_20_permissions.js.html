@@ -1,0 +1,214 @@
+  function parseMemberSlots(rawValue){
+    if(rawValue == null || rawValue === "") return [];
+    const rawItems = Array.isArray(rawValue)
+      ? rawValue
+      : String(rawValue).split(/[\s,;]+/);
+    const out = [];
+    rawItems.forEach((item) => {
+      if(item == null || item === "") return;
+      const cleaned = String(item).trim().toUpperCase().replace(/^M/, "");
+      const slot = Number(cleaned);
+      if(!Number.isFinite(slot) || slot <= 0) return;
+      if(!out.includes(slot)) out.push(slot);
+    });
+    return out;
+  }
+
+  function normalizePerm(p){
+    const base = {
+      field_code: String(p && p.field_code ? p.field_code : ""),
+      runtime_field_code: String((p && (p.runtime_field_code || p.field_code)) || ""),
+      scope: String((p && p.scope) || "shared"),
+      judge_index: Math.max(1, Number((p && p.judge_index) || 1)),
+      item_start: Math.max(1, Number((p && p.item_start) || 1)),
+      item_count: (p && p.item_count != null && p.item_count !== "") ? Math.max(1, Number(p.item_count)) : null,
+      member_mode: String((p && p.member_mode) || ""),
+      member_slots: parseMemberSlots(p && p.member_slots),
+      member_slot: (p && p.member_slot != null && p.member_slot !== "") ? Math.max(1, Number(p.member_slot)) : null,
+      label: String((p && p.label) || ""),
+      role: String((p && p.role) || "standard").trim().toLowerCase() === "supervisor" ? "supervisor" : "standard",
+    };
+    if(base.scope !== "member"){
+      base.member_mode = "";
+      base.member_slots = [];
+      base.member_slot = null;
+      return base;
+    }
+    if(base.member_slot && !base.member_slots.includes(base.member_slot)){
+      base.member_slots.push(base.member_slot);
+    }
+    if(!base.member_mode){
+      base.member_mode = base.member_slots.length === 1 ? "single" : "all";
+    }
+    if(base.member_mode === "all"){
+      base.member_slots = [];
+      base.member_slot = null;
+    } else if(base.member_mode === "single" && base.member_slots.length){
+      base.member_slots = [base.member_slots[0]];
+      base.member_slot = base.member_slots[0];
+    }
+    return base;
+  }
+
+  function permissionTargetText(perm){
+    const p = normalizePerm(perm);
+    if(p.scope !== "member") return "Compartit";
+    if(p.member_mode === "all") return "Tots";
+    if(!p.member_slots.length) return "Sense membres";
+    return p.member_slots.map((slot) => `M${slot}`).join(",");
+  }
+
+  function permKey(p, idx){
+    const n = normalizePerm(p);
+    const c = (n.item_count == null) ? "all" : String(n.item_count);
+    const slot = n.member_slot ? `|m${n.member_slot}` : (n.scope === "member" ? "|member" : "|shared");
+    return `${idx}|${n.runtime_field_code}|j${n.judge_index}|s${n.item_start}|c${c}${slot}`;
+  }
+
+  function expandedSupervisorPerms(base, idx, field){
+    if(!base || base.role !== "supervisor" || !field) return null;
+    const type = String(field.type || "number");
+    if(type !== "matrix" && type !== "list") return null;
+    const nJudges = Math.max(1, Number((field.judges && field.judges.count) || base.judge_index || 1));
+    const out = [];
+    for(let judgeIndex = 1; judgeIndex <= nJudges; judgeIndex += 1){
+      const next = {
+        ...base,
+        judge_index: judgeIndex,
+        supervised_by_judge_index: base.judge_index,
+        is_supervisor_row: judgeIndex === base.judge_index,
+        is_supervised_row: judgeIndex !== base.judge_index,
+      };
+      out.push({
+        ...next,
+        idx,
+        key: permKey(next, `${idx}-supervisor-${judgeIndex}`),
+        field,
+      });
+    }
+    return out;
+  }
+
+  function resolvedPermsForIns(insId){
+    const subject = subjectForId(insId);
+    const memberCount = Array.isArray(subject.members) ? subject.members.length : 0;
+    const resolved = [];
+    PERMS.forEach((perm, idx) => {
+      const base = normalizePerm(perm);
+      if(!base.field_code) return;
+      if(!TEAM_SUBJECT_MODE || base.scope !== "member"){
+        const field = schemaField(base.runtime_field_code || base.field_code);
+        const expanded = expandedSupervisorPerms(base, idx, field);
+        if(expanded){
+          resolved.push(...expanded);
+          return;
+        }
+        resolved.push({
+          ...base,
+          idx,
+          key: permKey(base, idx),
+          field,
+        });
+        return;
+      }
+
+      let slots = [];
+      let missingSlots = [];
+      if(base.member_mode === "all"){
+        for(let slot = 1; slot <= memberCount; slot += 1){
+          slots.push(slot);
+        }
+      } else {
+        slots = base.member_slots.filter((slot) => slot <= memberCount);
+        missingSlots = base.member_slots.filter((slot) => slot > memberCount);
+      }
+
+      slots.forEach((slot) => {
+        const runtimeFieldCode = `${base.field_code}__m${slot}`;
+        const resolvedPerm = {
+          ...base,
+          runtime_field_code: runtimeFieldCode,
+          member_slot: slot,
+          member_label: `M${slot}`,
+        };
+        const field = schemaField(runtimeFieldCode);
+        const expanded = expandedSupervisorPerms(resolvedPerm, idx, field);
+        if(expanded){
+          resolved.push(...expanded);
+          return;
+        }
+        resolved.push({
+          ...resolvedPerm,
+          idx,
+          key: permKey(resolvedPerm, idx),
+          field,
+        });
+      });
+
+      missingSlots.forEach((slot) => {
+        const runtimeFieldCode = `${base.field_code}__m${slot}`;
+        const resolvedPerm = {
+          ...base,
+          runtime_field_code: runtimeFieldCode,
+          member_slot: slot,
+          member_label: `M${slot}`,
+          disabled_missing_member: true,
+        };
+        resolved.push({
+          ...resolvedPerm,
+          idx,
+          key: permKey(resolvedPerm, idx),
+          field: schemaField(runtimeFieldCode),
+        });
+      });
+    });
+    return resolved;
+  }
+
+  function permittedFieldCodesForIns(insId){
+    return Array.from(new Set(
+      resolvedPermsForIns(insId)
+        .map((perm) => String(perm.runtime_field_code || perm.field_code || ""))
+        .filter(Boolean)
+    ));
+  }
+
+  function buildPermText(){
+    const targets = Array.from(document.querySelectorAll("[data-perm-text]"));
+    const legacyEl = document.getElementById("permText");
+    if(legacyEl && !targets.includes(legacyEl)) targets.push(legacyEl);
+    if(!targets.length) return;
+    const parts = PERMS.map((perm) => {
+      const p = normalizePerm(perm);
+      if(!p.field_code) return "";
+      const field = schemaField(p.runtime_field_code || p.field_code) || schemaField(p.field_code) || {};
+      const label = String(field.label || p.label || p.field_code || "").trim();
+      const meta = [`J${p.judge_index}`];
+      if(p.item_count){
+        meta.push(`Items ${p.item_start}-${p.item_start + p.item_count - 1}`);
+      }
+      if(p.scope === "member"){
+        const target = permissionTargetText(p);
+        if(target && target !== "Compartit") meta.push(target);
+      }
+      return [label, ...meta].filter(Boolean).join(" · ");
+    });
+    const text = parts.filter(Boolean).join(" · ");
+    targets.forEach((el) => {
+      el.textContent = text;
+    });
+  }
+
+  function updateDraftValue(insId, exercici, code, nextValue, perm){
+    const draft = getDraft(insId, exercici);
+    draft[code] = nextValue;
+    markDirty(insId, exercici, perm.key);
+    setStatus(insId, exercici, "", "Pendent de desar...");
+    refreshExerciseChipStates(insId);
+  }
+
+  function decimalsStep(dec){
+    const d = Number(dec ?? 0);
+    if(!Number.isFinite(d) || d <= 0) return "1";
+    return "0." + "0".repeat(Math.max(0, d-1)) + "1";
+  }

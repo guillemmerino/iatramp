@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Importar inscripcions{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+
+  <div class="card-surface">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h2 class="mb-0">Importar inscripcions</h2>
+        <div class="text-muted small">
+          Competició: <span class="fw-semibold">{{ competicio.nom }}</span>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <a href="{% url 'created' %}" class="btn btn-sm btn-outline-secondary">
+          Torna a competicions
+        </a>
+      </div>
+    </div>
+
+    <div class="alert alert-info small mb-3">
+      Puja un fitxer Excel amb les columnes com <strong>Nif, Nom, Cognoms, Entitat, Categoria, SubCategoria, Sexe, Data de naixement</strong>.
+      Si el NIF ja existeix a la competició, es farà una actualització.
+    </div>
+
+    <div class="alert alert-warning small mb-3">
+      <strong>Warning de noms conflictius:</strong> El sistema espera un excel amb columnes segons s'especifiquen adalt. Si el vostre fitxer conté 
+      columnes com "Nom Inscripció", "Entitat Inscripció", etc., el sistema intentarà mapar-les a les columnes esperades. Si el mapeig no és clar, es poden produir errors o dades mal interpretades.
+      És recomanable renombrar les columnes del vostre fitxer Excel per assegurar una importació correcta.
+    </div>
+
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+      {% endif %}
+
+      <div class="row g-3">
+        <div class="col-12 col-md-6">
+          <label class="form-label fw-semibold" for="{{ form.fitxer.id_for_label }}">Fitxer Excel (.xlsx)</label>
+          {{ form.fitxer }}
+          {% if form.fitxer.errors %}
+            <div class="text-danger small mt-1">{{ form.fitxer.errors|striptags }}</div>
+          {% endif %}
+        </div>
+
+        
+      </div>
+
+      <div class="d-flex flex-wrap justify-content-end gap-2 mt-4">
+        <a href="{% url 'inscripcions_list' competicio.id %}" class="btn btn-sm btn-outline-secondary">Cancel·la</a>
+        <button type="submit" class="btn btn-sm btn-success">Importar</button>
+      </div>
+    </form>
+  </div>
+
+</div>
+{% endblock %}
+

@@ -1,0 +1,153 @@
+<script>
+(function () {
+  'use strict';
+
+  const API = window.InscripcionsApp;
+  if (!API) return;
+
+  const defaultColumns = [
+    'nom_i_cognoms',
+    'document',
+    'sexe',
+    'data_naixement',
+    'entitat',
+    'categoria',
+    'subcategoria',
+    'grup',
+    'equip',
+    '__aparells__',
+    '__media__',
+    '__actions__',
+  ];
+
+  function getColumnItems() {
+    return Array.from(document.querySelectorAll('#cols-sortable li[data-col]'));
+  }
+
+  function updateColumnCounter() {
+    const items = getColumnItems();
+    const visible = items.filter((item) => item.querySelector('.js-col-check')?.checked).length;
+    const counter = document.getElementById('cols-visible-count');
+    const navCounter = document.getElementById('cols-visible-count-nav');
+    if (counter) counter.textContent = `${visible}/${items.length}`;
+    if (navCounter) navCounter.textContent = `${visible}/${items.length}`;
+  }
+
+  function collectTableColumns() {
+    return getColumnItems()
+      .filter((item) => item.querySelector('.js-col-check')?.checked)
+      .map((item) => String(item.getAttribute('data-col') || '').trim())
+      .filter(Boolean);
+  }
+
+  function setColumnsChecked(resolver) {
+    getColumnItems().forEach((item) => {
+      const code = String(item.getAttribute('data-col') || '').trim();
+      const input = item.querySelector('.js-col-check');
+      if (input) input.checked = !!resolver(code);
+    });
+    updateColumnCounter();
+  }
+
+  async function saveTableColumns() {
+    const columns = collectTableColumns();
+    if (!columns.length) {
+      API.showAlert("Has de deixar com a minim una columna seleccionada.");
+      return;
+    }
+    const data = await API.postJson(API.app.urls.saveTableColumns, { table_columns: columns });
+    if (!data?.ok) throw new Error("No s'han pogut desar les columnes.");
+    await API.refreshHtmlFragments(['header', 'history', 'table']);
+  }
+
+  function exportExcel() {
+    const url = API.getCurrentUrl();
+    url.searchParams.set('export_excel', '1');
+    url.searchParams.delete('excel_cols');
+    document.querySelectorAll('.js-excel-col:checked').forEach((input) => {
+      url.searchParams.append('excel_cols', String(input.value || '').trim());
+    });
+    window.location.assign(url.toString());
+  }
+
+  function exportBaixes() {
+    const url = API.app.urls.exportBaixes;
+    if (!url) {
+      API.showAlert("No s'ha trobat l'export de baixes.");
+      return;
+    }
+    window.location.assign(url);
+  }
+
+  function initColumnsSortable() {
+    const root = document.getElementById('cols-sortable');
+    if (!root || typeof window.Sortable === 'undefined') return;
+    if (root.dataset.sortableBound === '1') return;
+    root.dataset.sortableBound = '1';
+    window.Sortable.create(root, {
+      animation: 120,
+      handle: '.col-drag-handle',
+      draggable: 'li[data-col]',
+    });
+  }
+
+  function hydrateColumnsPanel() {
+    initColumnsSortable();
+    updateColumnCounter();
+  }
+
+  function wireColumnsPanel() {
+    document.addEventListener('change', (event) => {
+      if (event.target.closest('.js-col-check')) updateColumnCounter();
+    });
+
+    document.addEventListener('click', async (event) => {
+      if (event.target.closest('#btn-cols-all')) {
+        event.preventDefault();
+        setColumnsChecked(() => true);
+        return;
+      }
+      if (event.target.closest('#btn-cols-none')) {
+        event.preventDefault();
+        setColumnsChecked((code) => code === 'nom_i_cognoms');
+        return;
+      }
+      if (event.target.closest('#btn-cols-default')) {
+        event.preventDefault();
+        setColumnsChecked((code) => defaultColumns.includes(code));
+        return;
+      }
+      if (event.target.closest('#btn-save-cols')) {
+        event.preventDefault();
+        try {
+          await saveTableColumns();
+        } catch (err) {
+          API.showAlert(err.message || err);
+        }
+        return;
+      }
+      if (event.target.closest('#btn-export-excel')) {
+        event.preventDefault();
+        exportExcel();
+        return;
+      }
+      if (event.target.closest('#btn-export-baixes')) {
+        event.preventDefault();
+        exportBaixes();
+      }
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    wireColumnsPanel();
+    hydrateColumnsPanel();
+  });
+  document.addEventListener('inscripcions:fragments-refreshed', (event) => {
+    const fragments = Array.isArray(event?.detail?.fragments) ? event.detail.fragments : [];
+    const panelKey = String(event?.detail?.panelKey || '').trim();
+    if (fragments.includes('panel') && panelKey === 'columnes') {
+      hydrateColumnsPanel();
+    }
+  });
+})();
+</script>

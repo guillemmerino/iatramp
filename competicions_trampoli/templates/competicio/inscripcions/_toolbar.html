@@ -1,0 +1,35 @@
+<div id="inscripcions-toolbar-fragment">
+<div class="search-bar-card inscripcions-control-panel mb-3" data-avatar-anchor="inscriptions-search">
+  <div class="search-bar-main">
+    <div class="search-input-wrap">
+      <span class="search-input-icon">&#128269;</span>
+      <input
+        id="search-input"
+        type="text"
+        class="form-control search-input"
+        value="{{ request.GET.q|default:'' }}"
+        placeholder="Cerca per nom, document, entitat...">
+    </div>
+
+    <div class="search-actions">
+      <button type="button" class="btn btn-outline-primary" id="search-btn">Cercar</button>
+      <button type="button" class="btn btn-outline-secondary" id="clear-search-btn">Netejar</button>
+    </div>
+  </div>
+
+  <div class="inscripcions-control-footer">
+    <div class="small text-muted search-bar-meta">
+      <span>Mostrant <span class="fw-semibold">{{ inscrits_filtered_count }}</span> participants</span>
+      {% if inscrits_filtered_count != inscrits_total_count %}
+        <span>de {{ inscrits_total_count }}</span>
+      {% endif %}
+      <span class="search-meta-sep">-</span>
+      <span>Cerca en temps real per nom, cognoms, DNI o entitat</span>
+      {% if request.GET.q %}
+        <span class="badge badge-primary ml-1">Filtrant: "{{ request.GET.q }}"</span>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+</div>

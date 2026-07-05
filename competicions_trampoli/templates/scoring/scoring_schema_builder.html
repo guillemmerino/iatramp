@@ -1,0 +1,2457 @@
+{% extends "base.html" %}
+{% load static static_extras %}
+{% block title %}Puntuació – {{ aparell.nom }}{% endblock %}
+
+{% block content %}
+<section class="schema-workspace">
+<div class="schema-workspace-shell">
+  <link rel="stylesheet" href="{% staticv 'css/scoring_schema_builder_help.css' %}">
+  <style>
+    .pill-help{ font-size:.85rem; color:#6c757d; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .table td, .table th{ vertical-align:middle; }
+    .w-120{ width:120px; }
+    .w-140{ width:140px; }
+    .w-160{ width:160px; }
+    .w-200{ width:200px; }
+    .badge-soft{ background:#f1f3f5; border:1px solid #e9ecef; }
+    .d-none{ display:none !important; }
+
+    .help-card{
+      border:1px solid #dbeafe;
+      background:#eff6ff;
+      border-radius:.5rem;
+      padding:.75rem .9rem;
+    }
+    .step-card{
+      border:1px solid #e9ecef;
+      border-radius:.5rem;
+      padding:.75rem .9rem;
+      background:#fff;
+    }
+    .step-title{
+      font-weight:700;
+      margin-bottom:.25rem;
+      display:flex;
+      align-items:center;
+      gap:.5rem;
+    }
+    .step-badge{
+      font-size:.75rem;
+      background:#f8f9fa;
+      border:1px solid #e9ecef;
+      border-radius:999px;
+      padding:.1rem .5rem;
+      color:#495057;
+    }
+    .hint{
+      font-size:.85rem;
+      color:#6c757d;
+      margin-bottom:.5rem;
+    }
+    .microflow{
+      font-size:.85rem;
+      color:#495057;
+      background:#f8f9fa;
+      border:1px solid #e9ecef;
+      border-radius:.5rem;
+      padding:.5rem .6rem;
+      margin-top:.5rem;
+    }
+    .microflow .mono{ font-size:.82rem; }
+    details summary{ cursor:pointer; }
+    .card-surface input:not([type="checkbox"]):not([type="radio"]),
+    .card-surface select,
+    .card-surface textarea,
+    .card-surface .form-control {
+  width: 100%;
+}
+  .card-surface .form-check-input { width: auto; }
+
+    .schema-workspace {
+      min-height: calc(100vh - 190px);
+      padding: 28px clamp(16px, 3vw, 42px) 36px;
+      color: #0f172a;
+    }
+
+    .schema-workspace-shell {
+      max-width: 1680px;
+      margin: 0 auto;
+    }
+
+    .schema-workspace-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 22px;
+      margin-bottom: 24px;
+    }
+
+    .schema-workspace-logo {
+      display: block;
+      width: 150px;
+      height: 64px;
+      object-fit: contain;
+      object-position: left center;
+    }
+
+    .schema-workspace-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .schema-action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      padding: 9px 15px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.9);
+      color: #334155;
+      font-weight: 800;
+      line-height: 1.15;
+      text-decoration: none;
+      box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+    }
+
+    .schema-action:hover,
+    .schema-action:focus {
+      color: #0f172a;
+      text-decoration: none;
+      background: #ffffff;
+    }
+
+    .schema-action--primary {
+      border-color: #2563eb;
+      background: #2563eb;
+      color: #ffffff;
+      box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22);
+    }
+
+    .schema-action--primary:hover,
+    .schema-action--primary:focus {
+      color: #ffffff;
+      background: #1d4ed8;
+    }
+
+    .schema-action--help {
+      border-color: #bfdbfe;
+      color: #1d4ed8;
+    }
+
+    .schema-heading {
+      margin-bottom: 22px;
+    }
+
+    .schema-heading h1 {
+      margin: 0;
+      color: #071633;
+      font-size: clamp(2.05rem, 4vw, 3.2rem);
+      font-weight: 850;
+      letter-spacing: 0;
+      line-height: 1.05;
+    }
+
+    .schema-heading p {
+      max-width: 780px;
+      margin: 8px 0 0;
+      color: #64748b;
+      font-size: 1rem;
+      line-height: 1.55;
+    }
+
+    .schema-heading-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .schema-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 6px 11px;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 0.78rem;
+      font-weight: 850;
+    }
+
+    .schema-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .schema-summary-item {
+      min-height: 76px;
+      padding: 14px 16px;
+      border: 1px solid rgba(219, 226, 239, 0.82);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.82);
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+      backdrop-filter: blur(12px);
+    }
+
+    .schema-summary-value {
+      display: block;
+      color: #071633;
+      font-size: 1.45rem;
+      font-weight: 850;
+      line-height: 1;
+    }
+
+    .schema-summary-label {
+      display: block;
+      margin-top: 8px;
+      color: #64748b;
+      font-size: 0.84rem;
+      font-weight: 750;
+    }
+
+    .schema-builder-surface {
+      border: 1px solid rgba(219, 226, 239, 0.9);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 18px 42px rgba(15, 23, 42, 0.1);
+      backdrop-filter: blur(12px);
+      overflow: hidden;
+      padding: 18px;
+    }
+
+    .schema-builder-surface > .d-flex.justify-content-between.align-items-start.mb-3 {
+      display: none !important;
+    }
+
+    .schema-builder-surface .alert {
+      border-radius: 8px;
+    }
+
+    .schema-builder-form {
+      margin: 0;
+    }
+
+    .schema-builder-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+      gap: 0;
+      align-items: stretch;
+    }
+
+    .schema-builder-main {
+      min-width: 0;
+      padding: 18px;
+      border-right: 1px solid #e2e8f0;
+    }
+
+    .schema-builder-aside {
+      padding: 18px;
+      background: linear-gradient(180deg, rgba(248, 250, 252, 0.78), rgba(255, 255, 255, 0.95));
+    }
+
+    .schema-workflow-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin: 0 0 18px;
+      border: 0;
+    }
+
+    .schema-builder-surface .tab-content {
+      padding: 0 !important;
+    }
+
+    .schema-workflow-tabs .nav-item {
+      margin: 0;
+    }
+
+    .schema-workflow-tabs .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 58px;
+      padding: 10px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #475569;
+      font-weight: 850;
+      line-height: 1.15;
+    }
+
+    .schema-workflow-tabs .nav-link:hover,
+    .schema-workflow-tabs .nav-link:focus {
+      border-color: #bfdbfe;
+      color: #1d4ed8;
+    }
+
+    .schema-workflow-tabs .nav-link.active {
+      border-color: #93c5fd;
+      background: #eff6ff;
+      color: #1d4ed8;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.72);
+    }
+
+    .schema-tab-step {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: #f1f5f9;
+      color: currentColor;
+      font-size: 0.78rem;
+      font-weight: 900;
+    }
+
+    .schema-tab-copy {
+      min-width: 0;
+    }
+
+    .schema-tab-copy strong,
+    .schema-tab-copy span {
+      display: block;
+    }
+
+    .schema-tab-copy span {
+      margin-top: 3px;
+      color: #64748b;
+      font-size: 0.74rem;
+      font-weight: 800;
+    }
+
+    .schema-section-panel {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    .schema-section-panel > .d-flex,
+    .schema-section-panel > .font-weight-bold,
+    .schema-section-panel > .pill-help {
+      margin: 0 !important;
+      padding: 16px 18px;
+    }
+
+    .schema-section-panel > .pill-help {
+      padding-top: 0;
+    }
+
+    .schema-section-panel > .table-responsive {
+      margin: 0;
+      border-top: 1px solid #e2e8f0;
+    }
+
+    .schema-section-panel .table {
+      margin-bottom: 0;
+      min-width: 980px;
+    }
+
+    .schema-section-panel .table thead th {
+      border-top: 0;
+      background: #f8fafc;
+      color: #475569;
+      font-size: 0.78rem;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .schema-section-panel .table tbody td {
+      border-color: #edf2f7;
+    }
+
+    .schema-section-panel .btn-outline-primary {
+      border-color: #bfdbfe;
+      border-radius: 8px;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-weight: 850;
+    }
+
+    .schema-section-panel .btn-outline-primary:hover,
+    .schema-section-panel .btn-outline-primary:focus {
+      border-color: #2563eb;
+      background: #2563eb;
+      color: #ffffff;
+    }
+
+    .schema-section-panel #advancedJson {
+      margin: 0 18px 18px;
+      width: calc(100% - 36px);
+      min-height: 430px;
+      border-radius: 8px;
+      border-color: #cbd5e1;
+      background: #0f172a;
+      color: #dbeafe;
+    }
+
+    .schema-section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 18px;
+      border-bottom: 1px solid #e2e8f0;
+      background: #f8fafc;
+    }
+
+    .schema-section-title {
+      color: #0f172a;
+      font-size: 1rem;
+      font-weight: 850;
+      line-height: 1.2;
+    }
+
+    .schema-section-body {
+      padding: 0;
+    }
+
+    .schema-table-wrap {
+      max-height: calc(100vh - 420px);
+      overflow: auto;
+    }
+
+    .schema-workspace table.table {
+      margin: 0;
+      border-collapse: separate;
+      border-spacing: 0;
+      border: 0;
+    }
+
+    .schema-workspace table.table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      border-top: 0;
+      border-right: 0;
+      border-left: 0;
+      border-bottom: 1px solid #e2e8f0;
+      background: #f8fafc;
+      color: #475569;
+      font-size: 0.74rem;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .schema-workspace table.table td {
+      border-right: 0;
+      border-left: 0;
+      border-color: #e2e8f0;
+      background: #ffffff;
+    }
+
+    .schema-workspace table.table tbody tr:hover td {
+      background: #f8fafc;
+    }
+
+    #computedTable tbody tr {
+      --formula-row-bg: #ffffff;
+      --formula-row-hover-bg: #f8fafc;
+      --formula-card-bg: #ffffff;
+      --formula-card-border: #e2e8f0;
+      --formula-soft-bg: #f8fafc;
+      --formula-side-border: #e2e8f0;
+    }
+
+    #computedTable tbody tr:nth-child(even) {
+      --formula-row-bg: #f7f9fc;
+      --formula-row-hover-bg: #f3f6fa;
+      --formula-card-bg: #fbfcfe;
+      --formula-card-border: #dbe3ee;
+      --formula-soft-bg: #eef3f8;
+      --formula-side-border: #cbd5e1;
+    }
+
+    #computedTable tbody tr td {
+      background: var(--formula-row-bg);
+    }
+
+    #computedTable tbody tr:hover td {
+      background: var(--formula-row-hover-bg);
+    }
+
+    #computedTable tbody tr td:first-child {
+      border-left: 4px solid var(--formula-side-border);
+    }
+
+    #computedTable tbody tr .step-card,
+    #computedTable tbody tr [data-box="exec_trampoli"],
+    #computedTable tbody tr [data-box="select_sum"],
+    #computedTable tbody tr [data-box="member_treatment"] {
+      border-color: var(--formula-card-border) !important;
+      background: var(--formula-card-bg);
+    }
+
+    #computedTable tbody tr .microflow {
+      background: var(--formula-soft-bg);
+      border-color: var(--formula-card-border);
+    }
+
+    .schema-workspace input:not([type="checkbox"]):not([type="radio"]),
+    .schema-workspace select,
+    .schema-workspace textarea,
+    .schema-workspace .form-control {
+      width: 100%;
+      border-color: #cbd5e1;
+      border-radius: 8px;
+      color: #0f172a;
+      font-weight: 650;
+      box-shadow: none;
+    }
+
+    .schema-workspace input:focus,
+    .schema-workspace select:focus,
+    .schema-workspace textarea:focus,
+    .schema-workspace .form-control:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+    }
+
+    .schema-workspace .form-check-input {
+      width: auto;
+    }
+
+    .schema-json-panel {
+      padding: 16px 18px 18px;
+      background: #0f172a;
+    }
+
+    .schema-json-panel .schema-section-title,
+    .schema-json-panel .pill-help {
+      color: #e2e8f0;
+    }
+
+    .schema-json-panel .pill-help {
+      color: #94a3b8;
+    }
+
+    #advancedJson {
+      min-height: 520px;
+      border-color: #334155;
+      background: #020617;
+      color: #dbeafe;
+      font-size: 0.86rem;
+      line-height: 1.5;
+    }
+
+    .schema-side-card {
+      padding: 16px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+    }
+
+    .schema-side-card + .schema-side-card {
+      margin-top: 12px;
+    }
+
+    .schema-side-card h2,
+    .schema-side-card h3 {
+      margin: 0 0 8px;
+      color: #0f172a;
+      font-size: 0.98rem;
+      font-weight: 850;
+      line-height: 1.2;
+    }
+
+    .schema-side-card p {
+      margin: 0;
+      color: #64748b;
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+
+    .schema-side-list {
+      margin: 10px 0 0;
+      padding-left: 18px;
+      color: #64748b;
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+
+    .schema-form-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 16px 18px;
+      border-top: 1px solid #e2e8f0;
+      background: #f8fafc;
+    }
+
+    @media (max-width: 1100px) {
+      .schema-builder-body {
+        grid-template-columns: 1fr;
+      }
+
+      .schema-builder-main {
+        border-right: 0;
+        border-bottom: 1px solid #e2e8f0;
+      }
+
+      .schema-builder-aside {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .schema-side-card + .schema-side-card {
+        margin-top: 0;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .schema-workspace {
+        padding-inline: 12px;
+      }
+
+      .schema-workspace-topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .schema-workspace-actions,
+      .schema-action,
+      .schema-form-footer .schema-action {
+        width: 100%;
+      }
+
+      .schema-summary,
+      .schema-workflow-tabs,
+      .schema-builder-aside {
+        grid-template-columns: 1fr;
+      }
+
+      .schema-section-head,
+      .schema-form-footer {
+        flex-direction: column;
+        align-items: stretch;
+      }
+    }
+
+{% include "scoring/schema_builder/_computed_formula_styles.html" %}
+  </style>
+
+  {% include "components/avatar_helper.html" with avatar_messages=avatar_messages avatar_initial_topic=avatar_initial_topic position="left" state="closed" %}
+
+  <div class="schema-workspace-topbar">
+    <img class="schema-workspace-logo" src="{% static 'general/logo.png' %}" alt="IA Score">
+    <div class="schema-workspace-actions">
+      <a class="schema-action" href="{{ next }}">Cancel·lar</a>
+      <button class="schema-action schema-action--primary" type="submit" form="schemaForm">Desar esquema</button>
+    </div>
+  </div>
+
+  <header class="schema-heading">
+    <h1>
+      Puntuació · {{ aparell.nom }}
+      <button type="button" class="help-trigger help-trigger--inline" data-avatar-topic="welcome" aria-label="Ajuda sobre la configuracio de puntuacio" title="Ajuda sobre la configuracio de puntuacio">?</button>
+    </h1>
+    <p>Defineix els camps que omplirà el jurat, construeix fórmules guiades i revisa el JSON final dins un mateix espai de treball.</p>
+    <div class="schema-heading-badges">
+      {% if competicio %}
+        <span class="schema-badge">Competició · {{ competicio.nom }}</span>
+      {% else %}
+        <span class="schema-badge">Schema global</span>
+      {% endif %}
+      {% if schema_builder_config.is_team_unit %}
+        <span class="schema-badge">Unitat · Equip</span>
+      {% else %}
+        <span class="schema-badge">Unitat · Individual</span>
+      {% endif %}
+    </div>
+  </header>
+
+  <div class="schema-summary" aria-label="Resum de l'esquema">
+    <div class="schema-summary-item">
+      <span class="schema-summary-value" id="schemaFieldsCount">0</span>
+      <span class="schema-summary-label">Camps d'entrada</span>
+    </div>
+    <div class="schema-summary-item">
+      <span class="schema-summary-value" id="schemaComputedCount">0</span>
+      <span class="schema-summary-label">Fórmules</span>
+    </div>
+    <div class="schema-summary-item">
+      <span class="schema-summary-value">{% if schema_builder_config.is_team_unit %}Equip{% else %}Individual{% endif %}</span>
+      <span class="schema-summary-label">Mode de puntuació</span>
+    </div>
+    <div class="schema-summary-item">
+      <span class="schema-summary-value" id="schemaDraftState">Actiu</span>
+      <span class="schema-summary-label">Estat del builder</span>
+    </div>
+  </div>
+
+  <div class="schema-builder-surface card-surface">
+    <div class="d-flex justify-content-between align-items-start mb-3">
+      <div>
+        <h2 class="mb-1">Puntuació · {{ aparell.nom }}</h2>
+      {% if competicio %}
+        <div class="text-muted small">Competició: <strong>{{ competicio.nom }}</strong></div>
+      {% endif %}
+        <div class="text-muted small">Configura camps i fórmules sense escriure JSON.</div>
+      </div>
+      <div>
+      </div>
+    </div>
+
+    <form method="post" id="schemaForm" class="schema-builder-form">
+      {% csrf_token %}
+
+      {% if schema_builder_config.is_team_unit %}
+
+      <template id="member-treatment-option-catalog">
+        <select>
+          <option value="all">Tots (no seleccionar)</option>
+          <option value="drop_extremes">Eliminar extrems (min i max)</option>
+          <option value="drop_extremes_until_n">Eliminar extrems alternant fins N</option>
+          <option value="best_n">Millors N</option>
+          <option value="worst_n">Pitjors N</option>
+          <option value="sum">Sumar</option>
+          <option value="avg">Mitjana</option>
+          <option value="min">Mínim</option>
+          <option value="max">Màxim</option>
+          <option value="count">Comptar</option>
+          <option value="med">Mediana</option>
+        </select>
+      </template>
+      {% endif %}
+
+      {% if form.errors %}
+      {% if form.schema_json.errors %}
+        <div class="alert alert-danger">
+          <div class="fw-bold mb-2">Errors de validació de l’schema</div>
+          <ul class="mb-0">
+            {% for e in form.schema_json.errors %}
+              <li>{{ e }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% else %}
+        <pre class="alert alert-warning" style="white-space: pre-wrap;">{{ form.errors }}</pre>
+      {% endif %}
+      {% endif %}
+
+      <div id="schemaRecoveryNotice" class="alert d-none d-flex justify-content-between align-items-start" role="alert">
+        <div id="schemaRecoveryNoticeText" class="pr-3"></div>
+        <button type="button" id="schemaDraftDiscardBtn" class="btn btn-sm btn-outline-secondary d-none">Descartar esborrany</button>
+      </div>
+
+      {{ form.schema_json }}
+
+      <ul class="nav nav-tabs schema-workflow-tabs" role="tablist">
+        <li class="nav-item">
+          <a class="nav-link active" data-toggle="tab" href="#tab-fields" role="tab">
+            <span class="schema-tab-step">1</span>
+            <span>Camps</span>
+
+            <strong id="schemaFieldsTabCount">0</strong>
+            <button type="button" class="help-trigger help-trigger--inline ml-1" data-avatar-topic="fields_overview" aria-label="Ajuda camps" title="Ajuda camps">?</button>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" data-toggle="tab" href="#tab-formules" role="tab">
+            <span class="schema-tab-step">2</span>
+            <span>Fórmules</span>
+            <strong id="schemaComputedTabCount">0</strong>
+            <button type="button" class="help-trigger help-trigger--inline ml-1" data-avatar-topic="formulas_overview" aria-label="Ajuda formules" title="Ajuda formules">?</button>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" data-toggle="tab" href="#tab-advanced" role="tab">
+            <span class="schema-tab-step">3</span>
+            <span>JSON</span>
+          </a>
+        </li>
+      </ul>
+
+      <div class="tab-content pt-3">
+        <!-- CAMPS -->
+        <div class="tab-pane fade show active" id="tab-fields" role="tabpanel">
+          <div class="schema-section-panel">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <div>
+                <div class="font-weight-bold">
+                  Camps d’entrada
+                  <button type="button" class="help-trigger help-trigger--inline ml-1" data-avatar-topic="fields_interpretation" aria-label="Ajuda sobre com s'interpreten els camps" title="Ajuda sobre com s'interpreten els camps">?</button>
+                </div>
+                <div class="pill-help">
+                  Defineix què omplirà el jurat. Els criteris d’agregació/selecció es defineixen a <strong>Fórmules</strong>.
+                </div>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddField">Afegir camp</button>
+            </div>
+
+            <div class="table-responsive">
+              <table class="table table-sm table-bordered" id="fieldsTable">
+                <thead class="thead-light">
+                  <tr>
+                    <th>Etiqueta <button type="button" class="help-trigger help-trigger--inline" data-avatar-topic="field_identity" aria-label="Ajuda etiqueta code i var" title="Ajuda etiqueta code i var">?</button></th>
+                    <th class="w-120">Code</th>
+                    <th class="w-120">Var</th>
+                    <th class="w-120">Abast <button type="button" class="help-trigger help-trigger--inline" data-avatar-topic="field_scope" aria-label="Ajuda abast" title="Ajuda abast">?</button></th>
+
+                    <th class="w-120">Jutges <button type="button" class="help-trigger help-trigger--inline" data-avatar-topic="field_matrix_shape" aria-label="Ajuda jutges i items" title="Ajuda jutges i items">?</button></th>
+                    <th class="w-120">Ítems</th>
+
+                    <th class="w-120">Min <button type="button" class="help-trigger help-trigger--inline" data-avatar-topic="field_limits" aria-label="Ajuda limits i decimals" title="Ajuda limits i decimals">?</button></th>
+                    <th class="w-120">Max</th>
+                    <th class="w-120">Decimals</th>
+
+                    <th class="w-120">Crash <button type="button" class="help-trigger help-trigger--inline" data-avatar-topic="field_crash" aria-label="Ajuda crash" title="Ajuda crash">?</button></th>
+                    <th class="w-120"></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- FÒRMULES -->
+{% include "scoring/schema_builder/_computed_table.html" %}
+
+        <!-- AVANÇAT JSON -->
+        <div class="tab-pane fade" id="tab-advanced" role="tabpanel">
+          <div class="schema-section-panel">
+            <div class="font-weight-bold mb-2">
+              Avançat (JSON)
+              <button type="button" class="help-trigger help-trigger--inline" data-avatar-topic="schema_json" aria-label="Ajuda JSON avancat" title="Ajuda JSON avancat">?</button>
+            </div>
+            <div class="pill-help mb-2">JSON generat automàticament pel builder. En mode recuperació per JSON invàlid, aquest camp es desbloqueja perquè el puguis corregir manualment.</div>
+            <textarea id="advancedJson" class="form-control mono" rows="18" readonly></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="schema-form-footer">
+        <a class="schema-action" href="{{ next }}">Cancel·lar</a>
+        <button class="schema-action schema-action--primary" type="submit">Desar esquema</button>
+      </div>
+    </form>
+  </div>
+</div>
+</section>
+
+{{ schema_bootstrap|json_script:"schema-bootstrap" }}
+{{ schema_builder_config|json_script:"schema-builder-config" }}
+
+<script>
+  // --- Bootstrap inicial ---
+  let SCHEMA_BOOTSTRAP = {};
+  try { SCHEMA_BOOTSTRAP = JSON.parse(document.getElementById("schema-bootstrap").textContent || "{}"); }
+  catch (e) { SCHEMA_BOOTSTRAP = {}; }
+  const SAVED_SCHEMA = (SCHEMA_BOOTSTRAP && typeof SCHEMA_BOOTSTRAP.schema_saved === "object" && SCHEMA_BOOTSTRAP.schema_saved) ? SCHEMA_BOOTSTRAP.schema_saved : {};
+  let SERVER_SCHEMA = (SCHEMA_BOOTSTRAP && typeof SCHEMA_BOOTSTRAP.schema_initial === "object" && SCHEMA_BOOTSTRAP.schema_initial) ? SCHEMA_BOOTSTRAP.schema_initial : {};
+  let SERVER_SCHEMA_SOURCE = String((SCHEMA_BOOTSTRAP && SCHEMA_BOOTSTRAP.schema_initial_source) || "saved");
+  let RAW_INVALID_JSON = String((SCHEMA_BOOTSTRAP && SCHEMA_BOOTSTRAP.schema_raw_invalid_json) || "");
+  const SCHEMA_DRAFT_STORAGE_KEY = String((SCHEMA_BOOTSTRAP && SCHEMA_BOOTSTRAP.schema_draft_storage_key) || "");
+  const SCHEMA_UI_STATE_STORAGE_KEY = SCHEMA_DRAFT_STORAGE_KEY ? `${SCHEMA_DRAFT_STORAGE_KEY}::ui` : "";
+  let schema = {};
+  let BUILDER_CONFIG = {};
+  try { BUILDER_CONFIG = JSON.parse(document.getElementById("schema-builder-config").textContent || "{}"); }
+  catch (e) { BUILDER_CONFIG = {}; }
+
+  // --- Helpers ---
+  function uid(){ return Math.random().toString(16).slice(2); }
+  function qs(sel){ return document.querySelector(sel); }
+  function deepClone(value){
+    try { return JSON.parse(JSON.stringify(value ?? {})); }
+    catch (e) { return {}; }
+  }
+  function stableStringify(value){
+    try { return JSON.stringify(value ?? {}); }
+    catch (e) { return "{}"; }
+  }
+  function readSessionJSON(key){
+    if(!key) return null;
+    try { return JSON.parse(sessionStorage.getItem(key) || "null"); }
+    catch (e) { return null; }
+  }
+  function writeSessionJSON(key, value){
+    if(!key) return;
+    try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+  }
+  function removeSessionKey(key){
+    if(!key) return;
+    try { sessionStorage.removeItem(key); } catch (e) {}
+  }
+
+  function showIf(el, yes){
+    if(!el) return;
+    el.classList.toggle("d-none", !yes);
+  }
+
+  function getActiveTabHref(){
+    return document.querySelector('.nav-link.active[data-toggle="tab"]')?.getAttribute("href") || "#tab-fields";
+  }
+
+  function activateTabByHref(href){
+    if(!href) return;
+    document.querySelectorAll('.nav-link[data-toggle="tab"]').forEach(link=>{
+      const isActive = link.getAttribute("href") === href;
+      link.classList.toggle("active", isActive);
+      link.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
+    document.querySelectorAll('.tab-pane').forEach(pane=>{
+      const isActive = `#${pane.id}` === href;
+      pane.classList.toggle("show", isActive);
+      pane.classList.toggle("active", isActive);
+    });
+  }
+
+  let ACTIVE_SCHEMA_SOURCE = SERVER_SCHEMA_SOURCE;
+  let ACTIVE_DRAFT_MODE = "";
+  let MANUAL_JSON_MODE = false;
+  let IS_INITIALIZING = true;
+  let draftSaveTimer = null;
+  let uiStateTimer = null;
+
+  function loadSchemaDraft(){
+    const payload = readSessionJSON(SCHEMA_DRAFT_STORAGE_KEY);
+    if(!payload || typeof payload !== "object") return null;
+
+    if(payload.mode === "schema" && payload.schema && typeof payload.schema === "object"){
+      if(stableStringify(payload.schema) === stableStringify(SAVED_SCHEMA)){
+        removeSessionKey(SCHEMA_DRAFT_STORAGE_KEY);
+        return null;
+      }
+      return payload;
+    }
+
+    if(payload.mode === "raw_json" && typeof payload.raw_json === "string" && payload.raw_json.trim()){
+      try {
+        const parsed = JSON.parse(payload.raw_json);
+        if(parsed && typeof parsed === "object" && stableStringify(parsed) === stableStringify(SAVED_SCHEMA)){
+          removeSessionKey(SCHEMA_DRAFT_STORAGE_KEY);
+          return null;
+        }
+      } catch (_err) {}
+      return payload;
+    }
+
+    return null;
+  }
+
+  function persistSchemaDraft(){
+    if(!SCHEMA_DRAFT_STORAGE_KEY || MANUAL_JSON_MODE) return;
+    writeSessionJSON(SCHEMA_DRAFT_STORAGE_KEY, {
+      mode: "schema",
+      schema: buildSchemaFromUI(),
+      savedAt: Date.now(),
+    });
+  }
+
+  function persistRawJsonDraft(rawText){
+    if(!SCHEMA_DRAFT_STORAGE_KEY) return;
+    writeSessionJSON(SCHEMA_DRAFT_STORAGE_KEY, {
+      mode: "raw_json",
+      raw_json: String(rawText || ""),
+      savedAt: Date.now(),
+    });
+  }
+
+  function clearSchemaDraft(){
+    removeSessionKey(SCHEMA_DRAFT_STORAGE_KEY);
+    removeSessionKey(SCHEMA_UI_STATE_STORAGE_KEY);
+  }
+
+  function saveUiState(extra){
+    if(IS_INITIALIZING || !SCHEMA_UI_STATE_STORAGE_KEY) return;
+    writeSessionJSON(SCHEMA_UI_STATE_STORAGE_KEY, {
+      savedAt: Date.now(),
+      activeTabHref: getActiveTabHref(),
+      scrollY: window.scrollY || window.pageYOffset || 0,
+      openComputedCodes: getOpenComputedCodes(),
+      ...(extra || {}),
+    });
+  }
+
+  function scheduleUiStateSave(extra){
+    if(IS_INITIALIZING || !SCHEMA_UI_STATE_STORAGE_KEY) return;
+    clearTimeout(uiStateTimer);
+    uiStateTimer = setTimeout(()=>saveUiState(extra), 120);
+  }
+
+  function scheduleDraftSave(){
+    if(IS_INITIALIZING || !SCHEMA_DRAFT_STORAGE_KEY) return;
+    clearTimeout(draftSaveTimer);
+    draftSaveTimer = setTimeout(()=>{
+      if(MANUAL_JSON_MODE){
+        persistRawJsonDraft(qs("#advancedJson")?.value || "");
+      } else {
+        persistSchemaDraft();
+      }
+    }, 180);
+  }
+
+  function setRecoveryNotice(source){
+    const box = qs("#schemaRecoveryNotice");
+    const text = qs("#schemaRecoveryNoticeText");
+    const discardBtn = qs("#schemaDraftDiscardBtn");
+    if(!box || !text || !discardBtn) return;
+
+    let message = "";
+    let tone = "alert-info";
+    if(source === "posted_invalid"){
+      message = "S'ha restaurat l'últim intent amb errors de validació perquè el puguis corregir sense perdre canvis.";
+      tone = "alert-warning";
+    } else if(source === "raw_invalid_json"){
+      message = "El JSON enviat no s'ha pogut interpretar. S'ha conservat el text original a la pestanya JSON perquè el puguis corregir.";
+      tone = "alert-warning";
+    } else if(source === "session_draft"){
+      message = "S'ha restaurat un esborrany local no desat d'aquesta sessió.";
+      tone = "alert-info";
+    }
+
+    if(!message){
+      box.className = "alert d-none d-flex justify-content-between align-items-start";
+      text.textContent = "";
+      showIf(discardBtn, false);
+      return;
+    }
+
+    box.className = `alert ${tone} d-flex justify-content-between align-items-start`;
+    text.textContent = message;
+    showIf(discardBtn, source === "session_draft");
+  }
+
+  function setManualJsonMode(enabled, rawText){
+    const adv = qs("#advancedJson");
+    if(!adv) return;
+    MANUAL_JSON_MODE = !!enabled;
+    adv.readOnly = !MANUAL_JSON_MODE;
+    adv.classList.toggle("border-warning", MANUAL_JSON_MODE);
+    if(MANUAL_JSON_MODE){
+      adv.value = String(rawText || "");
+    } else {
+      adv.value = JSON.stringify(buildSchemaFromUI(), null, 2);
+    }
+  }
+
+  function restoreUiState(){
+    if(ACTIVE_SCHEMA_SOURCE === "raw_invalid_json" || ACTIVE_DRAFT_MODE === "raw_json"){
+      activateTabByHref("#tab-advanced");
+      return;
+    }
+    const state = readSessionJSON(SCHEMA_UI_STATE_STORAGE_KEY);
+    if(!state || typeof state !== "object") return;
+    if(state.activeTabHref) activateTabByHref(String(state.activeTabHref));
+    if(Array.isArray(state.openComputedCodes)) restoreComputedOpenState(state.openComputedCodes);
+    const scrollY = Number(state.scrollY || 0);
+    if(Number.isFinite(scrollY) && scrollY > 0){
+      window.scrollTo(0, scrollY);
+    }
+  }
+
+  function resolveBootstrapSchema(){
+    if(SERVER_SCHEMA_SOURCE === "posted_invalid" || SERVER_SCHEMA_SOURCE === "raw_invalid_json"){
+      ACTIVE_SCHEMA_SOURCE = SERVER_SCHEMA_SOURCE;
+      ACTIVE_DRAFT_MODE = "";
+      return deepClone(SERVER_SCHEMA);
+    }
+
+    const draft = loadSchemaDraft();
+    if(draft){
+      ACTIVE_SCHEMA_SOURCE = "session_draft";
+      ACTIVE_DRAFT_MODE = String(draft.mode || "");
+      if(draft.mode === "raw_json"){
+        RAW_INVALID_JSON = String(draft.raw_json || "");
+        return deepClone(SAVED_SCHEMA);
+      }
+      return deepClone(draft.schema || {});
+    }
+
+    ACTIVE_SCHEMA_SOURCE = "saved";
+    ACTIVE_DRAFT_MODE = "";
+    return deepClone(SERVER_SCHEMA);
+  }
+
+  schema = resolveBootstrapSchema();
+
+  function needsN(method){
+    return (method === "best_n" || method === "worst_n" || method === "drop_extremes_until_n");
+  }
+
+  // --- Select options ---
+  const PRESET_FUNCS = [
+    ["manual", "Expressió manual"],
+    ["row_compute", "Per jutge"],
+    ["row_agregation", "Llistat notes per jutge"],
+    ["column_compute", "Per item"],
+  ];
+  if (BUILDER_CONFIG.is_team_unit) {
+    PRESET_FUNCS.push(["member_treatment_guided", "Entre membres"]);
+  }
+
+{% include "scoring/schema_builder/scripts/_computed_table_helpers.js.html" %}
+
+  const SELECT_OPTIONS = [
+    ["all", "Tots (no seleccionar)"],
+    ["drop_extremes", "Eliminar extrems (min i max)"],
+    ["drop_extremes_until_n", "Eliminar extrems alternant fins N"],
+    ["best_n", "Millors N"],
+    ["worst_n", "Pitjors N"],
+  ];
+
+  const AGG_OPTIONS = [
+    ["sum", "Suma"],
+    ["avg", "Mitjana"],
+    ["med", "Mediana"],
+    ["min", "Mínim"],
+    ["max", "Màxim"],
+  ];
+
+  const MEMBER_TREATMENT_SELECT_OPTIONS = SELECT_OPTIONS;
+  const MEMBER_TREATMENT_AGG_OPTIONS = [
+    ["sum", "Suma"],
+    ["avg", "Mitjana"],
+    ["med", "Mediana"],
+    ["min", "Mínim"],
+    ["max", "Màxim"],
+    ["count", "Comptar"],
+  ];
+
+  const SELECT_ON_OPTIONS = [
+    ["expr", "Sobre el resultat calculat (item_expr)"],
+    ["raw",  "Sobre el valor original (x)"],
+  ];
+
+  function optionHTML(opts){
+    return opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join("");
+  }
+
+  function refillDynamicSelect(sel, codes, emptyLabel){
+    if(!sel) return;
+
+    const current = sel.value || "";
+    const wanted = (sel.dataset.initialValue || current || "").trim();
+    const hadInitial = !!sel.dataset.initialValue;
+
+    sel.innerHTML = "";
+
+    if(wanted && !codes.includes(wanted)){
+      const optPending = document.createElement("option");
+      optPending.value = "";
+      optPending.textContent = `(pendent: ${wanted} no disponible)`;
+      sel.appendChild(optPending);
+    }
+
+    if(codes.length){
+      codes.forEach(c=>{
+        const opt = document.createElement("option");
+        opt.value = c;
+        opt.textContent = c;
+        sel.appendChild(opt);
+      });
+
+      if(wanted && codes.includes(wanted)){
+        sel.value = wanted;
+        if(hadInitial){
+          delete sel.dataset.initialValue;
+        }
+      } else if(!wanted){
+        sel.value = codes[0];
+      } else {
+        sel.value = "";
+      }
+      return;
+    }
+
+    if(!(wanted && !codes.includes(wanted))){
+      const optEmpty = document.createElement("option");
+      optEmpty.value = "";
+      optEmpty.textContent = emptyLabel || "(cap camp disponible)";
+      sel.appendChild(optEmpty);
+    }
+    sel.value = "";
+  }
+
+  function allCodes(){
+    const codes = [];
+    document.querySelectorAll("#fieldsTable tbody tr").forEach(r=>{
+      const c = r.querySelector('[data-k="code"]').value.trim();
+      const v = r.querySelector('[data-k="var"]')?.value.trim();
+      const scope = r.querySelector('[data-k="scope"]')?.value || "member";
+      if(c) codes.push(c);
+      if(v) codes.push(v);
+    });
+    computedMainRows().forEach(r=>{
+      const c = r.querySelector('[data-k="code"]').value.trim();
+      if(c) codes.push(c);
+    });
+    return Array.from(new Set(codes));
+  }
+
+  function selectSumSourceCodes(){
+    const codes = [];
+
+    // "Camp llista" al builder actual: camps amb 1 ítem (jutges x 1)
+    document.querySelectorAll("#fieldsTable tbody tr").forEach(r=>{
+      const c = r.querySelector('[data-k="code"]').value.trim();
+      if(!c) return;
+      const itemsRaw = r.querySelector('[data-k="items_count"]')?.value;
+      const items = Number(itemsRaw || 1);
+      if(Number.isFinite(items) && items === 1){
+        codes.push(c);
+      }
+    });
+
+    // Computed que retornen vector (cas guiat conegut: exec_trampoli -> exec_by_judge)
+    computedMainRows().forEach(r=>{
+      const c = r.querySelector('[data-k="code"]')?.value.trim();
+      if(!c) return;
+      const preset = r.querySelector('[data-k="preset"]')?.value || "";
+      const formula = (r.querySelector('[data-k="formula"]')?.value || "").trim();
+      if(preset === "exec_trampoli" || preset === "row_agregation" || /^exec_by_judge\s*\(/.test(formula) || /^row_custom_agregation\s*\(/.test(formula)){
+        codes.push(c);
+      }
+    });
+
+    return Array.from(new Set(codes));
+  }
+
+  function fieldKindForMemberTreatment(r){
+    const scope = r.querySelector('[data-k="scope"]')?.value || "member";
+    const judges = Number(r.querySelector('[data-k="judges_count"]')?.value || 1);
+    const items = Number(r.querySelector('[data-k="items_count"]')?.value || 1);
+    const prefix = (scope === "member") ? "member" : "shared";
+    if(Number.isFinite(judges) && Number.isFinite(items) && judges === 1 && items === 1){
+      return `${prefix}_scalar`;
+    }
+    if(Number.isFinite(items) && items === 1){
+      return `${prefix}_list`;
+    }
+    return `${prefix}_matrix`;
+  }
+
+  function kindFromSource(kindMap, rawSource){
+    const src = (rawSource || "").trim().replace(/^['"]|['"]$/g, "");
+    return kindMap.get(src) || null;
+  }
+
+  function inferComputedKindForMemberTreatment(r, kindMap){
+    const preset = r.querySelector('[data-k="preset"]')?.value || "";
+    const formula = (r.querySelector('[data-k="formula"]')?.value || "").trim();
+    const sourceMatch = formula.match(/^\s*([A-Za-z_]\w*)\s*\(\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_]\w*))?/);
+    const fnName = sourceMatch?.[1] || "";
+    const rawSource = sourceMatch?.[2] || sourceMatch?.[3] || sourceMatch?.[4] || "";
+
+    if(preset === "row_compute" || preset === "column_compute"){
+      const src = r.querySelector('[data-k="rc_source"]')?.value || rawSource;
+      const srcKind = kindFromSource(kindMap, src);
+      return (srcKind && srcKind.startsWith("member_")) ? "member_scalar" : "shared_scalar";
+    }
+
+    if(preset === "exec_trampoli" || preset === "row_agregation"){
+      const src = r.querySelector('[data-k="rc_source"]')?.value || r.querySelector('[data-k="et_source"]')?.value || rawSource;
+      const srcKind = kindFromSource(kindMap, src);
+      return (srcKind && srcKind.startsWith("member_")) ? "member_list" : "shared_list";
+    }
+
+    if(fnName === "member_treatment" || /^members_(sum|avg|min|max|count)$/.test(fnName)){
+      return "shared_scalar";
+    }
+
+    if(["row_custom_compute", "column_custom_compute", "select_sum", "sum", "avg", "min", "max", "float"].includes(fnName)){
+      const srcKind = kindFromSource(kindMap, rawSource);
+      return (srcKind && srcKind.startsWith("member_")) ? "member_scalar" : "shared_scalar";
+    }
+
+    if(["row_custom_agregation", "exec_by_judge", "best_n"].includes(fnName)){
+      const srcKind = kindFromSource(kindMap, rawSource);
+      return (srcKind && srcKind.startsWith("member_")) ? "member_list" : "shared_list";
+    }
+
+    return null;
+  }
+
+  function memberTreatmentSourceCodes(){
+    const codes = [];
+    const kindMap = new Map();
+
+    document.querySelectorAll("#fieldsTable tbody tr").forEach(r=>{
+      const c = r.querySelector('[data-k="code"]').value.trim();
+      if(!c) return;
+      const kind = fieldKindForMemberTreatment(r);
+      kindMap.set(c, kind);
+      if(kind === "member_scalar"){
+        codes.push(c);
+      }
+    });
+
+    computedMainRows().forEach(r=>{
+      const c = r.querySelector('[data-k="code"]')?.value.trim();
+      if(!c) return;
+      const kind = inferComputedKindForMemberTreatment(r, kindMap);
+      if(kind){
+        kindMap.set(c, kind);
+      }
+      if(kind === "member_scalar"){
+        codes.push(c);
+      }
+    });
+
+    return Array.from(new Set(codes));
+  }
+
+  /* =========================
+     CAMPS
+     ========================= */
+  function fieldRow(data){
+    const tr = document.createElement("tr");
+    tr.dataset.id = uid();
+    tr.innerHTML = `
+      <td><input class="form-control form-control-sm" data-k="label" value="${data.label||""}"></td>
+      <td><input class="form-control form-control-sm mono" data-k="code" value="${data.code||""}"></td>
+      <td><input class="form-control form-control-sm mono" data-k="var" value="${data.var||""}"></td>
+      <td>
+        <select class="form-control form-control-sm" data-k="scope">
+          <option value="member">Individual</option>
+          <option value="shared">Compartit</option>
+        </select>
+      </td>
+
+      <td><input class="form-control form-control-sm" data-k="judges_count" value="${data.judges_count ?? ""}" placeholder="ex: 3"></td>
+      <td><input class="form-control form-control-sm" data-k="items_count" value="${data.items_count ?? ""}" placeholder="ex: 11"></td>
+
+      <td><input class="form-control form-control-sm" data-k="min" value="${data.min ?? ""}"></td>
+      <td><input class="form-control form-control-sm" data-k="max" value="${data.max ?? ""}"></td>
+      <td><input class="form-control form-control-sm" data-k="decimals" value="${data.decimals ?? ""}"></td>
+
+      <td class="text-center">
+        <input type="checkbox" data-k="crash_enabled">
+      </td>
+
+      <td class="text-center">
+        <button type="button" class="btn btn-sm btn-outline-danger">Eliminar</button>
+      </td>
+    `;
+
+    tr.querySelector('input[data-k="crash_enabled"]').checked = !!data.crash_enabled;
+    tr.querySelector('[data-k="scope"]').value = data.scope || "member";
+    if(!BUILDER_CONFIG.is_team_unit){
+      tr.querySelector('[data-k="scope"]').value = "member";
+      tr.querySelector('[data-k="scope"]').disabled = true;
+    }
+
+    tr.querySelector("button").addEventListener("click", ()=>{
+      tr.remove();
+      refreshAll();
+    });
+
+    tr.querySelectorAll("input,select").forEach(i=>{
+      i.addEventListener("input", refreshAll);
+      i.addEventListener("change", refreshAll);
+    });
+
+    return tr;
+  }
+
+  /* =========================
+     COMPUTED: UI “clar” per row_custom / column_custom
+     ========================= */
+  function computedRow(data){
+    const mainTr = document.createElement("tr");
+    const detailTr = document.createElement("tr");
+    const rowId = uid();
+    mainTr.dataset.id = rowId;
+    mainTr.dataset.computedMain = "1";
+    mainTr.className = "formula-summary-row";
+    detailTr.dataset.parentId = rowId;
+    detailTr.dataset.computedDetail = "1";
+    detailTr.className = "formula-detail-row d-none";
+    mainTr._computedDetailRow = detailTr;
+
+    const preset = data.preset || data.builder?.preset || "manual";
+    const postId = "postEnabled_" + uid();
+
+    mainTr.innerHTML = `
+      <td class="text-center formula-toggle-cell">
+        <button type="button" class="formula-toggle" data-action="toggle-computed-detail" aria-expanded="false" title="Obrir configuracio">></button>
+      </td>
+      <td><input class="form-control form-control-sm" data-k="label" value="${data.label||""}" placeholder="Etiqueta"></td>
+      <td><input class="form-control form-control-sm mono" data-k="code" value="${data.code||""}"></td>
+      <td><input class="form-control form-control-sm mono" data-k="var" value="${data.var||""}"></td>
+      <td>
+        <select class="form-control form-control-sm" data-k="preset">
+          ${optionHTML(PRESET_FUNCS)}
+        </select>
+        <div class="pill-help mt-1">
+          <button type="button" class="help-trigger help-trigger--inline" data-k="preset_help_topic" data-avatar-topic="formula_detail_panel" aria-label="Ajuda sobre aquesta funcio" title="Ajuda sobre aquesta funcio">?</button>
+        </div>
+      </td>
+      <td>
+        <input class="form-control form-control-sm formula-preview" data-k="formula_preview" readonly>
+        <input type="hidden" data-k="formula" value="${data.formula||""}">
+      </td>
+      <td class="text-center">
+        <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete-computed-row">Eliminar</button>
+      </td>
+    `;
+
+    detailTr.innerHTML = `
+      <td colspan="7">
+        <div class="formula-detail-panel">
+        <!-- MANUAL -->
+        <div data-box="manual">
+          <input class="form-control form-control-sm mono" data-k="manual_formula"
+                 value="${data.formula||""}"
+                 placeholder="Ex: E_total + DD + TOF + HD - P">
+          <div class="pill-help mt-1">
+            Escriu una expressió amb els <strong>codes</strong> o <strong>vars</strong>(ex: <span class="mono">E_total</span>, <span class="mono">DD</span>…).
+            <button type="button" class="help-trigger help-trigger--inline" data-avatar-topic="formula_manual" aria-label="Ajuda formula manual" title="Ajuda formula manual">?</button>
+          </div>
+        </div>
+
+        <!-- ROW/COLUMN COMPUTE (mateixa UI, canvia el text i el mapping intern) -->
+        <div data-box="rc_compute" class="formula-detail-grid d-none">
+
+          <!-- CONFIGURACIÓ GLOBAL (no és una fase) -->
+          <div class="step-card mb-2">
+            <div class="step-title">
+              <span class="step-badge">Global</span>
+              <span data-k="rc_global_title">Configuració global</span>
+              <button type="button" class="help-trigger help-trigger--inline" data-k="rc_global_help_topic" data-avatar-topic="formula_detail_panel" aria-label="Ajuda configuracio global" title="Ajuda configuracio global">?</button>
+            </div>
+            <div class="hint" data-k="rc_global_help"></div>
+
+            <div class="row">
+              <div class="col-12 mb-2">
+                <label class="small text-muted mb-1">Camp font (matriu)</label>
+                <select class="form-control form-control-sm mono" data-k="rc_source"></select>
+                <div class="pill-help mt-1">Tria el camp que conté la matriu (jutges × ítems).</div>
+              </div>
+
+              <div class="col-12 mb-2">
+                <label class="small text-muted mb-1">Transformació per valor (item_expr)</label>
+                <input class="form-control form-control-sm mono" data-k="rc_item_expr" placeholder="Ex: x   o   1 - x">
+                <div class="pill-help mt-1">
+                  Es calcula <strong>sempre</strong> per cada valor abans de seleccionar/agregar.
+                  Variables: <span class="mono">x</span> (valor) i <span class="mono">i</span> (índex d’ítem 1..N).
+                </div>
+              </div>
+
+              <div class="col-12 mb-2">
+                <label class="small text-muted mb-1">Rang d’ítems</label>
+                <div class="d-flex" style="gap:6px;">
+                  <input class="form-control form-control-sm" data-k="rc_start" placeholder="start" value="1">
+                  <input class="form-control form-control-sm" data-k="rc_count" placeholder="count (opcional)">
+                </div>
+                <div class="pill-help mt-1">Ítem d'origen -> nombre d'ítems als que s'aplica. Si ho deixes buit, s’usen tots els ítems (i es respecta el crash si el camp el té).</div>
+              </div>
+
+              <div class="d-none">
+                <label class="small text-muted mb-1">Preview</label>
+                <input class="form-control form-control-sm mono" data-k="rc_preview" readonly>
+              </div>
+            </div>
+
+            <div class="microflow" data-k="rc_microflow"></div>
+          </div>
+
+          <!-- FASE INTERNA -->
+          <div class="step-card mb-2">
+            <div class="step-title">
+              <span class="step-badge">Fase interna</span>
+              <span data-k="rc_internal_title">—</span>
+              <button type="button" class="help-trigger help-trigger--inline" data-k="rc_internal_help_topic" data-avatar-topic="formula_detail_panel" aria-label="Ajuda fase interna" title="Ajuda fase interna">?</button>
+            </div>
+            <div class="hint" data-k="rc_internal_help"></div>
+
+            <div class="row">
+              <div class="col-12 mb-2">
+                <label class="small text-muted mb-1" data-k="rc_internal_select_lbl">Selecció</label>
+                <select class="form-control form-control-sm" data-k="rc_internal_select">
+                  ${optionHTML(SELECT_OPTIONS)}
+                </select>
+                <input class="form-control form-control-sm mt-1 d-none" data-k="rc_internal_n" placeholder="N (si aplica)">
+                <div class="pill-help mt-1">Exemples: “Eliminar extrems” o “Millors N”.</div>
+              </div>
+
+              <div class="col-12 mb-2">
+                <label class="small text-muted mb-1">Agregació</label>
+                <select class="form-control form-control-sm" data-k="rc_internal_agg">
+                  ${optionHTML(AGG_OPTIONS)}
+                </select>
+                <div class="pill-help mt-1">Exemple: Mitjana, Suma, Mediana…</div>
+              </div>
+
+              <div class="col-12 mb-2">
+                <label class="small text-muted mb-1">Opcions</label>
+                <details>
+                  <summary class="small text-muted">Avançat (opcional)</summary>
+                  <div class="mt-2">
+                    <div class="pill-help mb-1">
+                      <strong>Sobre què decideixo i agrego?</strong><br>
+                      Normalment treballaràs sobre el resultat calculat (<span class="mono">item_expr</span>).
+                    </div>
+
+                    <label class="small text-muted mb-1">Selecciona segons</label>
+                    <select class="form-control form-control-sm" data-k="rc_internal_select_on">
+                      ${optionHTML(SELECT_ON_OPTIONS)}
+                    </select>
+
+                    <label class="small text-muted mb-1 mt-2">Agrega sobre</label>
+                    <select class="form-control form-control-sm" data-k="rc_internal_agg_on">
+                      ${optionHTML(SELECT_ON_OPTIONS)}
+                    </select>
+
+                    <div class="form-check mt-2">
+                      <input class="form-check-input" type="checkbox" data-k="rc_internal_post_enabled"  id="${postId}">
+                      <label class="form-check-label" for="${postId}">
+                        Transformar el resultat intern (post(m))
+                      </label>
+                    </div>
+
+                    <input class="form-control form-control-sm mono mt-2 d-none"
+                           data-k="rc_internal_post_expr"
+                           placeholder="Ex: 1 - m   (m = resultat intern)">
+
+                    <div class="pill-help mt-1 d-none" data-k="rc_internal_post_help">
+                      <span class="mono">m</span> és el resultat després de la selecció+agregació interna.
+                      Exemple típic: <span class="mono">1 - m</span> per invertir una escala 0..1.
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </div>
+
+          <!-- FASE FINAL -->
+          <div class="step-card">
+            <div class="step-title">
+              <span class="step-badge" data-k="rc_final_badge">Fase final</span>
+              <span data-k="rc_final_title">—</span>
+              <button type="button" class="help-trigger help-trigger--inline" data-k="rc_final_help_topic" data-avatar-topic="formula_detail_panel" aria-label="Ajuda fase final" title="Ajuda fase final">?</button>
+            </div>
+            <div class="hint" data-k="rc_final_help"></div>
+
+            <div class="row">
+              <div class="col-12 mb-2" data-box="rc_final_controls">
+                <label class="small text-muted mb-1" data-k="rc_final_select_lbl">Selecció</label>
+                <select class="form-control form-control-sm" data-k="rc_final_select">
+                  ${optionHTML(SELECT_OPTIONS)}
+                </select>
+                <input class="form-control form-control-sm mt-1 d-none" data-k="rc_final_n" placeholder="N (si aplica)">
+                <div class="pill-help mt-1">Aquí combines els resultats de la fase interna.</div>
+              </div>
+
+              <div class="col-12 mb-2" data-box="rc_final_controls">
+                <label class="small text-muted mb-1">Agregació final</label>
+                <select class="form-control form-control-sm" data-k="rc_final_agg">
+                  ${optionHTML(AGG_OPTIONS)}
+                </select>
+              </div>
+
+              <div class="col-12 mb-2">
+                <label class="small text-muted mb-1">Opcions</label>
+                <details>
+                  <summary class="small text-muted">Avançat (opcional)</summary>
+                  <div class="mt-2">
+                    <label class="small text-muted mb-1">Transformació final (post_final_expr)</label>
+                    <input class="form-control form-control-sm mono" data-k="rc_post_final_expr"
+                           placeholder="Ex: m   o   1 - m   (m = resultat final)">
+                    <div class="pill-help mt-1">
+                      <span data-k="rc_post_final_help">S’aplica al final de tot.</span> <span class="mono">m</span> és el resultat final.
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- EXEC_TRAMPOLI (E_j) -->
+        <div data-box="exec_trampoli" class="border rounded p-2 d-none">
+          <div class="row">
+            <div class="col-md-4 mb-2">
+              <label class="small text-muted mb-1">Camp Execució (matriu)</label>
+              <select class="form-control form-control-sm mono" data-k="et_source"></select>
+              <div class="pill-help mt-1">Genera una llista “per jutge”.</div>
+            </div>
+            <div class="col-md-4 mb-2">
+              <label class="small text-muted mb-1">Crash del camp</label>
+              <input class="form-control form-control-sm mono" data-k="et_crash_code" placeholder="Ex: E" value="">
+              <div class="pill-help mt-1">Normalment és el mateix codi (Ex: <span class="mono">E</span>).</div>
+            </div>
+            <div class="col-md-4 mb-2">
+              <label class="small text-muted mb-1">Preview fórmula</label>
+              <input class="form-control form-control-sm mono" data-k="et_preview" readonly>
+            </div>
+          </div>
+        </div>
+
+        <!-- SELECT_SUM (guiada) -->
+        <div data-box="select_sum" class="border rounded p-2 d-none">
+          <div class="row">
+            <div class="col-md-4 mb-2">
+              <label class="small text-muted mb-1">Camp font (llista)</label>
+              <select class="form-control form-control-sm mono" data-k="ss_source"></select>
+              <div class="pill-help mt-1">
+                Mostrem només codis llista-like: camps amb 1 ítem o computed d'execució per jutge.
+              </div>
+            </div>
+            <div class="col-md-3 mb-2">
+              <label class="small text-muted mb-1">Selecció jutges</label>
+              <select class="form-control form-control-sm" data-k="ss_select">
+                ${optionHTML(SELECT_OPTIONS)}
+              </select>
+              <input class="form-control form-control-sm mt-1 d-none" data-k="ss_select_n" placeholder="N (si aplica)">
+            </div>
+            <div class="col-md-3 mb-2">
+              <label class="small text-muted mb-1">Agregació</label>
+              <select class="form-control form-control-sm" data-k="ss_agg">
+                ${optionHTML(AGG_OPTIONS)}
+              </select>
+            </div>
+            <div class="col-md-2 mb-2">
+              <label class="small text-muted mb-1">Preview formula</label>
+              <input class="form-control form-control-sm mono" data-k="ss_preview" readonly>
+            </div>
+          </div>
+        </div>
+
+        <div data-box="member_treatment" class="border rounded p-2 d-none">
+          <div class="row">
+            <div class="col-md-4 mb-2">
+              <label class="small text-muted mb-1">
+                Font individual escalar
+                <button type="button" class="help-trigger help-trigger--inline" data-avatar-topic="formula_between_members_source" aria-label="Ajuda font entre membres" title="Ajuda font entre membres">?</button>
+              </label>
+              <select class="form-control form-control-sm mono" data-k="mt_source"></select>
+              <div class="pill-help mt-1" data-k="mt_help">
+                Només mostra fonts individuals escalaritzades. Si el camp encara és nxm, redueix-lo abans i després aplica <span class="mono">member_treatment(source, select='all', n=None, agg='sum')</span>.
+              </div>
+            </div>
+            <div class="col-md-3 mb-2">
+              <label class="small text-muted mb-1">
+                Selecció entre membres
+                <button type="button" class="help-trigger help-trigger--inline" data-avatar-topic="formula_between_members_reduce" aria-label="Ajuda seleccio entre membres" title="Ajuda seleccio entre membres">?</button>
+              </label>
+              <select class="form-control form-control-sm" data-k="mt_select">
+                ${optionHTML(MEMBER_TREATMENT_SELECT_OPTIONS)}
+              </select>
+              <input class="form-control form-control-sm mt-1 d-none" data-k="mt_n" placeholder="N (si aplica)">
+            </div>
+            <div class="col-md-3 mb-2">
+              <label class="small text-muted mb-1">Agregació</label>
+              <select class="form-control form-control-sm" data-k="mt_agg">
+                ${optionHTML(MEMBER_TREATMENT_AGG_OPTIONS)}
+              </select>
+            </div>
+            <div class="col-md-2 mb-2">
+              <label class="small text-muted mb-1">Preview fórmula</label>
+              <input class="form-control form-control-sm mono" data-k="mt_preview" readonly>
+            </div>
+          </div>
+        </div>
+
+        <div class="formula-generated-detail mt-2">
+          <label class="small text-muted mb-1">Formula generada</label>
+          <input class="form-control form-control-sm mono" data-k="formula_generated_preview" readonly>
+        </div>
+
+        </div>
+      </td>
+    `;
+
+    bindComputedRowQueries(mainTr, detailTr);
+    const tr = mainTr;
+
+    // preset init (presets legacy ocults al dropdown, pero compatibles amb files existents)
+    const presetSelect = tr.querySelector('select[data-k="preset"]');
+    const legacyPresets = {
+      exec_trampoli: "Execucio trampoli (legacy)",
+      select_sum_guided: "Seleccio de notes (legacy)",
+    };
+    if (legacyPresets[preset] && !Array.from(presetSelect.options).some(o => o.value === preset)) {
+      const legacyOpt = document.createElement("option");
+      legacyOpt.value = preset;
+      legacyOpt.textContent = legacyPresets[preset];
+      legacyOpt.hidden = true;
+      presetSelect.appendChild(legacyOpt);
+    }
+    presetSelect.value = preset;
+    if (!presetSelect.value) presetSelect.value = "manual";
+
+    // delete
+    tr.querySelector('[data-action="delete-computed-row"]').addEventListener("click", ()=>{
+      detailTr.remove();
+      tr.remove();
+      refreshAll();
+    });
+
+    // hydrate builder (compat amb l’esquema anterior)
+    const b = data.builder || {};
+
+    if (preset === "row_agregation") {
+      tr.querySelector('[data-k="rc_source"]').dataset.initialValue = (b.source || "") + "";
+      tr.querySelector('[data-k="rc_item_expr"]').value = b.item_expr || "";
+
+      tr.querySelector('[data-k="rc_internal_select"]').value = (b.row_select || "all");
+      tr.querySelector('[data-k="rc_internal_agg"]').value = (b.row_agg || "sum");
+      if (b.row_select_n != null) tr.querySelector('[data-k="rc_internal_n"]').value = b.row_select_n;
+
+      // fase final no aplica
+      tr.querySelector('[data-k="rc_final_select"]').value = "all";
+      tr.querySelector('[data-k="rc_final_agg"]').value = "sum";
+
+      tr.querySelector('[data-k="rc_start"]').value = (b.start ?? 1) + "";
+      tr.querySelector('[data-k="rc_count"]').value = (b.count ?? "") + "";
+
+      // avançat intern
+      tr.querySelector('[data-k="rc_internal_select_on"]').value = (b.select_on || b.row_select_on || "expr");
+      tr.querySelector('[data-k="rc_internal_agg_on"]').value    = (b.agg_on || b.row_agg_on || "expr");
+
+      const internalPostExpr = (b.post_agg_expr || b.row_post_agg_expr || "");
+      tr.querySelector('[data-k="rc_internal_post_enabled"]').checked = !!internalPostExpr;
+      tr.querySelector('[data-k="rc_internal_post_expr"]').value = internalPostExpr || "";
+
+      tr.querySelector('[data-k="rc_post_final_expr"]').value = (b.post_final_expr || "");
+    }
+    else if (preset === "row_compute" || preset === "column_compute") {
+      tr.querySelector('[data-k="rc_source"]').dataset.initialValue = (b.source || "") + "";
+      tr.querySelector('[data-k="rc_item_expr"]').value = b.item_expr || "";
+
+      // mapping: intern/final depèn del preset
+      const internalSel = (preset === "row_compute") ? (b.row_select || "all") : (b.col_select || "all");
+      const internalAgg = (preset === "row_compute") ? (b.row_agg || "sum") : (b.col_agg || "sum");
+      const internalN   = (preset === "row_compute") ? (b.row_select_n) : (b.col_select_n);
+
+      const finalSel = (preset === "row_compute") ? (b.col_select || "all") : (b.row_select || "all");
+      const finalAgg = (preset === "row_compute") ? (b.col_agg || "sum") : (b.row_agg || "sum");
+      const finalN   = (preset === "row_compute") ? (b.col_select_n) : (b.row_select_n);
+
+      tr.querySelector('[data-k="rc_internal_select"]').value = internalSel;
+      tr.querySelector('[data-k="rc_internal_agg"]').value = internalAgg;
+      if (internalN != null) tr.querySelector('[data-k="rc_internal_n"]').value = internalN;
+
+      tr.querySelector('[data-k="rc_final_select"]').value = finalSel;
+      tr.querySelector('[data-k="rc_final_agg"]').value = finalAgg;
+      if (finalN != null) tr.querySelector('[data-k="rc_final_n"]').value = finalN;
+
+      tr.querySelector('[data-k="rc_start"]').value = (b.start ?? 1) + "";
+      tr.querySelector('[data-k="rc_count"]').value = (b.count ?? "") + "";
+
+      // avançat intern: (select_on / agg_on / post_agg_expr)
+      const internalSelectOn = (preset === "row_compute") ? (b.row_select_on || "raw") : (b.col_select_on || "raw");
+      const internalAggOn    = (preset === "row_compute") ? (b.row_agg_on || "expr") : (b.col_select_on || "expr"); // en el teu JS vell, column reutilitzava col_select_on com agg_on
+      const internalPostExpr = (preset === "row_compute") ? (b.row_post_agg_expr || "") : (b.col_post_agg_expr || "");
+
+      tr.querySelector('[data-k="rc_internal_select_on"]').value = internalSelectOn;
+      tr.querySelector('[data-k="rc_internal_agg_on"]').value = internalAggOn;
+
+      const postEnabled = !!internalPostExpr;
+      tr.querySelector('[data-k="rc_internal_post_enabled"]').checked = postEnabled;
+      tr.querySelector('[data-k="rc_internal_post_expr"]').value = internalPostExpr || "";
+
+      tr.querySelector('[data-k="rc_post_final_expr"]').value = (b.post_final_expr || "");
+    }
+
+    if (preset === "exec_trampoli") {
+      tr.querySelector('[data-k="et_source"]').dataset.initialValue = (b.source || "") + "";
+      tr.querySelector('[data-k="et_crash_code"]').value = (b.crash_code || "") + "";
+    }
+    if (preset === "select_sum_guided") {
+      tr.querySelector('[data-k="ss_source"]').dataset.initialValue = (b.source || "") + "";
+      // Compat amb builder antic (n_valid/criteri)
+      const legacyToSelect = {
+        totes: "best_n",
+        maximes: "best_n",
+        minimes: "worst_n",
+        eliminar_extrems: "drop_extremes_until_n",
+      };
+      const sel = b.select || legacyToSelect[(b.criteri || "").toLowerCase()] || "best_n";
+      tr.querySelector('[data-k="ss_select"]').value = sel;
+      tr.querySelector('[data-k="ss_select_n"]').value = (b.select_n ?? b.n_valid ?? 1) + "";
+      tr.querySelector('[data-k="ss_agg"]').value = (b.agg || "sum");
+    }
+    if (preset === "member_treatment_guided") {
+      tr.querySelector('[data-k="mt_source"]').dataset.initialValue = (b.source || "") + "";
+      tr.querySelector('[data-k="mt_select"]').value = (b.select || "all");
+      tr.querySelector('[data-k="mt_n"]').value = (b.n ?? "") + "";
+      tr.querySelector('[data-k="mt_agg"]').value = (b.agg || "sum");
+    }
+
+    // events
+    tr.querySelectorAll("input,select,details").forEach(i=>{
+      i.addEventListener("input", refreshAll);
+      i.addEventListener("change", refreshAll);
+      i.addEventListener("toggle", refreshAll);
+    });
+    ['[data-k="rc_source"]', '[data-k="et_source"]', '[data-k="ss_source"]', '[data-k="mt_source"]'].forEach(selQ=>{
+      const sel = tr.querySelector(selQ);
+      if(!sel) return;
+      const clearInitial = ()=>{ delete sel.dataset.initialValue; };
+      sel.addEventListener("input", clearInitial);
+      sel.addEventListener("change", clearInitial);
+    });
+
+    const toggleBtn = tr.querySelector('[data-action="toggle-computed-detail"]');
+    if(toggleBtn){
+      toggleBtn.addEventListener("click", ()=>{
+        toggleComputedDetail(tr);
+      });
+    }
+    tr.addEventListener("click", (event)=>{
+      if(shouldIgnoreComputedRowToggle(event.target)) return;
+      toggleComputedDetail(tr);
+    });
+
+    setComputedDetailOpen(tr, !!data.expanded);
+    syncComputedSummary(tr);
+
+    const fragment = document.createDocumentFragment();
+    fragment.appendChild(mainTr);
+    fragment.appendChild(detailTr);
+    return fragment;
+  }
+
+  function updateComputedRowUI(tr){
+    const preset = tr.querySelector('[data-k="preset"]').value;
+
+    const boxManual = tr.querySelector('[data-box="manual"]');
+    const boxRC     = tr.querySelector('[data-box="rc_compute"]');
+    const boxET     = tr.querySelector('[data-box="exec_trampoli"]');
+    const boxSS     = tr.querySelector('[data-box="select_sum"]');
+    const boxMT     = tr.querySelector('[data-box="member_treatment"]');
+    const presetHelpTopic = tr.querySelector('[data-k="preset_help_topic"]');
+
+    showIf(boxManual, preset === "manual");
+    showIf(boxRC, (preset === "row_compute" || preset === "row_agregation" || preset === "column_compute"));
+    showIf(boxET, preset === "exec_trampoli");
+    showIf(boxSS, preset === "select_sum_guided");
+    showIf(boxMT, preset === "member_treatment_guided");
+
+    let presetTopic = "formula_detail_panel";
+    if(preset === "manual") presetTopic = "formula_manual";
+    else if(preset === "row_compute") presetTopic = "formula_per_judge_overview";
+    else if(preset === "row_agregation") presetTopic = "formula_per_judge_list_overview";
+    else if(preset === "column_compute") presetTopic = "formula_per_item_overview";
+    else if(preset === "member_treatment_guided") presetTopic = "formula_between_members_overview";
+    else if(preset === "exec_trampoli" || preset === "select_sum_guided") presetTopic = "formula_per_judge_list_overview";
+    if(presetHelpTopic) presetHelpTopic.dataset.avatarTopic = presetTopic;
+
+    // MANUAL: només guardar el que s’escriu
+    if(preset === "manual"){
+      const mf = tr.querySelector('[data-k="manual_formula"]').value.trim();
+      tr.querySelector('[data-k="formula"]').value = mf;
+      return;
+    }
+
+    // EXEC TRAMPOLI
+    if(preset === "exec_trampoli"){
+      const codes = allCodes();
+      const sel = tr.querySelector('[data-k="et_source"]');
+      refillDynamicSelect(sel, codes, "(cap camp disponible)");
+
+      const src = sel.value || "";
+      const crashCode = (tr.querySelector('[data-k="et_crash_code"]').value.trim() || src);
+
+      const formula = `exec_by_judge(${src}, crash('${crashCode}'), params)`;
+      tr.querySelector('[data-k="formula"]').value = formula;
+      tr.querySelector('[data-k="et_preview"]').value = formula;
+      return;
+    }
+
+    // SELECT_SUM GUIDED
+    if(preset === "select_sum_guided"){
+      const codes = selectSumSourceCodes();
+      const sel = tr.querySelector('[data-k="ss_source"]');
+      refillDynamicSelect(sel, codes, "(cap camp llista disponible)");
+
+      const selMethod = tr.querySelector('[data-k="ss_select"]').value || "best_n";
+      const nEl = tr.querySelector('[data-k="ss_select_n"]');
+      showIf(nEl, needsN(selMethod));
+      const nRaw = (nEl.value || "").trim();
+      const agg = tr.querySelector('[data-k="ss_agg"]').value || "sum";
+      const source = sel.value || "";
+
+      const kwargs = [];
+      if(selMethod && selMethod !== "all") kwargs.push(`select='${selMethod}'`);
+      if(needsN(selMethod) && nRaw !== ""){
+        let nSafe = Number(nRaw || 1);
+        if(!Number.isFinite(nSafe) || nSafe < 1) nSafe = 1;
+        kwargs.push(`select_n=${Math.floor(nSafe)}`);
+      }
+      if(agg && agg !== "sum") kwargs.push(`agg='${agg}'`);
+
+      const formula = source ? `select_sum(${source}${kwargs.length ? ", " + kwargs.join(", ") : ""})` : "";
+      tr.querySelector('[data-k="formula"]').value = formula;
+      tr.querySelector('[data-k="ss_preview"]').value = formula || "Defineix un camp llista i/o E_j primer.";
+      return;
+    }
+
+    if(preset === "member_treatment_guided"){
+      const codes = memberTreatmentSourceCodes();
+      const sel = tr.querySelector('[data-k="mt_source"]');
+      const help = tr.querySelector('[data-k="mt_help"]');
+      refillDynamicSelect(sel, codes, "(cap font individual escalar disponible; redueix primer un camp individual fins a escalar)");
+
+      const select = tr.querySelector('[data-k="mt_select"]').value || "all";
+      const nEl = tr.querySelector('[data-k="mt_n"]');
+      const needsMemberN = needsN(select);
+      showIf(nEl, needsMemberN);
+      const nRaw = (nEl.value || "").trim();
+      const agg = tr.querySelector('[data-k="mt_agg"]').value || "sum";
+      const source = sel.value || "";
+
+      const kwargs = [];
+      if(select && select !== "all") kwargs.push(`select='${select}'`);
+      if(needsMemberN && nRaw !== ""){
+        let nSafe = Number(nRaw || 1);
+        if(!Number.isFinite(nSafe) || nSafe < 1) nSafe = 1;
+        kwargs.push(`n=${Math.floor(nSafe)}`);
+      }
+      if(agg && agg !== "sum") kwargs.push(`agg='${agg}'`);
+
+      const formula = source ? `member_treatment(${source}${kwargs.length ? ", " + kwargs.join(", ") : ""})` : "";
+      tr.querySelector('[data-k="formula"]').value = formula;
+      tr.querySelector('[data-k="mt_preview"]').value = formula || "Redueix primer un camp individual fins a escalar.";
+      if(help){
+        help.innerHTML = codes.length
+          ? "Font vàlida: camp <strong>Individual</strong> 1x1 o computed que retorni un escalar per membre. Contracte oficial: <span class=\"mono\">member_treatment(source, select='all', n=None, agg='sum')</span>."
+          : "No hi ha fonts individuals escalaritzades disponibles. Si el camp encara és nxm, redueix-lo abans amb <span class=\"mono\">row_custom_compute(...)</span> o <span class=\"mono\">column_custom_compute(...)</span>.";
+      }
+      return;
+    }
+
+    // ROW/COLUMN COMPUTE
+    if(preset === "row_compute" || preset === "row_agregation" || preset === "column_compute"){
+      const codes = allCodes();
+
+      
+
+      // ajustar badge de fase final + controls segons preset
+      const badge = tr.querySelector('[data-k="rc_final_badge"]');
+      if (badge) badge.textContent = (preset === "row_agregation") ? "Final" : "Fase final";
+
+      // mostrar/amagar controls de fase final (en row_agregation no es combinen jutges)
+      tr.querySelectorAll('[data-box="rc_final_controls"]').forEach(el=>showIf(el, preset !== "row_agregation"));
+
+      // ajuda de post_final_expr segons preset
+      const pfHelp = tr.querySelector('[data-k="rc_post_final_help"]');
+      if (pfHelp){
+        pfHelp.textContent = (preset === "row_agregation")
+          ? "S’aplica a cada resultat per jutge (vector J×1)."
+          : "S’aplica al final de tot.";
+      }
+// source select
+      const sel = tr.querySelector('[data-k="rc_source"]');
+      refillDynamicSelect(sel, codes, "(cap camp disponible)");
+
+      // texts segons preset (per fer-ho mentalment fàcil)
+      const gTitle = tr.querySelector('[data-k="rc_global_title"]');
+      const gHelp  = tr.querySelector('[data-k="rc_global_help"]');
+      const iTitle = tr.querySelector('[data-k="rc_internal_title"]');
+      const iHelp  = tr.querySelector('[data-k="rc_internal_help"]');
+      const fTitle = tr.querySelector('[data-k="rc_final_title"]');
+      const fHelp  = tr.querySelector('[data-k="rc_final_help"]');
+      const flow   = tr.querySelector('[data-k="rc_microflow"]');
+      const gHelpTopic = tr.querySelector('[data-k="rc_global_help_topic"]');
+      const iHelpTopic = tr.querySelector('[data-k="rc_internal_help_topic"]');
+      const fHelpTopic = tr.querySelector('[data-k="rc_final_help_topic"]');
+      let globalHelpTopic = "formula_detail_panel";
+      let internalHelpTopic = "formula_detail_panel";
+      let finalHelpTopic = "formula_detail_panel";
+
+      if (preset === "row_compute"){
+        gHelp.textContent = "Aquesta funció calcula primer dins de cada jutge (sobre els ítems) i després combina els jutges.";
+        iTitle.textContent = "Dins de cada jutge (ítems/aspectes)";
+        iHelp.textContent = "Aquí decideixes com seleccionar ítems i com agregar-los per obtenir 1 resultat per jutge.";
+        fTitle.textContent = "Entre jutges (resultat final)";
+        fHelp.textContent = "Aquí combines els resultats dels jutges per obtenir la nota final.";
+        globalHelpTopic = "formula_per_judge_global";
+        internalHelpTopic = "formula_per_judge_internal";
+        finalHelpTopic = "formula_per_judge_final";
+
+
+      } else if (preset === "row_agregation"){
+        gHelp.textContent = "Aquesta funció calcula només dins de cada jutge (sobre els ítems) i retorna el resultat per jutge (vector J×1).";
+        iTitle.textContent = "Dins de cada jutge (ítems/aspectes)";
+        iHelp.textContent = "Defineix selecció i agregació d’ítems per obtenir 1 resultat per jutge.";
+        fTitle.textContent = "Transformació final (opcional)";
+        fHelp.textContent = "Opcional: aplica una transformació a cada resultat per jutge (no combina jutges).";
+        globalHelpTopic = "formula_per_judge_global";
+        internalHelpTopic = "formula_per_judge_internal";
+        finalHelpTopic = "formula_per_judge_list_result";
+
+      } else {
+        gHelp.textContent = "Aquesta funció calcula primer dins de cada ítem (sobre els jutges) i després combina els ítems.";
+        iTitle.textContent = "Dins de cada ítem/aspecte (jutges)";
+        iHelp.textContent = "Aquí decideixes com seleccionar jutges i com agregar-los per obtenir 1 resultat per ítem.";
+        fTitle.textContent = "Entre ítems/aspectes (resultat final)";
+        fHelp.textContent = "Aquí combines els resultats dels ítems per obtenir la nota final.";
+        globalHelpTopic = "formula_per_item_global";
+        internalHelpTopic = "formula_per_item_internal";
+        finalHelpTopic = "formula_per_item_final";
+
+      }
+      if (gHelpTopic) gHelpTopic.dataset.avatarTopic = globalHelpTopic;
+      if (iHelpTopic) iHelpTopic.dataset.avatarTopic = internalHelpTopic;
+      if (fHelpTopic) fHelpTopic.dataset.avatarTopic = finalHelpTopic;
+
+      // valors UI
+      const itemExpr = (tr.querySelector('[data-k="rc_item_expr"]').value.trim() || "x");
+      const start = tr.querySelector('[data-k="rc_start"]').value.trim() || "1";
+      const count = tr.querySelector('[data-k="rc_count"]').value.trim();
+
+      const internalSel = tr.querySelector('[data-k="rc_internal_select"]').value;
+      const internalNEl = tr.querySelector('[data-k="rc_internal_n"]');
+      showIf(internalNEl, needsN(internalSel));
+      const internalN = internalNEl.value.trim();
+      const internalAgg = tr.querySelector('[data-k="rc_internal_agg"]').value;
+
+      const finalSel = tr.querySelector('[data-k="rc_final_select"]').value;
+      const finalNEl = tr.querySelector('[data-k="rc_final_n"]');
+      showIf(finalNEl, needsN(finalSel));
+      const finalN = finalNEl.value.trim();
+      const finalAgg = tr.querySelector('[data-k="rc_final_agg"]').value;
+
+      // avançat intern
+      const internalSelectOn = tr.querySelector('[data-k="rc_internal_select_on"]').value || "raw";
+      const internalAggOn    = tr.querySelector('[data-k="rc_internal_agg_on"]').value || "expr";
+
+      const postEnabled = !!tr.querySelector('[data-k="rc_internal_post_enabled"]').checked;
+      const postExprEl  = tr.querySelector('[data-k="rc_internal_post_expr"]');
+      const postHelpEl  = tr.querySelector('[data-k="rc_internal_post_help"]');
+
+      showIf(postExprEl, postEnabled);
+      showIf(postHelpEl, postEnabled);
+
+      const postExpr = (postExprEl?.value || "").trim();
+
+      // avançat final
+      const postFinalExpr = (tr.querySelector('[data-k="rc_post_final_expr"]').value || "").trim();
+
+      // construir kwargs (sempre mirem el que NO és default)
+      const kwargs = [];
+
+      if(start && start !== "1") kwargs.push(`start=${Number(start)}`);
+      if(count !== "") kwargs.push(`count=${Number(count)}`);
+
+      // mapping: intern/final → row_* / col_* segons preset
+      // Row compute:
+      //   intern => row_select/row_agg ; final => col_select/col_agg
+      // Column compute:
+      //   intern => col_select/col_agg ; final => row_select/row_agg
+      if (preset === "row_compute"){
+        if(internalSel && internalSel !== "all") kwargs.push(`row_select='${internalSel}'`);
+        if(needsN(internalSel) && internalN !== "") kwargs.push(`row_select_n=${Number(internalN)}`);
+        if(internalAgg && internalAgg !== "sum") kwargs.push(`row_agg='${internalAgg}'`);
+
+        if(finalSel && finalSel !== "all") kwargs.push(`col_select='${finalSel}'`);
+        if(needsN(finalSel) && finalN !== "") kwargs.push(`col_select_n=${Number(finalN)}`);
+        if(finalAgg && finalAgg !== "sum") kwargs.push(`col_agg='${finalAgg}'`);
+      } else if (preset === "row_agregation"){
+        if(internalSel && internalSel !== "all") kwargs.push(`row_select='${internalSel}'`);
+        if(needsN(internalSel) && internalN !== "") kwargs.push(`row_select_n=${Number(internalN)}`);
+        if(internalAgg && internalAgg !== "sum") kwargs.push(`row_agg='${internalAgg}'`);
+      } else {
+        if(internalSel && internalSel !== "all") kwargs.push(`col_select='${internalSel}'`);
+        if(needsN(internalSel) && internalN !== "") kwargs.push(`col_select_n=${Number(internalN)}`);
+        if(internalAgg && internalAgg !== "sum") kwargs.push(`col_agg='${internalAgg}'`);
+
+        if(finalSel && finalSel !== "all") kwargs.push(`row_select='${finalSel}'`);
+        if(needsN(finalSel) && finalN !== "") kwargs.push(`row_select_n=${Number(finalN)}`);
+        if(finalAgg && finalAgg !== "sum") kwargs.push(`row_agg='${finalAgg}'`);
+      }
+
+      // select_on / agg_on / post_agg_expr (apliquen a la FASE INTERNA)
+      if(internalAggOn !== "expr") kwargs.push(`agg_on='${internalAggOn}'`);
+      if(internalSelectOn !== "expr") kwargs.push(`select_on='${internalSelectOn}'`);
+
+      if(postEnabled && postExpr !== ""){
+        const pe = postExpr.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+        kwargs.push(`post_agg_expr='${pe}'`);
+      }
+
+      if(postFinalExpr !== ""){
+        const pfe = postFinalExpr.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+        kwargs.push(`post_final_expr='${pfe}'`);
+      }
+
+      // formula
+      const source = sel.value || "";
+      const exprEsc = itemExpr.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+      const fnName = (preset === "column_compute") ? "column_custom_compute" : ((preset === "row_agregation") ? "row_custom_agregation" : "row_custom_compute");
+      const formula = `${fnName}('${source}','${exprEsc}'${kwargs.length ? ", " + kwargs.join(", ") : ""})`;
+
+      tr.querySelector('[data-k="formula"]').value = formula;
+      tr.querySelector('[data-k="rc_preview"]').value = formula;
+      return;
+    }
+  }
+
+  function buildSchemaFromUI(){
+    const fields = [];
+    document.querySelectorAll("#fieldsTable tbody tr").forEach(tr=>{
+      const label = tr.querySelector('[data-k="label"]').value.trim();
+      const code = tr.querySelector('[data-k="code"]').value.trim();
+      const vari = tr.querySelector('[data-k="var"]').value.trim();
+      const scope = tr.querySelector('[data-k="scope"]').value || "member";
+
+      const minv = tr.querySelector('[data-k="min"]').value.trim();
+      const maxv = tr.querySelector('[data-k="max"]').value.trim();
+      const dec  = tr.querySelector('[data-k="decimals"]').value.trim();
+
+      const crashEnabled = !!tr.querySelector('[data-k="crash_enabled"]')?.checked;
+
+      if(!code) return;
+
+      fields.push({
+        code,
+        label: label || code,
+        var: vari || undefined,
+        scope,
+        type: "matrix",
+        shape: "judge_x_item",
+        crash: { enabled: crashEnabled },
+        judges: { count: Number(tr.querySelector('[data-k="judges_count"]').value || 1) },
+        items:  { count: Number(tr.querySelector('[data-k="items_count"]').value || 1) },
+        min: minv!=="" ? Number(minv) : undefined,
+        max: maxv!=="" ? Number(maxv) : undefined,
+        decimals: dec!=="" ? Number(dec) : undefined
+      });
+    });
+
+    const computed = [];
+    computedMainRows().forEach(tr=>{
+      const label = tr.querySelector('[data-k="label"]').value.trim();
+      const code = tr.querySelector('[data-k="code"]').value.trim();
+      const vari = tr.querySelector('[data-k="var"]').value.trim();
+      const preset = tr.querySelector('[data-k="preset"]').value;
+      const formula = tr.querySelector('[data-k="formula"]').value.trim();
+
+      if(!code) return;
+
+      const out = { code, label: label || code, var: vari || undefined, formula };
+
+      // guardar builder per rehidratar presets (format antic/compat)
+      if(preset === "row_compute" || preset === "row_agregation" || preset === "column_compute"){
+        const src = tr.querySelector('[data-k="rc_source"]').value;
+        const item_expr = tr.querySelector('[data-k="rc_item_expr"]').value.trim() || "x";
+
+        const internalSel = tr.querySelector('[data-k="rc_internal_select"]').value;
+        const internalN   = tr.querySelector('[data-k="rc_internal_n"]').value.trim();
+        const internalAgg = tr.querySelector('[data-k="rc_internal_agg"]').value;
+
+        const finalSel = tr.querySelector('[data-k="rc_final_select"]').value;
+        const finalN   = tr.querySelector('[data-k="rc_final_n"]').value.trim();
+        const finalAgg = tr.querySelector('[data-k="rc_final_agg"]').value;
+
+        const start = Number(tr.querySelector('[data-k="rc_start"]').value || 1);
+        const count = tr.querySelector('[data-k="rc_count"]').value.trim();
+
+        const internalSelectOn = tr.querySelector('[data-k="rc_internal_select_on"]').value || "raw";
+        const internalAggOn    = tr.querySelector('[data-k="rc_internal_agg_on"]').value || "expr";
+        const postEnabled      = !!tr.querySelector('[data-k="rc_internal_post_enabled"]').checked;
+        const internalPostExpr = (tr.querySelector('[data-k="rc_internal_post_expr"]').value || "").trim();
+        const post_final_expr  = (tr.querySelector('[data-k="rc_post_final_expr"]').value || "").trim();
+
+        // map intern/final a row/col segons preset
+        const builder = {
+          preset: preset,
+          source: src,
+          item_expr,
+          start,
+          count: count === "" ? undefined : Number(count),
+          post_final_expr: post_final_expr || undefined,
+        };
+
+        if (preset === "row_compute"){
+          builder.row_select = internalSel;
+          builder.row_select_n = internalN === "" ? undefined : Number(internalN);
+          builder.row_agg = internalAgg;
+
+          builder.col_select = finalSel;
+          builder.col_select_n = finalN === "" ? undefined : Number(finalN);
+          builder.col_agg = finalAgg;
+
+          builder.row_select_on = internalSelectOn;
+          builder.row_agg_on = internalAggOn;
+          builder.row_post_agg_expr = (postEnabled ? (internalPostExpr || undefined) : undefined);
+
+          // camps column_* no calen per row_compute, però els deixem com abans (no estrictament necessari)
+          builder.col_select_on = "expr";
+          builder.col_post_agg_expr = undefined;
+        } else if (preset === "column_compute") {
+          builder.col_select = internalSel;
+          builder.col_select_n = internalN === "" ? undefined : Number(internalN);
+          builder.col_agg = internalAgg;
+
+          builder.row_select = finalSel;
+          builder.row_select_n = finalN === "" ? undefined : Number(finalN);
+          builder.row_agg = finalAgg;
+
+          builder.col_select_on = internalSelectOn;
+          // en el teu JS vell, column reutilitzava col_select_on com agg_on:
+          // ho mantenim guardant-lo així, i a l’hidratar el posem també a agg_on intern.
+          builder.col_post_agg_expr = (postEnabled ? (internalPostExpr || undefined) : undefined);
+
+          builder.row_select_on = "expr";
+          builder.row_agg_on = "expr";
+
+          builder.row_post_agg_expr = undefined;
+        } else if (preset === "row_agregation") {
+          builder.row_select = internalSel;
+          builder.row_select_n = internalN === "" ? undefined : Number(internalN);
+          builder.row_agg = internalAgg;
+
+          // paràmetres avançats (només fase interna)
+          builder.select_on = internalSelectOn;
+          builder.agg_on = internalAggOn;
+          builder.post_agg_expr = (postEnabled ? (internalPostExpr || undefined) : undefined);
+        }
+
+        out.builder = builder;
+
+      }
+      else if(preset === "exec_trampoli"){
+        const src = tr.querySelector('[data-k="et_source"]').value;
+        const crash_code = tr.querySelector('[data-k="et_crash_code"]').value.trim() || src;
+        out.builder = { preset: "exec_trampoli", source: src, crash_code };
+      }
+      else if(preset === "select_sum_guided"){
+        const src = tr.querySelector('[data-k="ss_source"]').value;
+        const select = tr.querySelector('[data-k="ss_select"]').value || "best_n";
+        const nRaw = (tr.querySelector('[data-k="ss_select_n"]').value || "").trim();
+        let select_n = Number(nRaw || 1);
+        if(!Number.isFinite(select_n) || select_n < 1) select_n = 1;
+        select_n = Math.floor(select_n);
+        const agg = tr.querySelector('[data-k="ss_agg"]').value || "sum";
+        out.builder = { preset: "select_sum_guided", source: src, select, select_n, agg };
+      }
+      else if(preset === "member_treatment_guided"){
+        const src = tr.querySelector('[data-k="mt_source"]').value;
+        const select = tr.querySelector('[data-k="mt_select"]').value || "all";
+        const needsMemberN = needsN(select);
+        const nRaw = (tr.querySelector('[data-k="mt_n"]').value || "").trim();
+        let n = undefined;
+        if(needsMemberN){
+          n = Number(nRaw || 1);
+          if(!Number.isFinite(n) || n < 1) n = 1;
+          n = Math.floor(n);
+        }
+        const agg = tr.querySelector('[data-k="mt_agg"]').value || "sum";
+        out.builder = { preset: "member_treatment_guided", source: src, select, n, agg };
+      }
+
+      computed.push(out);
+    });
+
+    const cols = [];
+    fields.forEach(f=>cols.push(f.code));
+    computed.forEach(c=>cols.push(c.code));
+
+    const meta = {
+      subject_mode: BUILDER_CONFIG.is_team_unit ? "team" : "individual",
+    };
+
+    return { meta, fields, computed, ui: { columns: cols } };
+  }
+
+  function updateSchemaSummary(){
+    const fieldsCount = document.querySelectorAll("#fieldsTable tbody tr").length;
+    const computedCount = computedMainRows().length;
+    const pairs = [
+      ["schemaFieldsCount", fieldsCount],
+      ["schemaFieldsTabCount", fieldsCount],
+      ["schemaComputedCount", computedCount],
+      ["schemaComputedTabCount", computedCount],
+    ];
+
+    pairs.forEach(([id, value])=>{
+      const el = qs("#" + id);
+      if(el) el.textContent = String(value);
+    });
+
+    const draftEl = qs("#schemaDraftState");
+    if(draftEl){
+      let label = "Actiu";
+      if(ACTIVE_SCHEMA_SOURCE === "session_draft") label = "Esborrany";
+      else if(ACTIVE_SCHEMA_SOURCE === "posted_invalid" || ACTIVE_SCHEMA_SOURCE === "raw_invalid_json" || ACTIVE_DRAFT_MODE === "raw_json") label = "Revisar";
+      else if(MANUAL_JSON_MODE) label = "JSON";
+      draftEl.textContent = label;
+    }
+  }
+
+  function refreshAll(opts){
+    const preserveManualJson = !!(opts && opts.preserveManualJson);
+    if(MANUAL_JSON_MODE && !preserveManualJson){
+      setManualJsonMode(false);
+    }
+
+    // actualitza cada fila computed (això també recalcula la fórmula)
+    computedMainRows().forEach(tr=>{
+      updateComputedRowUI(tr);
+      syncComputedSummary(tr);
+    });
+    syncComputedRowParity();
+
+    // actualitza JSON avançat
+    const adv = qs("#advancedJson");
+    if (adv && !MANUAL_JSON_MODE) adv.value = JSON.stringify(buildSchemaFromUI(), null, 2);
+    updateSchemaSummary();
+    scheduleDraftSave();
+    scheduleUiStateSave();
+  }
+
+  function init(){
+    const tbF = document.querySelector("#fieldsTable tbody");
+    const tbC = document.querySelector("#computedTable tbody");
+
+    // fields
+    (schema.fields || []).forEach(f=>{
+      const isNumber = (f.type === "number");
+      tbF.appendChild(fieldRow({
+        label: f.label,
+        code: f.code,
+        var: f.var,
+        scope: f.scope || "member",
+        min: f.min,
+        max: f.max,
+        decimals: f.decimals,
+        judges_count: isNumber ? 1 : (f.judges?.count ?? 1),
+        items_count: isNumber ? 1 : (f.items?.count ?? 1),
+        crash_enabled: isNumber ? false : !!(f.crash?.enabled),
+      }));
+    });
+
+    // computed
+    (schema.computed || []).forEach(c=>{
+      tbC.appendChild(computedRow({
+        label: c.label,
+        code: c.code,
+        var: c.var,
+        formula: c.formula,
+        preset: c.builder?.preset || "manual",
+        builder: c.builder || undefined
+      }));
+    });
+
+    // defaults si està buit
+    if(!schema.fields || schema.fields.length===0){
+      tbF.appendChild(fieldRow({
+        label:"Execució", code:"E", var:"e",
+        judges_count: 3, items_count: 11,
+        min:0, max:10, decimals:0,
+        crash_enabled:true
+      }));
+      tbF.appendChild(fieldRow({label:"Dificultat", code:"DD", var:"x", judges_count:1, items_count:1, decimals:3, crash_enabled:false}));
+      tbF.appendChild(fieldRow({label:"TOF",        code:"TOF", var:"t", judges_count:1, items_count:1, decimals:3, crash_enabled:false}));
+      tbF.appendChild(fieldRow({label:"HD",         code:"HD",  var:"h", judges_count:1, items_count:1, decimals:3, crash_enabled:false}));
+      tbF.appendChild(fieldRow({label:"Penalització",code:"P",  var:"p", judges_count:1, items_count:1, decimals:3, crash_enabled:false}));
+
+      // E_j (preset trampolí)
+      tbC.appendChild(computedRow({
+        code:"E_j",
+        label:"Execució per jutge",
+        preset:"exec_trampoli",
+        builder:{ preset:"exec_trampoli", source:"E", crash_code:"E" },
+        formula:""
+      }));
+
+      // E_total (row compute)
+      tbC.appendChild(computedRow({
+        code:"E_total",
+        label:"Execució total",
+        preset:"row_compute",
+        builder:{
+          preset:"row_compute",
+          source:"E",
+          item_expr:"1 - x",
+          row_select:"all",
+          row_agg:"sum",
+          col_select:"drop_extremes",
+          col_agg:"sum",
+          start:1
+        },
+        formula:""
+      }));
+
+      tbC.appendChild(computedRow({
+        code:"TOTAL",
+        label:"Total",
+        preset:"manual",
+        formula:"E_total + x + t + h - p"
+      }));
+    }
+
+    document.getElementById("btnAddField").addEventListener("click", ()=>{
+      tbF.appendChild(fieldRow({label:"", code:"", var:"", judges_count:1, items_count:1}));
+      refreshAll();
+    });
+
+    document.getElementById("btnAddComputed").addEventListener("click", ()=>{
+      tbC.appendChild(computedRow({code:"", var:"", preset:"manual", formula:""}));
+      refreshAll();
+    });
+
+    document.querySelectorAll('.nav-link[data-toggle="tab"]').forEach(link=>{
+      link.addEventListener("click", ()=>{
+        scheduleUiStateSave({ activeTabHref: link.getAttribute("href") || "#tab-fields" });
+      });
+    });
+
+    window.addEventListener("scroll", ()=>scheduleUiStateSave());
+
+    const adv = qs("#advancedJson");
+    if (adv) {
+      adv.addEventListener("input", ()=>{
+        if(!MANUAL_JSON_MODE) return;
+        scheduleDraftSave();
+        scheduleUiStateSave({ activeTabHref: "#tab-advanced" });
+      });
+    }
+
+    const discardBtn = qs("#schemaDraftDiscardBtn");
+    if (discardBtn) {
+      discardBtn.addEventListener("click", ()=>{
+        clearSchemaDraft();
+        window.location.reload();
+      });
+    }
+
+    document.getElementById("schemaForm").addEventListener("submit", ()=>{
+      const hidden = document.querySelector('[name="schema_json"]');
+      const adv = qs("#advancedJson");
+      if (hidden) {
+        hidden.value = MANUAL_JSON_MODE
+          ? String((adv && adv.value) || "")
+          : JSON.stringify(buildSchemaFromUI());
+      }
+      if (adv && !MANUAL_JSON_MODE) adv.value = JSON.stringify(buildSchemaFromUI(), null, 2);
+      saveUiState();
+    });
+
+    refreshAll({ preserveManualJson: true });
+    if(ACTIVE_SCHEMA_SOURCE === "raw_invalid_json" || ACTIVE_DRAFT_MODE === "raw_json"){
+      setManualJsonMode(true, RAW_INVALID_JSON);
+    } else {
+      setManualJsonMode(false);
+    }
+    setRecoveryNotice(ACTIVE_SCHEMA_SOURCE);
+    restoreUiState();
+    IS_INITIALIZING = false;
+    if(ACTIVE_SCHEMA_SOURCE !== "saved"){
+      scheduleDraftSave();
+    }
+  }
+
+  init();
+</script>
+{% endblock %}

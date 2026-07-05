@@ -1,0 +1,137 @@
+  let supervisionPollTimer = null;
+
+  function pendingPatchSource(item){
+    if(item && item.normalized_inputs_patch && typeof item.normalized_inputs_patch === "object"){
+      return item.normalized_inputs_patch;
+    }
+    if(item && item.inputs_patch && typeof item.inputs_patch === "object"){
+      return item.inputs_patch;
+    }
+    return {};
+  }
+
+  function ensureArrayLength(arr, length, fillValue){
+    const out = Array.isArray(arr) ? deepClone(arr) : [];
+    while(out.length < length) out.push(deepClone(fillValue));
+    return out;
+  }
+
+  function mergePendingPatchIntoInputs(inputs, item){
+    const nextInputs = (inputs && typeof inputs === "object") ? deepClone(inputs) : {};
+    const patch = pendingPatchSource(item);
+    const judgeIndex0 = Math.max(0, Number(item && item.judge_index || 1) - 1);
+    const itemStart0 = Math.max(0, Number(item && item.item_start || 1) - 1);
+    Object.entries(patch || {}).forEach(([code, payload]) => {
+      const cleanCode = String(code || "");
+      const isCrash = cleanCode.startsWith("__crash__");
+      const baseCode = isCrash ? cleanCode.replace(/^__crash__/, "") : cleanCode;
+      const field = schemaField(baseCode);
+      const type = String((field && field.type) || (isCrash ? "list" : "number"));
+      const nJudges = Math.max(1, Number((field && field.judges && field.judges.count) || item.judge_index || 1));
+      const nItems = Math.max(1, Number((field && field.items && field.items.count) || 1));
+
+      if(isCrash || type === "list"){
+        const current = ensureArrayLength(nextInputs[cleanCode], nJudges, null);
+        let value = payload;
+        if(Array.isArray(payload)){
+          value = payload.length > judgeIndex0 ? payload[judgeIndex0] : null;
+        }
+        current[judgeIndex0] = value;
+        nextInputs[cleanCode] = current;
+        return;
+      }
+
+      if(type === "matrix"){
+        const current = ensureArrayLength(nextInputs[cleanCode], nJudges, []);
+        current[judgeIndex0] = ensureArrayLength(current[judgeIndex0], nItems, null);
+        let row = null;
+        if(Array.isArray(payload) && payload.length && Array.isArray(payload[0])){
+          row = payload.length > judgeIndex0 ? payload[judgeIndex0] : null;
+        } else if(Array.isArray(payload)){
+          row = payload;
+        }
+        if(!Array.isArray(row)) return;
+        row.forEach((value, offset) => {
+          const itemIndex0 = itemStart0 + offset;
+          if(itemIndex0 >= 0 && itemIndex0 < nItems){
+            current[judgeIndex0][itemIndex0] = value;
+          }
+        });
+        nextInputs[cleanCode] = current;
+        return;
+      }
+
+      nextInputs[cleanCode] = payload;
+    });
+    return nextInputs;
+  }
+
+  function applyPendingSubmissionToEntry(item){
+    if(!item || item.subject_id == null || item.exercici == null) return false;
+    const insId = resolveInsDomId(item.subject_id);
+    const exercici = exerciseKey(item.exercici);
+    const entry = getEntry(insId, exercici);
+    const mergedInputs = mergePendingPatchIntoInputs(entry.inputs || {}, item);
+    mergePendingPatchIntoDraft(insId, exercici, item);
+    setEntry(insId, exercici, {
+      ...entry,
+      inputs: mergedInputs,
+    });
+    if(isEditorRendered(insId, exercici) && !hasDirty(insId, exercici) && !isEditingEntry(insId, exercici)){
+      renderEditor(insId, exercici, { force: true });
+    }
+    refreshExerciseChipStates(insId);
+    return true;
+  }
+
+  function pendingRowIsDirty(insId, exercici, item){
+    const dirty = getDirtySet(insId, exercici);
+    if(!dirty || !dirty.size || !item) return false;
+    const fieldCode = String(item.runtime_field_code || item.field_code || "");
+    const judgeIndex = Math.max(1, Number(item.judge_index || 1));
+    return resolvedPermsForIns(insId).some((perm) => {
+      const code = String(perm.runtime_field_code || perm.field_code || "");
+      return code === fieldCode && Number(perm.judge_index || 1) === judgeIndex && dirty.has(String(perm.key || ""));
+    });
+  }
+
+  function mergePendingPatchIntoDraft(insId, exercici, item){
+    if(!hasDirty(insId, exercici) || pendingRowIsDirty(insId, exercici, item)) return;
+    const draft = DRAFTS[entryKey(insId, exercici)];
+    if(!draft || typeof draft !== "object") return;
+    const mergedDraft = mergePendingPatchIntoInputs(draft, item);
+    Object.keys(mergedDraft || {}).forEach((code) => {
+      draft[code] = mergedDraft[code];
+    });
+  }
+
+  async function loadSupervisionPendingIntegrated(opts = {}){
+    if(!JUDGE_HAS_SUPERVISION || !SUPERVISION_PENDING_URL) return;
+    try{
+      const res = await fetch(SUPERVISION_PENDING_URL, { headers: { "Accept": "application/json" } });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || !data.ok) return;
+      let changed = false;
+      (data.pending || []).forEach((item) => {
+        changed = applyPendingSubmissionToEntry(item) || changed;
+      });
+      if(changed){
+        refreshInsNavStatuses();
+      }
+    } catch(_err){
+      // el polling de supervisio no ha d'interrompre la puntuacio.
+    } finally {
+      if(!opts.once){
+        supervisionPollTimer = window.setTimeout(() => loadSupervisionPendingIntegrated(), 1200);
+      }
+    }
+  }
+
+  function initSupervisionPanel(){
+    if(!JUDGE_HAS_SUPERVISION) return;
+    if(supervisionPollTimer){
+      window.clearTimeout(supervisionPollTimer);
+      supervisionPollTimer = null;
+    }
+    loadSupervisionPendingIntegrated();
+  }

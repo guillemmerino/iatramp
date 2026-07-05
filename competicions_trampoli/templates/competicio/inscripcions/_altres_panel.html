@@ -1,0 +1,43 @@
+<div class="panel" id="panel-altres" data-panel-key="altres" data-avatar-anchor="panel-other">
+  <div class="panel-head">
+    <div class="inscripcions-help-title">
+      <h3 class="panel-title">Altres opcions</h3>
+      <button class="inscripcions-context-help" type="button" data-avatar-topic="inscriptions_export_history" aria-label="Ajuda sobre altres opcions" title="Ajuda sobre altres opcions">?</button>
+    </div>
+    <div class="subtle">Exportacio, historial i eines auxiliars del llistat.</div>
+  </div>
+
+  <div class="panel-body">
+    <div class="mb-4" data-avatar-anchor="excel-export">
+      <div class="fw-semibold mb-2">Exportacio Excel</div>
+      <div class="d-flex flex-wrap" style="gap:8px;">
+        {% for code, label in allowed_excel_columns %}
+          <label class="group-chip mb-0">
+            <input
+              type="checkbox"
+              class="js-excel-col"
+              value="{{ code }}"
+              {% if code in excel_cols_selected %}checked{% endif %}>
+            <span>{{ label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+      <div class="mt-2">
+        <button type="button" class="btn btn-sm btn-outline-primary" id="btn-export-excel">
+          Exportar Excel
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-danger ml-1" id="btn-export-baixes">
+          Exportar baixes
+        </button>
+      </div>
+    </div>
+
+    <div data-avatar-anchor="history-summary">
+      <div class="fw-semibold mb-2">Historial</div>
+      <div class="small text-muted">
+        Desfer disponibles: {{ history_state.undo_count|default:0 }} ·
+        Refer disponibles: {{ history_state.redo_count|default:0 }}
+      </div>
+    </div>
+  </div>
+</div>

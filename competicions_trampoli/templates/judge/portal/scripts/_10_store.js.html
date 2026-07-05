@@ -1,0 +1,414 @@
+  function schemaField(code){
+    const fields = (SCHEMA && Array.isArray(SCHEMA.fields)) ? SCHEMA.fields : [];
+    return fields.find(f => f && f.code === code) || null;
+  }
+  function entryKey(insId, exercici){
+    return `${String(insId)}:${String(exercici)}`;
+  }
+  function exerciseKey(exercici){
+    return String(exercici);
+  }
+  function allExerciseKeys(){
+    return Array.isArray(EXERCISES) ? EXERCISES.map((ex) => exerciseKey(ex)) : [];
+  }
+  function sanitizePortalDisplayMode(mode){
+    const clean = String(mode || "").trim().toLowerCase();
+    return clean === "competition_order" ? "competition_order" : "compact";
+  }
+  function persistPortalDisplayMode(mode){
+    const clean = sanitizePortalDisplayMode(mode);
+    try{
+      window.localStorage.setItem(PORTAL_DISPLAY_MODE_STORAGE_KEY, clean);
+      window.localStorage.setItem(PORTAL_DISPLAY_MODE_COMP_APARELL_KEY, clean);
+    } catch(_err){
+      // ignore storage failures
+    }
+    return clean;
+  }
+  function updatePortalDisplayMode(mode){
+    const clean = persistPortalDisplayMode(mode);
+    const url = new URL(window.location.href);
+    const current = sanitizePortalDisplayMode(url.searchParams.get("view_mode") || PORTAL_DISPLAY_MODE);
+    if(clean === "compact"){
+      url.searchParams.delete("view_mode");
+    } else {
+      url.searchParams.set("view_mode", clean);
+    }
+    const nextUrl = url.toString();
+    if(clean === current && nextUrl === window.location.href){
+      return;
+    }
+    window.location.assign(nextUrl);
+  }
+  function initPortalViewModeControl(){
+    const select = document.getElementById("portalViewModeSelect");
+    if(select){
+      select.value = sanitizePortalDisplayMode(PORTAL_DISPLAY_MODE);
+      select.addEventListener("change", () => {
+        updatePortalDisplayMode(select.value);
+      });
+    }
+    const toggles = Array.from(document.querySelectorAll("[data-portal-view-mode]"));
+    if(!toggles.length) return;
+    const current = sanitizePortalDisplayMode(PORTAL_DISPLAY_MODE);
+    toggles.forEach((toggle) => {
+      const isActive = sanitizePortalDisplayMode(toggle.value) === current;
+      toggle.checked = isActive;
+      const label = document.querySelector(`label[for="${toggle.id}"]`);
+      if(label){
+        label.classList.toggle("active", isActive);
+        label.setAttribute("aria-pressed", isActive ? "true" : "false");
+      }
+      toggle.addEventListener("change", () => {
+        if(toggle.checked){
+          toggles.forEach((item) => {
+            const itemLabel = document.querySelector(`label[for="${item.id}"]`);
+            const itemActive = item === toggle;
+            if(itemLabel){
+              itemLabel.classList.toggle("active", itemActive);
+              itemLabel.setAttribute("aria-pressed", itemActive ? "true" : "false");
+            }
+          });
+          updatePortalDisplayMode(toggle.value);
+        }
+      });
+    });
+  }
+  function isCompetitionOrderMode(){
+    return PORTAL_DISPLAY_MODE === "competition_order";
+  }
+  function getInsScoreBox(insId){
+    const key = String(insId);
+    if(!SCORES[key] || typeof SCORES[key] !== "object") SCORES[key] = {};
+    if(!SCORES[key].exercises || typeof SCORES[key].exercises !== "object") SCORES[key].exercises = {};
+    return SCORES[key];
+  }
+  function resolveInsDomId(insId){
+    return SUBJECT_DOM_ID_BY_SUBJECT_ID[String(insId)] || String(insId);
+  }
+  function subjectForId(insId){
+    const domId = resolveInsDomId(insId);
+    return SUBJECTS_BY_ID[domId] || {
+      id: domId,
+      subject_kind: TEAM_SUBJECT_MODE ? "team_unit" : "inscripcio",
+      subject_id: Number(insId),
+    };
+  }
+  function getEntry(insId, exercici){
+    const box = getInsScoreBox(insId);
+    const key = exerciseKey(exercici);
+    if(!box.exercises[key] || typeof box.exercises[key] !== "object"){
+      box.exercises[key] = {inputs:{}, outputs:{}, total:0, updated_at:null};
+    }
+    return box.exercises[key];
+  }
+  function setEntry(insId, exercici, nextEntry){
+    const box = getInsScoreBox(insId);
+    box.exercises[exerciseKey(exercici)] = {
+      inputs: (nextEntry && typeof nextEntry.inputs === "object") ? nextEntry.inputs : {},
+      outputs: (nextEntry && typeof nextEntry.outputs === "object") ? nextEntry.outputs : {},
+      total: Number.isFinite(Number(nextEntry && nextEntry.total)) ? Number(nextEntry.total) : 0,
+      updated_at: (nextEntry && nextEntry.updated_at) || null,
+    };
+  }
+  function getServerInput(insId, exercici, code){
+    const entry = getEntry(insId, exercici);
+    const inputs = (entry.inputs && typeof entry.inputs === "object") ? entry.inputs : {};
+    return inputs[code];
+  }
+  function deepClone(v){
+    if(v === null || v === undefined) return v;
+    if(typeof v !== "object") return v;
+    try{ return JSON.parse(JSON.stringify(v)); }catch(_e){ return v; }
+  }
+  function getDraft(insId, exercici){
+    const key = entryKey(insId, exercici);
+    if(!DRAFTS[key] || typeof DRAFTS[key] !== "object") DRAFTS[key] = {};
+    return DRAFTS[key];
+  }
+  function clearDraft(insId, exercici){
+    delete DRAFTS[entryKey(insId, exercici)];
+  }
+  function getDirtySet(insId, exercici){
+    const key = entryKey(insId, exercici);
+    if(!DIRTY_BY_ENTRY[key]) DIRTY_BY_ENTRY[key] = new Set();
+    return DIRTY_BY_ENTRY[key];
+  }
+  function markDirty(insId, exercici, permKey){
+    getDirtySet(insId, exercici).add(String(permKey || ""));
+  }
+  function clearDirty(insId, exercici){
+    delete DIRTY_BY_ENTRY[entryKey(insId, exercici)];
+  }
+  function hasDirty(insId, exercici){
+    const set = DIRTY_BY_ENTRY[entryKey(insId, exercici)];
+    return !!(set && set.size);
+  }
+  function isEditingEntry(insId, exercici){
+    const wrap = document.getElementById(`editor-inner-${insId}-${exercici}`);
+    const ae = document.activeElement;
+    return !!(wrap && ae && wrap.contains(ae));
+  }
+  function scoreInputRootFor(input, insId, exercici){
+    const scopedRoot = input && input.closest ? input.closest('[data-score-input-nav-root="1"]') : null;
+    if(scopedRoot) return scopedRoot;
+    return document.querySelector(`[data-exercise-panel="1"][data-ins-id="${String(insId)}"][data-exercici="${exerciseKey(exercici)}"]`);
+  }
+  function getEditableInputs(insId, exercici){
+    const currentInput = arguments.length >= 3 ? arguments[2] : null;
+    const root = scoreInputRootFor(currentInput, insId, exercici);
+    if(!root) return [];
+    return Array.from(root.querySelectorAll('input[data-nav-scope="score-input"][data-ins-id][data-exercici]'))
+      .filter((input) => String(input.dataset.insId || "") === String(insId))
+      .filter((input) => String(input.dataset.exercici || "") === exerciseKey(exercici))
+      .filter((input) => !input.disabled);
+  }
+  function selectInputContents(input){
+    if(!input) return;
+    try{
+      input.select();
+    } catch(_e){
+      // ignore unsupported selection APIs
+    }
+  }
+  function ensureInputVisibleInsideContainer(input, container){
+    if(!input || !container || typeof input.getBoundingClientRect !== "function") return;
+    const inputRect = input.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const topMargin = 16;
+    const bottomMargin = 72;
+    const isAbove = inputRect.top < containerRect.top + topMargin;
+    const isBelow = inputRect.bottom > containerRect.bottom - bottomMargin;
+    if(!isAbove && !isBelow) return;
+
+    const delta = isAbove
+      ? inputRect.top - containerRect.top - topMargin
+      : inputRect.bottom - containerRect.bottom + bottomMargin;
+    const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+    const nextTop = Math.max(0, Math.min(maxScroll, container.scrollTop + delta));
+    if(typeof container.scrollTo === "function"){
+      container.scrollTo({
+        top: nextTop,
+        behavior: "smooth",
+      });
+    } else {
+      container.scrollTop = nextTop;
+    }
+  }
+  function ensureInputVisible(input){
+    if(!input || typeof input.getBoundingClientRect !== "function") return;
+
+    const competitionModalBody = input.closest("#competitionModeModal .modal-body");
+    if(competitionModalBody){
+      const scrollModalIfNeeded = () => ensureInputVisibleInsideContainer(input, competitionModalBody);
+      scrollModalIfNeeded();
+      window.setTimeout(scrollModalIfNeeded, 90);
+      return;
+    }
+
+    const scrollIfNeeded = () => {
+      const rect = input.getBoundingClientRect();
+      const viewportHeight = (window.visualViewport && Number(window.visualViewport.height))
+        ? Number(window.visualViewport.height)
+        : window.innerHeight;
+      const topMargin = 20;
+      const bottomMargin = 80;
+      const isAbove = rect.top < topMargin;
+      const isBelow = rect.bottom > Math.max(topMargin + 40, viewportHeight - bottomMargin);
+
+      if(isAbove || isBelow){
+        input.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "nearest",
+        });
+      }
+    };
+
+    scrollIfNeeded();
+    window.setTimeout(scrollIfNeeded, 90);
+  }
+  function updateInputEnterKeyHint(input){
+    if(!input) return;
+    const inputs = getEditableInputs(input.dataset.insId || "", input.dataset.exercici || "", input);
+    const idx = inputs.indexOf(input);
+    const hint = (idx !== -1 && idx < inputs.length - 1) ? "next" : "done";
+    input.setAttribute("enterkeyhint", hint);
+  }
+  function focusEditableInput(input){
+    if(!input) return;
+    input.focus();
+    selectInputContents(input);
+    updateInputEnterKeyHint(input);
+    ensureInputVisible(input);
+  }
+  function focusNextEditableInput(currentInput){
+    if(!currentInput) return;
+    const inputs = getEditableInputs(currentInput.dataset.insId || "", currentInput.dataset.exercici || "", currentInput);
+    if(!inputs.length){
+      focusEditableInput(currentInput);
+      return;
+    }
+    const idx = inputs.indexOf(currentInput);
+    if(idx !== -1 && idx >= inputs.length - 1 && competitionScoreAutoAdvanceIsActive()){
+      const saveBtn = document.getElementById("competitionModeSave");
+      if(saveBtn && !saveBtn.disabled){
+        saveBtn.focus();
+        return;
+      }
+    }
+    const target = (idx === -1)
+      ? inputs[0]
+      : inputs[Math.min(idx + 1, inputs.length - 1)];
+    focusEditableInput(target || currentInput);
+  }
+  function focusPrevEditableInput(currentInput){
+    if(!currentInput) return;
+    const inputs = getEditableInputs(currentInput.dataset.insId || "", currentInput.dataset.exercici || "", currentInput);
+    if(!inputs.length){
+      focusEditableInput(currentInput);
+      return;
+    }
+    const idx = inputs.indexOf(currentInput);
+    const target = (idx === -1)
+      ? inputs[0]
+      : inputs[Math.max(idx - 1, 0)];
+    focusEditableInput(target || currentInput);
+  }
+  function fieldAllowsDecimals(field){
+    return Number(field && field.decimals) > 0;
+  }
+  function scoreFieldBound(field, names){
+    if(!field || typeof field !== "object") return null;
+    for(const name of names){
+      if(field[name] === null || field[name] === undefined || field[name] === "") continue;
+      const value = Number(field[name]);
+      if(Number.isFinite(value)) return value;
+    }
+    return null;
+  }
+  function scoreInputCompletionState(input, field){
+    const raw = String(input && input.value !== undefined ? input.value : "").trim();
+    if(!raw) return { complete: false, valid: false, reason: "empty" };
+    if(/[.,]$/.test(raw)) return { complete: false, valid: false, reason: "decimal_pending" };
+
+    const allowsDecimals = fieldAllowsDecimals(field);
+    const numericPattern = allowsDecimals
+      ? /^[+-]?(?:\d+(?:[\.,]\d+)?|[\.,]\d+)$/
+      : /^[+-]?\d+$/;
+    if(!numericPattern.test(raw)) return { complete: false, valid: false, reason: "non_numeric" };
+
+    const value = Number(raw.replace(",", "."));
+    if(!Number.isFinite(value)) return { complete: false, valid: false, reason: "non_numeric" };
+    if(!allowsDecimals && !Number.isInteger(value)){
+      return { complete: false, valid: false, reason: "decimal_not_allowed" };
+    }
+
+    const min = scoreFieldBound(field, ["min", "minimum", "min_value", "minValue"]);
+    if(min !== null && value < min) return { complete: true, valid: false, reason: "below_min" };
+    const max = scoreFieldBound(field, ["max", "maximum", "max_value", "maxValue"]);
+    if(max !== null && value > max) return { complete: true, valid: false, reason: "above_max" };
+
+    return { complete: true, valid: true, reason: "" };
+  }
+  function scoreInputAutoAdvanceDelay(input, field, defaultDelay){
+    const raw = String(input && input.value !== undefined ? input.value : "").trim();
+    if(fieldAllowsDecimals(field) && raw && !/[.,]/.test(raw)){
+      return Math.max(Number(defaultDelay || 0), 1100);
+    }
+    return Math.max(0, Number(defaultDelay || 300) || 300);
+  }
+  function competitionScoreAutoAdvanceIsActive(){
+    if(typeof window.isCompetitionScoreAutoAdvanceActive === "function"){
+      try{
+        return !!window.isCompetitionScoreAutoAdvanceActive();
+      } catch(_err){
+        return false;
+      }
+    }
+    if(window.COMPETITION_MODE && typeof window.COMPETITION_MODE === "object"){
+      if(window.COMPETITION_MODE.autoAdvanceEnabled === false) return false;
+      return window.COMPETITION_MODE.active === true;
+    }
+    const state = window.judgeCompetitionModeState || window.JUDGE_COMPETITION_MODE_STATE || window.competitionModeState;
+    if(state && typeof state === "object" && !state.nodeType){
+      if(state.autoAdvanceEnabled === false) return false;
+      return state.active === true || state.isActive === true || state.enabled === true;
+    }
+    const candidates = [
+      window.isCompetitionModeActive,
+      window.competitionModeIsActive,
+    ];
+    for(const fn of candidates){
+      if(typeof fn !== "function") continue;
+      try{
+        if(fn()) return true;
+      } catch(_err){
+        // ignore optional integration hooks
+      }
+    }
+    if(window.competitionModeActive === true || window.JUDGE_COMPETITION_MODE_ACTIVE === true) return true;
+    return false;
+  }
+  function enableScoreInputAutoAdvance(input, field, opts = {}){
+    if(!input) return;
+    const baseDelay = Math.max(0, Number(opts.delayMs ?? 300) || 300);
+    if(input.dataset.scoreAutoAdvanceBound === "1") return;
+    input.dataset.scoreAutoAdvanceBound = "1";
+    let timer = null;
+    const clearTimer = () => {
+      if(timer){
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+    const schedule = () => {
+      clearTimer();
+      if(!competitionScoreAutoAdvanceIsActive()) return;
+      const state = scoreInputCompletionState(input, field);
+      if(!state.complete || !state.valid) return;
+      const delay = scoreInputAutoAdvanceDelay(input, field, baseDelay);
+      timer = window.setTimeout(() => {
+        timer = null;
+        if(document.activeElement !== input) return;
+        if(!competitionScoreAutoAdvanceIsActive()) return;
+        const nextState = scoreInputCompletionState(input, field);
+        if(nextState.complete && nextState.valid) focusNextEditableInput(input);
+      }, delay);
+    };
+    input.addEventListener("input", schedule);
+    input.addEventListener("keydown", (evt) => {
+      if(evt.key === "Enter" || evt.key === "Tab") clearTimer();
+    });
+    input.addEventListener("blur", clearTimer);
+  }
+  function bindScoreInputNavigation(input, insId, exercici){
+    const field = arguments.length >= 4 ? arguments[3] : (input._scoreField || null);
+    if(!input) return;
+    input.dataset.insId = String(insId);
+    input.dataset.exercici = exerciseKey(exercici);
+    input.dataset.navScope = "score-input";
+    updateInputEnterKeyHint(input);
+    input.addEventListener("focus", () => {
+      updateInputEnterKeyHint(input);
+      selectInputContents(input);
+      ensureInputVisible(input);
+    });
+    input.addEventListener("keydown", (evt) => {
+      if(evt.key !== "Enter" && evt.key !== "Tab") return;
+      evt.preventDefault();
+      if(evt.key === "Tab" && evt.shiftKey){
+        focusPrevEditableInput(input);
+        return;
+      }
+      focusNextEditableInput(input);
+    });
+    enableScoreInputAutoAdvance(input, field);
+  }
+  function effectiveInput(insId, exercici, code){
+    const draft = DRAFTS[entryKey(insId, exercici)];
+    if(draft && Object.prototype.hasOwnProperty.call(draft, code)){
+      return draft[code];
+    }
+    return getServerInput(insId, exercici, code);
+  }

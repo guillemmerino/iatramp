@@ -1,0 +1,75 @@
+{% load static %}
+
+<section id="section-desempat" class="builder-section builder-section--desempat" data-builder-section data-avatar-anchor="classifications-tiebreakers-section">
+  <div class="builder-section__header">
+    <div>
+      <div class="builder-section__eyebrow">Ordre</div>
+      <h4 class="builder-section__title">Desempat <button type="button" class="classif-context-help classif-context-help--inline" data-avatar-topic="classifications_tiebreakers" aria-label="Ajuda sobre desempat" title="Ajuda sobre desempat">?</button></h4>
+      <p class="builder-section__desc">Criteris addicionals per resoldre empats a la classificació final, en l'ordre exacte en què s'han d'aplicar.</p>
+    </div>
+    <div class="builder-help-badge">Després de punts</div>
+  </div>
+
+  <div class="builder-section__body">
+    <div class="builder-section__stack classif-desempat-flow">
+      <div class="builder-subsection classif-desempat-panel" data-avatar-anchor="classifications-tiebreakers-chain">
+        <div class="builder-subsection__head">
+          <div class="classif-step-heading">
+            <span class="classif-step-index">01</span>
+            <div class="classif-panel-title-row">
+              <span class="classif-panel-icon" aria-hidden="true">
+                <img src="{% static 'classificacions/sections/desempat/criteris.png' %}" alt="">
+              </span>
+              <div class="classif-panel-title-copy">
+                <p class="builder-subsection__title">Cadena de criteris <button type="button" class="classif-context-help classif-context-help--inline" data-avatar-topic="classifications_tiebreakers_chain" aria-label="Ajuda sobre cadena de criteris" title="Ajuda sobre cadena de criteris">?</button></p>
+                <p class="builder-subsection__desc">Cada criteri defineix una puntuació secundària per resoldre empats. En classificacions derivades es mantenen les opcions avançades de membres i pool.</p>
+              </div>
+            </div>
+          </div>
+          <div class="builder-inline-note">Sequencial</div>
+        </div>
+
+        <div class="classif-desempat-actions" data-avatar-anchor="classifications-tiebreakers-actions">
+          <button type="button" class="btn btn-sm btn-outline-primary" id="btnTieAdd">+ Afegir criteri buit</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="btnTieCloneFromPuntuacio">+ Crear des de puntuació actual</button>
+          <button type="button" class="classif-context-help classif-context-help--inline" data-avatar-topic="classifications_tiebreakers_priority" aria-label="Ajuda sobre prioritat dels desempats" title="Ajuda sobre prioritat dels desempats">?</button>
+        </div>
+
+        <span class="sr-only">Criteri i entrada</span>
+        <span id="tieParticipantsHead" class="sr-only">Membres / pool final</span>
+        <div class="classif-desempat-workspace" data-avatar-anchor="classifications-tiebreakers-workspace">
+          <div class="classif-desempat-tabs" id="tieTabs" role="tablist" aria-label="Criteris de desempat"></div>
+          <div class="classif-desempat-panels" id="tieBody"></div>
+        </div>
+      </div>
+
+      <div class="builder-subsection builder-subsection--muted classif-desempat-panel classif-desempat-panel--advanced" data-avatar-anchor="classifications-tiebreakers-advanced">
+        <div class="builder-subsection__head">
+          <div class="classif-step-heading">
+            <span class="classif-step-index">02</span>
+            <div class="classif-panel-title-row">
+              <span class="classif-panel-icon" aria-hidden="true">
+                <img src="{% static 'classificacions/sections/desempat/criteris.png' %}" alt="">
+              </span>
+              <div class="classif-panel-title-copy">
+                <p class="builder-subsection__title">Edició avançada</p>
+                <p class="builder-subsection__desc">Accés directe al JSON dels desempats per manteniment o compatibilitat.</p>
+              </div>
+            </div>
+          </div>
+          <div class="builder-inline-note">JSON</div>
+        </div>
+
+        <details class="builder-advanced classif-desempat-advanced">
+          <summary class="small text-muted">Opcions avançades</summary>
+          <div class="mt-2">
+            <textarea class="form-control" id="tDesempat" rows="3"></textarea>
+            <div class="form-text text-muted">
+              Exemple: [{"id":"tie_1","nom":"Millor execució","ordre":"desc","pipeline_version":1,"pipeline":{...}}]
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+</section>

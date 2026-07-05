@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% load competicio_extras %}
+{% block title %}Notes {{ competicio.nom }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+  {% include "components/avatar_helper.html" with avatar_messages=avatar_messages avatar_initial_topic=avatar_initial_topic position="left" state="closed" %}
+  {% include "scoring/notes/_styles.html" %}
+  {% include "scoring/notes/_panel.html" %}
+  {% include "scoring/notes/_media_drawer.html" %}
+</div>
+
+{% include "scoring/notes/_json_contract.html" %}
+
+{% endblock %}
+
+{% block extra_scripts %}
+{% include "scoring/notes/scripts/_extra_styles.html" %}
+<script>
+{% include "scoring/notes/scripts/_00_bootstrap.js.html" %}
+{% include "scoring/notes/scripts/_05_helpers.js.html" %}
+{% include "scoring/notes/scripts/_10_store.js.html" %}
+{% include "scoring/notes/scripts/_15_api.js.html" %}
+{% include "scoring/notes/scripts/_20_playback.js.html" %}
+{% include "scoring/notes/scripts/_30_judge_presence.js.html" %}
+{% include "scoring/notes/scripts/_35_column_visibility.js.html" %}
+{% include "scoring/notes/scripts/_40_save_and_focus.js.html" %}
+{% include "scoring/notes/scripts/_50_score_warnings.js.html" %}
+{% include "scoring/notes/scripts/_60_team_renderer.js.html" %}
+{% include "scoring/notes/scripts/_70_table_renderer.js.html" %}
+{% include "scoring/notes/scripts/_80_legacy_navigation.js.html" %}
+{% include "scoring/notes/scripts/_85_lazy_panel.js.html" %}
+{% include "scoring/notes/scripts/_90_global_warnings.js.html" %}
+{% include "scoring/notes/scripts/_99_init.js.html" %}
+{% include "scoring/notes/scripts/_scoring_notes_home.js.html" %}
+</script>
+{% endblock %}

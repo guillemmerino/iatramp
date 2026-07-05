@@ -1,0 +1,30 @@
+{% include "competicio/fases/drawer/_summary.html" %}
+
+{% if selected_phase %}
+  <div class="phase-drawer-panels" id="phase-drawer-panels">
+    <section class="phase-drawer-panel is-active" id="phase-panel-origin" data-phase-panel="origin" data-avatar-anchor="phase-panel-origin">
+      {% include "competicio/fases/drawer/_source_cut.html" %}
+    </section>
+
+    <section class="phase-drawer-panel" id="phase-panel-groups" data-phase-panel="groups" data-avatar-anchor="phase-panel-groups" hidden>
+      {% include "competicio/fases/drawer/_group_plan.html" %}
+    </section>
+
+    <section class="phase-drawer-panel" id="phase-panel-status" data-phase-panel="status" data-avatar-anchor="phase-panel-status" hidden>
+      {% include "competicio/fases/drawer/_qualification.html" %}
+      {% include "competicio/fases/drawer/_partitions.html" %}
+      {% include "competicio/fases/drawer/_status.html" %}
+    </section>
+  </div>
+{% elif selected_base_phase %}
+  {% include "competicio/fases/drawer/_base_phase.html" %}
+{% else %}
+  <section class="phase-panel">
+    <div class="phase-panel-title">
+      <h5>Selecciona una fase</h5>
+    </div>
+    <div class="phase-panel-note">
+      Tria la Preliminar implícita o una fase avançada de l'arbre per veure les accions disponibles.
+    </div>
+  </section>
+{% endif %}

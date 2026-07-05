@@ -1,0 +1,36 @@
+<section class="action-panel" id="panel-series-equips" data-panel-key="series-equips" data-avatar-anchor="series-panel">
+  <div class="action-panel-header">
+    <div>
+      <div class="inscripcions-help-title">
+        <p class="panel-title mb-0">Sèries d'equips</p>
+        <button class="inscripcions-context-help" type="button" data-avatar-topic="team_series_workspace" aria-label="Ajuda sobre series d'equip" title="Ajuda sobre series d'equip">?</button>
+      </div>
+    </div>
+    <div class="tab-select-card-tools">
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-primary tab-select-expand-btn js-expand-tab-select"
+        data-expand-target="series-main-card"
+        data-label-collapsed="Obrir gestor de sèries"
+        data-label-expanded="Tancar vista ampla"
+        aria-expanded="false"
+      >
+        Obrir gestor de sèries
+      </button>
+    </div>
+  </div>
+
+  <div class="action-panel-body">
+    <div
+      class="tab-select-card team-workbench-card"
+      id="series-main-card"
+      data-avatar-anchor="series-workspace"
+      data-expand-card="series-main-card"
+      data-expand-title="Inscripcions   &rarr;   Gestor de sèries d'equip"
+      data-expand-subtitle="Univers, accions, board i inspector lateral en una mateixa vista ampla."
+    >
+      {% include "competicio/inscripcions/series/_compact.html" %}
+      {% include "competicio/inscripcions/series/_workspace.html" %}
+    </div>
+  </div>
+</section>
