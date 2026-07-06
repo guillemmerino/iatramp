@@ -216,6 +216,95 @@
     margin-top: 10px;
   }
 
+  .avatar-helper__chat {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(226, 232, 240, 0.9);
+  }
+
+  .avatar-helper__chat-log {
+    display: flex;
+    max-height: 180px;
+    margin-bottom: 9px;
+    overflow-y: auto;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .avatar-helper__chat-empty {
+    color: #94a3b8;
+    font-size: 0.78rem;
+    font-weight: 750;
+    line-height: 1.35;
+  }
+
+  .avatar-helper__chat-message {
+    max-width: 92%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 650;
+    line-height: 1.38;
+    white-space: pre-line;
+  }
+
+  .avatar-helper__chat-message--user {
+    align-self: flex-end;
+    background: #dbeafe;
+    color: #0f3f8f;
+  }
+
+  .avatar-helper__chat-message--assistant {
+    align-self: flex-start;
+    background: #f8fafc;
+    color: #334155;
+    border: 1px solid #e2e8f0;
+  }
+
+  .avatar-helper__chat-form {
+    display: flex;
+    align-items: stretch;
+    gap: 7px;
+  }
+
+  .avatar-helper__chat-input {
+    min-width: 0;
+    flex: 1 1 auto;
+    height: 36px;
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    color: #0f172a;
+    font-size: 0.82rem;
+    font-weight: 650;
+  }
+
+  .avatar-helper__chat-submit {
+    min-width: 58px;
+    height: 36px;
+    padding: 7px 10px;
+    border: 1px solid #2563eb;
+    border-radius: 8px;
+    background: #2563eb;
+    color: #ffffff;
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 850;
+  }
+
+  .avatar-helper__chat-submit:disabled {
+    cursor: default;
+    opacity: 0.55;
+  }
+
+  .avatar-helper__chat-status {
+    min-height: 16px;
+    margin-top: 6px;
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 750;
+  }
+
   .avatar-helper__step-button,
   .avatar-helper__action {
     min-height: 34px;
@@ -348,6 +437,8 @@
   class="avatar-helper avatar-helper--{{ position|default:'left' }}{% if state == 'open' %} is-open{% endif %}"
   aria-label="Assistent IA Score"
   data-static-prefix="{{ STATIC_PREFIX }}"
+  data-avatar-chat-url="{% url 'avatar_conversation_reply' %}"
+  {% if competicio %}data-avatar-competicio-id="{{ competicio.id }}"{% endif %}
   data-avatar-initial-topic="{{ initial_topic }}">
   <button class="avatar-helper__toggle" type="button" aria-label="Obrir l'assistent" title="Obrir l'assistent" aria-expanded="{% if state == 'open' %}true{% else %}false{% endif %}">
     <img class="avatar-helper__control-image" src="{% static 'general/avatar_in.png' %}" alt="">
@@ -370,6 +461,16 @@
       </span>
     </div>
     <div class="avatar-helper__actions" data-avatar-actions></div>
+    <div class="avatar-helper__chat" data-avatar-chat>
+      <div class="avatar-helper__chat-log" data-avatar-chat-log>
+        <div class="avatar-helper__chat-empty" data-avatar-chat-empty>Pregunta'm coses sobre aquesta pantalla o sobre com funciona el programa.</div>
+      </div>
+      <form class="avatar-helper__chat-form" data-avatar-chat-form>
+        <input class="avatar-helper__chat-input" data-avatar-chat-input type="text" maxlength="1200" autocomplete="off" placeholder="Escriu una pregunta...">
+        <button class="avatar-helper__chat-submit" data-avatar-chat-submit type="submit">Envia</button>
+      </form>
+      <div class="avatar-helper__chat-status" data-avatar-chat-status aria-live="polite"></div>
+    </div>
   </div>
   <img class="avatar-helper__image" data-avatar-image src="{% static avatar_image %}" alt="">
 </aside>
@@ -513,9 +614,16 @@
       var prevButton = helper.querySelector("[data-avatar-prev]");
       var nextButton = helper.querySelector("[data-avatar-next]");
       var actionsNode = helper.querySelector("[data-avatar-actions]");
+      var chatLogNode = helper.querySelector("[data-avatar-chat-log]");
+      var chatEmptyNode = helper.querySelector("[data-avatar-chat-empty]");
+      var chatFormNode = helper.querySelector("[data-avatar-chat-form]");
+      var chatInputNode = helper.querySelector("[data-avatar-chat-input]");
+      var chatSubmitNode = helper.querySelector("[data-avatar-chat-submit]");
+      var chatStatusNode = helper.querySelector("[data-avatar-chat-status]");
       var initialTopicId = helper.dataset.avatarInitialTopic || "welcome";
       var currentTopicId = initialTopicId;
       var currentStep = 0;
+      var chatHistory = [];
       var bubbleOffset = { x: 0, y: 0 };
       var dragState = null;
       var highlightedNodes = [];
@@ -535,6 +643,11 @@
 
       function storageKey() {
         return "ia-score-avatar-bubble-offset";
+      }
+
+      function chatStorageKey() {
+        var scope = helper.dataset.avatarCompeticioId || window.location.pathname || "global";
+        return "ia-score-avatar-chat-" + String(scope);
       }
 
       function normalizeOffset(value) {
@@ -569,6 +682,139 @@
         } catch (err) {
           return;
         }
+      }
+
+      function getCookie(name) {
+        var value = "; " + document.cookie;
+        var parts = value.split("; " + name + "=");
+        if (parts.length === 2) {
+          return parts.pop().split(";").shift();
+        }
+        return "";
+      }
+
+      function trimChatHistory(history) {
+        return history.slice(Math.max(0, history.length - 12));
+      }
+
+      function saveChatHistory() {
+        try {
+          window.localStorage.setItem(chatStorageKey(), JSON.stringify(trimChatHistory(chatHistory)));
+        } catch (err) {
+          return;
+        }
+      }
+
+      function addChatMessage(role, content, save) {
+        if (!chatLogNode) {
+          return;
+        }
+        var text = String(content || "").trim();
+        if (!text) {
+          return;
+        }
+        if (chatEmptyNode) {
+          chatEmptyNode.remove();
+          chatEmptyNode = null;
+        }
+        var message = document.createElement("div");
+        message.className = "avatar-helper__chat-message avatar-helper__chat-message--" + (role === "user" ? "user" : "assistant");
+        message.textContent = text;
+        chatLogNode.appendChild(message);
+        chatLogNode.scrollTop = chatLogNode.scrollHeight;
+        if (save !== false) {
+          chatHistory.push({ role: role === "user" ? "user" : "assistant", content: text });
+          chatHistory = trimChatHistory(chatHistory);
+          saveChatHistory();
+        }
+      }
+
+      function restoreChatHistory() {
+        try {
+          var saved = JSON.parse(window.localStorage.getItem(chatStorageKey()) || "[]");
+          chatHistory = Array.isArray(saved) ? trimChatHistory(saved) : [];
+        } catch (err) {
+          chatHistory = [];
+        }
+        chatHistory.forEach(function (item) {
+          if (item && item.role && item.content) {
+            addChatMessage(item.role, item.content, false);
+          }
+        });
+      }
+
+      function setChatStatus(message) {
+        if (chatStatusNode) {
+          chatStatusNode.textContent = message || "";
+        }
+      }
+
+      function setChatBusy(isBusy) {
+        if (chatSubmitNode) {
+          chatSubmitNode.disabled = isBusy;
+          chatSubmitNode.textContent = isBusy ? "..." : "Envia";
+        }
+        if (chatInputNode) {
+          chatInputNode.disabled = isBusy;
+        }
+      }
+
+      function currentChatContext() {
+        return {
+          page_title: document.title || "",
+          path: window.location.pathname || "",
+          topic: currentTopicId || initialTopicId,
+          competicio_id: helper.dataset.avatarCompeticioId || "",
+        };
+      }
+
+      function sendChatMessage() {
+        if (!chatInputNode || !helper.dataset.avatarChatUrl) {
+          return;
+        }
+        var text = String(chatInputNode.value || "").trim();
+        if (!text) {
+          return;
+        }
+        addChatMessage("user", text, true);
+        chatInputNode.value = "";
+        setChatBusy(true);
+        setChatStatus("Pensant...");
+
+        fetch(helper.dataset.avatarChatUrl, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCookie("csrftoken"),
+          },
+          body: JSON.stringify(Object.assign(currentChatContext(), {
+            message: text,
+            history: chatHistory.slice(0, -1),
+          })),
+        })
+          .then(function (response) {
+            return response.json().then(function (data) {
+              if (!response.ok || !data.ok) {
+                throw new Error(data.error || "No he pogut respondre ara mateix.");
+              }
+              return data;
+            });
+          })
+          .then(function (data) {
+            addChatMessage("assistant", data.reply || "No he rebut cap resposta.", true);
+            setChatStatus("");
+          })
+          .catch(function (err) {
+            addChatMessage("assistant", err.message || "No he pogut respondre ara mateix.", true);
+            setChatStatus("");
+          })
+          .finally(function () {
+            setChatBusy(false);
+            if (chatInputNode) {
+              chatInputNode.focus();
+            }
+          });
       }
 
       function clampBubbleOffset(nextX, nextY, startRect, startOffset) {
@@ -728,6 +974,7 @@
         if (!topic) {
           return;
         }
+        helper.dataset.avatarCurrentTopic = currentTopicId || initialTopicId;
         var steps = stepsFor(topic);
         var maxStep = Math.max(steps.length - 1, 0);
         currentStep = Math.min(Math.max(currentStep, 0), maxStep);
@@ -813,6 +1060,12 @@
           render();
         });
       }
+      if (chatFormNode) {
+        chatFormNode.addEventListener("submit", function (event) {
+          event.preventDefault();
+          sendChatMessage();
+        });
+      }
 
       if (bubbleNode) {
         bubbleNode.addEventListener("pointerdown", function (event) {
@@ -866,6 +1119,7 @@
       window.addEventListener("beforeunload", saveBubbleOffset);
       window.addEventListener("resize", constrainBubbleToViewport);
       restoreBubbleOffset();
+      restoreChatHistory();
       loadTopic(initialTopicId, { open: helper.classList.contains("is-open") });
     }
 

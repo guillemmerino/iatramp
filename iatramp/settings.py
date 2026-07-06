@@ -123,6 +123,10 @@ CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "django-db")
 EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@iatramp.local")
 
+OPENAI_API_KEY = _env_str("OPENAI_API_KEY", "")
+OPENAI_AVATAR_MODEL = _env_str("OPENAI_AVATAR_MODEL", "gpt-5.5")
+OPENAI_AVATAR_TIMEOUT_SECONDS = int(os.getenv("OPENAI_AVATAR_TIMEOUT_SECONDS", "30"))
+
 if _env_bool("USE_X_FORWARDED_PROTO", False):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 if APP_ENV == "prod":

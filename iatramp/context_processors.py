@@ -70,8 +70,8 @@ def _dock_icon_path(section):
 
 
 def _font_config():
-    family = getattr(settings, "COMPETICIONS_APP_FONT_FAMILY", "") or "Inter"
-    family_css = ', '.join([f'"{family}"', '"Poppins"', '"Segoe UI"', 'Arial', 'sans-serif'])
+    family = getattr(settings, "COMPETICIONS_APP_FONT_FAMILY", "") or "Poppins"
+    family_css = ', '.join([f'"{family}"', '"Segoe UI"', 'Arial', 'sans-serif'])
     return {
         "competicio_font_family": family,
         "competicio_font_family_css": family_css,

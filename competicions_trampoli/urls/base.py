@@ -4,6 +4,7 @@ from django.urls import path
 from iatramp.access import app_authenticated_view
 
 from ..access import require_competicio_capability, require_global_groups
+from ..views.avatar_conversation import avatar_conversation_reply
 from ..views.classificacions.global_templates import (
     ClassificacioTemplateGlobalBuilder,
     ClassificacioTemplateGlobalDeleteView,
@@ -42,6 +43,11 @@ def global_authenticated_view(view, *group_names):
 
 
 urlpatterns = [
+    path(
+        "assistant/avatar/conversa/",
+        avatar_conversation_reply,
+        name="avatar_conversation_reply",
+    ),
     path(
         "trampoli/aparells/",
         global_authenticated_view(AparellList.as_view(), "platform_admin", "competicions_manager"),

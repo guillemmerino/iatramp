@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}IA Tramp{% endblock %}</title>
     {% block extra_head %}{% endblock %}
+    <link href="https://fonts.googleapis.com/css?family=Dosis:400,500|Poppins:400,700&amp;display=swap" rel="stylesheet">
     <link rel="stylesheet" type="text/css" href="{% staticv 'css/bootstrap.css' %}">
     <link rel="stylesheet" href="{% staticv 'css/style.css' %}">
     <link rel="stylesheet" href="{% staticv 'css/responsive.css' %}">
@@ -84,7 +85,7 @@
         {% block content %}{% endblock %}
     </main>
 
-    {% if not hide_base_chrome and not is_prod_competition_shell %}<footer class="footer_section"><p>&copy; 2026 IA Tramp</p></footer>{% endif %}
+    <!--{% if not hide_base_chrome and not is_prod_competition_shell %}<footer class="footer_section"><p>&copy; 2026 IA Tramp</p></footer>{% endif %}-->
 
     {% if has_competition_dock and not hide_base_chrome %}
     {% include "competicio/_competition_dock.html" %}
