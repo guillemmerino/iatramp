@@ -870,7 +870,7 @@ class JudgePortalAssignmentAdminUiTests(_BaseTrampoliDataMixin, TestCase):
                         "decimals": 1,
                     },
                 ],
-                "computed": [],
+                "computed": [{"code": "TOTAL", "label": "Nota final", "formula": "0"}],
             },
         )
 
@@ -1089,6 +1089,9 @@ class JudgePortalAssignmentAdminUiTests(_BaseTrampoliDataMixin, TestCase):
         self.assertContains(response, "Preliminar E1")
         self.assertContains(response, 'data-qr-label-edit-toggle')
         self.assertContains(response, 'id="judgeQrLabelForm" class="qr-admin-title-edit-form d-none')
+        self.assertContains(response, "permission-computed-dropdown")
+        self.assertContains(response, "enhanceComputedSelect")
+        self.assertContains(response, "càlculs seleccionats")
         self.assertContains(response, "Imprimir QRs")
         self.assertNotContains(response, "Imprimir jutges")
         self.assertNotContains(response, "Imprimir publics")
@@ -1190,6 +1193,8 @@ class JudgePortalAssignmentAdminUiTests(_BaseTrampoliDataMixin, TestCase):
                 "form-MIN_NUM_FORMS": "0",
                 "form-MAX_NUM_FORMS": "15",
                 "form-0-field_code": "E",
+                "form-0-role": "supervisor",
+                "form-0-display_computed_codes": ["TOTAL"],
                 "form-0-scope": "shared",
                 "form-0-member_mode": "all",
                 "form-0-member_slots": "",
@@ -1205,6 +1210,8 @@ class JudgePortalAssignmentAdminUiTests(_BaseTrampoliDataMixin, TestCase):
         self.assertEqual(assignment.comp_aparell_id, self.comp_aparell.id)
         self.assertEqual(assignment.fase_id, phase.id)
         self.assertEqual(assignment.permissions[0]["item_count"], 4)
+        self.assertEqual(assignment.permissions[0]["role"], "supervisor")
+        self.assertEqual(assignment.permissions[0]["display_computed_codes"], ["TOTAL"])
         self.assertEqual(assignment.subject_scope["categoria"], ["Infantil"])
         self.assertEqual(assignment.subject_scope["group_ids"], [inscripcio.grup_competicio_id])
 

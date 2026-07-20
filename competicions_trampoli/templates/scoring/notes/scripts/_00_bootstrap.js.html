@@ -12,6 +12,17 @@
   const UPDATES_URL = "{% url 'scoring_updates' competicio.id %}";
   const SAVE_URL = "{% url 'scoring_save_partial' competicio.id %}";
   const MEDIA_CONTEXT_URL = "{% url 'scoring_media_context' competicio.id %}";
+  const NOTES_PUBLICATION_ENDPOINTS = {
+    status: "{% url 'scoring_publication_status' competicio.id %}",
+    activity: "{% url 'scoring_publication_activity' competicio.id %}",
+    policy: "{% url 'scoring_publication_policy' competicio.id %}",
+    publish: "{% url 'scoring_publication_publish' competicio.id %}",
+    reject: "{% url 'scoring_publication_reject' competicio.id %}",
+  };
+  const NOTES_PUBLICATION_PERMISSIONS = {
+    publish: {{ can_publish_scores|yesno:"true,false" }},
+    managePolicy: {{ can_manage_publication_policy|yesno:"true,false" }},
+  };
   const NOTES_LAZY_ENDPOINTS = {
     manifest: "{% url 'scoring_notes_manifest' competicio.id %}",
     table: "{% url 'scoring_notes_table' competicio.id %}",

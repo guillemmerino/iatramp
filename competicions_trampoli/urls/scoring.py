@@ -21,6 +21,13 @@ from ..views.scoring.notes_api import notes_manifest, notes_search, notes_table,
 from ..views.scoring.save import scoring_save, scoring_save_partial
 from ..views.scoring.schema import ScoringSchemaUpdate
 from ..views.scoring.updates import scoring_updates
+from ..views.scoring.publication import (
+    scoring_publication_activity,
+    scoring_publication_policy,
+    scoring_publication_publish,
+    scoring_publication_reject,
+    scoring_publication_status,
+)
 
 
 urlpatterns = [
@@ -123,6 +130,31 @@ urlpatterns = [
         "scoring/<int:pk>/updates/",
         competition_view(scoring_updates, "scoring.view"),
         name="scoring_updates",
+    ),
+    path(
+        "scoring/<int:pk>/publication/status/",
+        competition_view(scoring_publication_status, "scoring.view"),
+        name="scoring_publication_status",
+    ),
+    path(
+        "scoring/<int:pk>/publication/activity/",
+        competition_view(scoring_publication_activity, "scoring.view"),
+        name="scoring_publication_activity",
+    ),
+    path(
+        "scoring/<int:pk>/publication/policy/",
+        competition_view(scoring_publication_policy, "scoring.publication_policy.manage"),
+        name="scoring_publication_policy",
+    ),
+    path(
+        "scoring/<int:pk>/publication/publish/",
+        competition_view(scoring_publication_publish, "scoring.publish"),
+        name="scoring_publication_publish",
+    ),
+    path(
+        "scoring/<int:pk>/publication/reject/",
+        competition_view(scoring_publication_reject, "scoring.publish"),
+        name="scoring_publication_reject",
     ),
     path(
         "scoring/<int:pk>/media/context/",

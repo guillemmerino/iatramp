@@ -21,6 +21,7 @@ from .models.judging import (
     JudgeScoreSubmission,
 )
 from .models.rotacions import RotacioAssignacioProgramUnit
+from .models.scoring import ScorePublicationPolicy, ScoreRevision
 
 
 class CompeticioMembershipByCompeticioInline(admin.TabularInline):
@@ -176,6 +177,40 @@ class JudgeScoreSubmissionAdmin(admin.ModelAdmin):
         "reviewed_by_assignment",
     )
     readonly_fields = ("created_at", "updated_at", "reviewed_at")
+
+
+@admin.register(ScorePublicationPolicy)
+class ScorePublicationPolicyAdmin(admin.ModelAdmin):
+    list_display = ("competicio", "mode", "changed_by", "changed_at")
+    list_filter = ("mode",)
+    search_fields = ("competicio__nom", "changed_by__username")
+    autocomplete_fields = ("competicio", "changed_by")
+    readonly_fields = ("changed_at",)
+
+
+@admin.register(ScoreRevision)
+class ScoreRevisionAdmin(admin.ModelAdmin):
+    list_display = (
+        "id", "competicio", "comp_aparell", "subject_kind", "subject_id",
+        "exercici", "total", "source", "publication_status", "created_at",
+    )
+    list_filter = ("publication_status", "source", "competicio", "comp_aparell")
+    search_fields = ("subject_id", "actor_user__username", "actor_judge_token__label")
+    readonly_fields = (
+        "competicio", "comp_aparell", "fase", "score_entry", "team_score_entry",
+        "subject_kind", "subject_id", "exercici", "inputs", "outputs", "total",
+        "source", "actor_user", "actor_judge_token", "publication_status",
+        "reviewed_by", "reviewed_at", "review_note", "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(JudgeConversation)

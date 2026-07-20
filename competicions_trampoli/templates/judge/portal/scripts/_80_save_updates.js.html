@@ -460,6 +460,8 @@
         setStatus(insId, exercici, "info", "Pendent de validacio");
       } else if(publicationStatus === "partial_pending"){
         setStatus(insId, exercici, "info", "Desat parcialment; hi ha camps pendents");
+      } else if(publicationStatus === "pending_organization"){
+        setStatus(insId, exercici, "info", "Desat; pendent de publicacio per l'organitzacio");
       } else {
         setStatus(insId, exercici, "ok", "Desat");
       }

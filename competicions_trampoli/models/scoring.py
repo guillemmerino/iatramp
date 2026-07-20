@@ -355,6 +355,212 @@ class TeamScoreEntry(models.Model):
         return f"TeamScoreEntry subject={self.team_subject_id} ex={self.exercici} app={self.comp_aparell_id} fase={self.fase_id or '-'}"
 
 
+class ScorePublicationPolicy(models.Model):
+    class Mode(models.TextChoices):
+        AUTO = "auto", "Publicacio automatica"
+        ORGANIZATION_REVIEW = "organization_review", "Validacio de l'organitzacio"
+
+    competicio = models.OneToOneField(
+        Competicio,
+        on_delete=models.CASCADE,
+        related_name="score_publication_policy",
+    )
+    mode = models.CharField(max_length=30, choices=Mode.choices, default=Mode.AUTO)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="score_publication_policy_changes",
+    )
+    changed_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.competicio_id} / {self.mode}"
+
+
+class ScoreRevision(models.Model):
+    class Source(models.TextChoices):
+        JUDGE = "judge", "Jutge"
+        SUPERVISOR = "supervisor", "Supervisor"
+        ORGANIZATION = "organization", "Organitzacio"
+        IMPORT = "import", "Importacio"
+        SYSTEM = "system", "Sistema"
+
+    class PublicationStatus(models.TextChoices):
+        PENDING = "pending", "Pendent d'organitzacio"
+        PUBLISHED = "published", "Publicada"
+        REJECTED = "rejected", "Rebutjada"
+        SUPERSEDED = "superseded", "Substituida"
+
+    competicio = models.ForeignKey(Competicio, on_delete=models.CASCADE, related_name="score_revisions")
+    comp_aparell = models.ForeignKey(CompeticioAparell, on_delete=models.CASCADE, related_name="score_revisions")
+    fase = models.ForeignKey(
+        CompeticioAparellFase,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="score_revisions",
+    )
+    score_entry = models.ForeignKey(
+        ScoreEntry,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="revisions",
+    )
+    team_score_entry = models.ForeignKey(
+        TeamScoreEntry,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="revisions",
+    )
+    subject_kind = models.CharField(max_length=30)
+    subject_id = models.PositiveIntegerField()
+    exercici = models.PositiveSmallIntegerField(default=1)
+    inputs = models.JSONField(default=dict, blank=True)
+    outputs = models.JSONField(default=dict, blank=True)
+    total = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    source = models.CharField(max_length=20, choices=Source.choices, default=Source.SYSTEM)
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="score_revisions",
+    )
+    actor_judge_token = models.ForeignKey(
+        "JudgeDeviceToken",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="score_revisions",
+    )
+    publication_status = models.CharField(
+        max_length=20,
+        choices=PublicationStatus.choices,
+        default=PublicationStatus.PENDING,
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_score_revisions",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.CharField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    (Q(score_entry__isnull=False) & Q(team_score_entry__isnull=True))
+                    | (Q(score_entry__isnull=True) & Q(team_score_entry__isnull=False))
+                ),
+                name="score_revision_exactly_one_entry",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["competicio", "publication_status", "created_at"], name="score_rev_comp_status_at_idx"),
+            models.Index(fields=["competicio", "source", "created_at"], name="score_rev_comp_source_at_idx"),
+            models.Index(fields=["subject_kind", "subject_id", "exercici"], name="score_rev_subject_ex_idx"),
+        ]
+
+    def __str__(self):
+        return f"ScoreRevision {self.id} / {self.subject_kind}:{self.subject_id} / {self.publication_status}"
+
+
+class ScorePublicationState(models.Model):
+    score_entry = models.OneToOneField(
+        ScoreEntry,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="publication_state",
+    )
+    team_score_entry = models.OneToOneField(
+        TeamScoreEntry,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="publication_state",
+    )
+    current_revision = models.ForeignKey(
+        ScoreRevision,
+        on_delete=models.CASCADE,
+        related_name="current_for_states",
+    )
+    published_revision = models.ForeignKey(
+        ScoreRevision,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="published_for_states",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    (Q(score_entry__isnull=False) & Q(team_score_entry__isnull=True))
+                    | (Q(score_entry__isnull=True) & Q(team_score_entry__isnull=False))
+                ),
+                name="score_publication_state_one_entry",
+            ),
+        ]
+
+
+class PublishedScoreEntry(models.Model):
+    source_entry = models.OneToOneField(ScoreEntry, on_delete=models.CASCADE, related_name="published_snapshot")
+    competicio = models.ForeignKey(Competicio, on_delete=models.CASCADE, related_name="published_scores")
+    inscripcio = models.ForeignKey(Inscripcio, on_delete=models.CASCADE, related_name="published_scores")
+    exercici = models.PositiveSmallIntegerField(default=1)
+    comp_aparell = models.ForeignKey(CompeticioAparell, on_delete=models.CASCADE, related_name="published_scores")
+    fase = models.ForeignKey(
+        CompeticioAparellFase,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="published_scores",
+    )
+    inputs = models.JSONField(default=dict, blank=True)
+    outputs = models.JSONField(default=dict, blank=True)
+    total = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    published_at = models.DateTimeField(auto_now=True)
+
+
+class PublishedTeamScoreEntry(models.Model):
+    source_entry = models.OneToOneField(TeamScoreEntry, on_delete=models.CASCADE, related_name="published_snapshot")
+    competicio = models.ForeignKey(Competicio, on_delete=models.CASCADE, related_name="published_team_scores")
+    team_subject = models.ForeignKey(
+        TeamCompetitiveSubject,
+        on_delete=models.CASCADE,
+        related_name="published_scores",
+    )
+    exercici = models.PositiveSmallIntegerField(default=1)
+    comp_aparell = models.ForeignKey(CompeticioAparell, on_delete=models.CASCADE, related_name="published_team_scores")
+    fase = models.ForeignKey(
+        CompeticioAparellFase,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="published_team_scores",
+    )
+    inputs = models.JSONField(default=dict, blank=True)
+    outputs = models.JSONField(default=dict, blank=True)
+    total = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    published_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def equip_id(self):
+        return getattr(self.team_subject, "equip_id", None)
+
+
 class ScoreWarningAcknowledgement(models.Model):
     competicio = models.ForeignKey(
         Competicio,

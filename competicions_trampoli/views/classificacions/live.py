@@ -18,6 +18,7 @@ from ...services.classificacions.live_menu import (
     first_menu_cfg_id,
     live_menu_from_view_config,
 )
+from ...services.classificacions.engine.loaders import classification_score_audience
 
 
 def build_live_cfg_payload_row(competicio, cfg):
@@ -34,6 +35,15 @@ def live_data_payload(competicio, since_raw=None):
         since_raw=since_raw,
         build_row_fn=build_live_cfg_payload_row,
     )
+
+
+def public_live_data_payload(competicio, since_raw=None):
+    with classification_score_audience("public"):
+        return service_live_data_payload(
+            competicio,
+            since_raw=since_raw,
+            build_row_fn=build_live_cfg_payload_row,
+        )
 
 
 class ClassificacionsLive(TemplateView):
@@ -194,13 +204,15 @@ class PublicClassificacionsLoopLive(TemplateView):
 
 def classificacions_live_data(request, pk):
     competicio = get_object_or_404(Competicio, pk=pk)
+    public_raw = (request.GET.get("public") or "").strip().lower()
+    is_public = public_raw in {"1", "true", "yes", "on"}
     payload, source = get_live_payload_cached(
         competicio,
-        compute_payload=live_data_payload,
+        compute_payload=public_live_data_payload if is_public else live_data_payload,
         since_raw=request.GET.get("since"),
+        audience="public" if is_public else "internal",
     )
-    public_raw = (request.GET.get("public") or "").strip().lower()
-    if public_raw in {"1", "true", "yes", "on"}:
+    if is_public:
         payload = public_live_payload(payload)
     response = JsonResponse(payload)
     response["X-Live-Cache"] = source
@@ -215,8 +227,9 @@ def public_classificacions_live_data(request, token):
     competicio = token_obj.competicio
     payload, source = get_live_payload_cached(
         competicio,
-        compute_payload=live_data_payload,
+        compute_payload=public_live_data_payload,
         since_raw=request.GET.get("since"),
+        audience="public",
     )
     payload = public_live_payload(payload)
     payload["permissions"] = {"can_view_media": bool(token_obj.can_view_media)}

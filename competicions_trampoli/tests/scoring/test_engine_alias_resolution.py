@@ -141,4 +141,19 @@ class ScoringEngineAliasResolutionTests(TestCase):
         self.assertEqual(result.outputs.get("C2"), 6)
         self.assertEqual(float(result.total), 6.0)
 
+    def test_lowercase_tot_is_used_as_final_score(self):
+        schema = {
+            "fields": [
+                {"code": "A", "type": "number"},
+            ],
+            "computed": [
+                {"code": "tot", "label": "TOTAL", "formula": "A + 1"},
+            ],
+        }
+
+        result = ScoringEngine(schema).compute({"A": 3})
+
+        self.assertEqual(result.outputs.get("tot"), 4)
+        self.assertEqual(float(result.total), 4.0)
+
 

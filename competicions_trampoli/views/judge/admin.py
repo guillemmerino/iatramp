@@ -57,6 +57,16 @@ def _schema_field_by_code(schema: dict):
     return {f.get("code"): f for f in (schema.get("fields") or []) if isinstance(f, dict) and f.get("code")}
 
 
+def _schema_computed_choices(schema: dict):
+    out = []
+    for item in (schema.get("computed") or []):
+        if not isinstance(item, dict) or not item.get("code"):
+            continue
+        code = str(item["code"])
+        out.append((code, f"{code} — {item.get('label') or code}"))
+    return out
+
+
 def _field_items_count(field: dict) -> int:
     if str((field or {}).get("type") or "number").strip().lower() != "matrix":
         return 1
@@ -126,6 +136,7 @@ def _permission_summary_rows(perms):
             "role": role,
             "role_label": "Supervisor" if role == "supervisor" else "Standard",
             "is_supervisor": role == "supervisor",
+            "display_computed_codes": list(perm.get("display_computed_codes") or []),
         })
     return rows
 
@@ -195,6 +206,7 @@ def _schema_context_for_app(competicio, comp_aparell):
             "runtime_schema": {},
             "field_catalog": [],
             "field_choices": _schema_field_choices({}),
+            "computed_choices": [],
             "schema_by_code": {},
             "team_context_mode": False,
             "member_slot_choices": [],
@@ -211,6 +223,7 @@ def _schema_context_for_app(competicio, comp_aparell):
             team_context_mode=team_context_mode,
         ),
         "field_choices": _schema_field_choices(schema),
+        "computed_choices": _schema_computed_choices(schema),
         "schema_by_code": _schema_field_by_code(schema),
         "team_context_mode": team_context_mode,
         "member_slot_choices": _member_slot_choices(competicio, comp_aparell),
@@ -230,6 +243,10 @@ def _app_catalog_for_template(competicio, comp_aparells):
             "id": comp_aparell.id,
             "label": getattr(comp_aparell, "display_nom", "") or str(comp_aparell),
             "fields": app_context["field_catalog"],
+            "computed": [
+                {"code": code, "label": label.split(" — ", 1)[-1]}
+                for code, label in app_context["computed_choices"]
+            ],
             "phases": [
                 {"id": phase.id, "label": phase.nom}
                 for phase in app_context["phase_choices"]
@@ -316,6 +333,10 @@ def _validate_permission_row(schema_by_code: dict, row: dict, *, team_context_mo
         "item_count": item_count,
         "role": role,
     }
+    if role == "supervisor":
+        result["display_computed_codes"] = [
+            str(code) for code in (row.get("display_computed_codes") or []) if str(code).strip()
+        ]
     if scope == "member":
         result["member_mode"] = member_mode
         if member_mode != "all":
@@ -353,6 +374,7 @@ def qr_admin_home(request, competicio_id, token_id=None):
     runtime_schema = app_context["runtime_schema"]
     field_catalog = app_context["field_catalog"]
     field_choices = app_context["field_choices"]
+    computed_choices = app_context["computed_choices"]
     schema_by_code = app_context["schema_by_code"]
     team_context_mode = app_context["team_context_mode"]
     member_slot_choices = app_context["member_slot_choices"]
@@ -508,13 +530,17 @@ def qr_admin_home(request, competicio_id, token_id=None):
             runtime_schema = app_context["runtime_schema"]
             field_catalog = app_context["field_catalog"]
             field_choices = app_context["field_choices"]
+            computed_choices = app_context["computed_choices"]
             schema_by_code = app_context["schema_by_code"]
             team_context_mode = app_context["team_context_mode"]
             member_slot_choices = app_context["member_slot_choices"]
             phase_choices = app_context["phase_choices"]
             token_id = request.POST.get("token_id")
             tok = get_object_or_404(JudgeDeviceToken, pk=token_id, competicio=competicio)
-            formset = PermissionFS(request.POST, form_kwargs={"field_choices": field_choices})
+            formset = PermissionFS(request.POST, form_kwargs={
+                "field_choices": field_choices,
+                "computed_choices": computed_choices,
+            })
             if formset.is_valid():
                 try:
                     perms = _build_permissions_from_formset(
@@ -565,7 +591,10 @@ def qr_admin_home(request, competicio_id, token_id=None):
 
         # create token
         token_form = JudgeTokenCreateForm(request.POST)
-        formset = PermissionFS(request.POST, form_kwargs={"field_choices": field_choices})
+        formset = PermissionFS(request.POST, form_kwargs={
+            "field_choices": field_choices,
+            "computed_choices": computed_choices,
+        })
 
         token_form_valid = token_form.is_valid()
         formset_valid = formset.is_valid()
@@ -635,7 +664,10 @@ def qr_admin_home(request, competicio_id, token_id=None):
             token_form.add_error(None, "Revisa els errors marcats a la taula de permisos.")
     else:
         token_form = JudgeTokenCreateForm()
-        formset = PermissionFS(form_kwargs={"field_choices": field_choices})
+        formset = PermissionFS(form_kwargs={
+            "field_choices": field_choices,
+            "computed_choices": computed_choices,
+        })
 
     tokens_qs = (
         JudgeDeviceToken.objects

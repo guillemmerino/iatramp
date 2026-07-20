@@ -147,6 +147,9 @@ def _normalize_permissions(perms):
             "judge_index": int(raw_perm.get("judge_index") or 1),
             "item_start": int(raw_perm.get("item_start") or 1),
             "item_count": (None if item_count in (None, "", "null") else int(item_count)),
+            "display_computed_codes": [
+                str(code) for code in (raw_perm.get("display_computed_codes") or []) if str(code).strip()
+            ],
         }
         if scope == "member":
             row["member_mode"] = str(raw_perm.get("member_mode") or "all")

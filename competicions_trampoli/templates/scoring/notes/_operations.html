@@ -1,0 +1,74 @@
+<section class="notes-operations" data-notes-operations="1" aria-labelledby="notes-operations-title">
+  <div class="notes-publication-banner" data-publication-banner="1">
+    <div class="notes-publication-banner-copy">
+      <div class="notes-eyebrow">Publicació de resultats</div>
+      <div class="notes-publication-title" id="notes-operations-title" data-publication-mode-label="1">Carregant l'estat...</div>
+      <div class="notes-publication-meta" data-publication-meta="1">Consultant l'última publicació.</div>
+    </div>
+    {% if can_manage_publication_policy %}
+      <button type="button" class="btn btn-sm notes-btn-theme-outline" data-publication-toggle="1" disabled>
+        Configurar validació
+      </button>
+    {% endif %}
+  </div>
+
+  <div class="notes-kpi-grid" aria-label="Resum operatiu">
+    <button type="button" class="notes-kpi-card is-pending" data-activity-status-filter="pending">
+      <span class="notes-kpi-value" data-kpi-pending="1">—</span>
+      <span class="notes-kpi-label">Pendents d'organització</span>
+    </button>
+    <button type="button" class="notes-kpi-card is-supervisor" data-supervisor-filter="1">
+      <span class="notes-kpi-value" data-kpi-supervisor="1">—</span>
+      <span class="notes-kpi-label">Pendents de supervisor</span>
+    </button>
+    <button type="button" class="notes-kpi-card is-published" data-activity-status-filter="published">
+      <span class="notes-kpi-value" data-kpi-published="1">—</span>
+      <span class="notes-kpi-label">Publicades</span>
+    </button>
+    <button type="button" class="notes-kpi-card is-rejected" data-activity-status-filter="rejected">
+      <span class="notes-kpi-value" data-kpi-rejected="1">—</span>
+      <span class="notes-kpi-label">Rebutjades</span>
+    </button>
+  </div>
+
+  <div class="notes-activity-shell">
+    <div class="notes-activity-head">
+      <div>
+        <h2>Últimes notes introduïdes</h2>
+        <p>Seguiment cronològic de jutges, supervisors i organització.</p>
+      </div>
+      <div class="notes-activity-tools">
+        <select class="form-control form-control-sm" data-activity-status="1" aria-label="Filtra per estat">
+          <option value="">Tots els estats</option>
+          <option value="supervisor_pending">Pendents de supervisor</option>
+          <option value="pending">Pendents d'organització</option>
+          <option value="published">Publicades</option>
+          <option value="rejected">Rebutjades</option>
+          <option value="superseded">Substituïdes</option>
+        </select>
+        <select class="form-control form-control-sm" data-activity-source="1" aria-label="Filtra per origen">
+          <option value="">Tots els orígens</option>
+          <option value="judge">Jutges</option>
+          <option value="supervisor">Supervisors</option>
+          <option value="organization">Organització</option>
+          <option value="system">Sistema</option>
+        </select>
+        <input class="form-control form-control-sm" type="search" placeholder="Cerca esportista o equip" data-activity-search="1" aria-label="Cerca a l'activitat">
+        <button type="button" class="btn btn-sm notes-btn-theme-outline" data-activity-refresh="1">Actualitzar</button>
+      </div>
+    </div>
+    <div class="notes-new-activity d-none" data-new-activity="1" role="status"></div>
+    <div class="notes-activity-list" data-activity-list="1" aria-live="polite">
+      <div class="notes-activity-empty">Carregant activitat...</div>
+    </div>
+    {% if can_publish_scores %}
+      <div class="notes-bulk-actions d-none" data-bulk-actions="1">
+        <span data-selected-count="1">0 seleccionades</span>
+        <div>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-clear-selection="1">Netejar</button>
+          <button type="button" class="btn btn-sm notes-btn-theme-solid" data-publish-selected="1">Validar i publicar</button>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</section>

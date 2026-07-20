@@ -27,6 +27,10 @@
       member_slot: (p && p.member_slot != null && p.member_slot !== "") ? Math.max(1, Number(p.member_slot)) : null,
       label: String((p && p.label) || ""),
       role: String((p && p.role) || "standard").trim().toLowerCase() === "supervisor" ? "supervisor" : "standard",
+      crash_supervisor_controlled: !!(p && p.crash_supervisor_controlled),
+      display_computed_codes: Array.isArray(p && p.display_computed_codes)
+        ? p.display_computed_codes.map((code) => String(code || "").trim()).filter(Boolean)
+        : [],
     };
     if(base.scope !== "member"){
       base.member_mode = "";

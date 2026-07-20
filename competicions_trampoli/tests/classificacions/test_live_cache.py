@@ -350,7 +350,7 @@ class LiveClassificacionsRedisCacheTests(_BaseTrampoliDataMixin, TestCase):
         compute_result = {
             "global": [{"participant": "Participant Cache", "punts": 9.8, "posicio": 1}]
         }
-        cache_key = live_cache.live_cache_key(self.comp.id)
+        cache_key = live_cache.live_cache_key(self.comp.id, "public")
         with patch("competicions_trampoli.live_cache._live_redis_client", return_value=fake_redis):
             with patch("competicions_trampoli.views.classificacions.live.compute_classificacio", return_value=compute_result) as mocked_compute:
                 res_1 = self.client.get(self._public_url())
@@ -367,7 +367,7 @@ class LiveClassificacionsRedisCacheTests(_BaseTrampoliDataMixin, TestCase):
             "Participant Cache",
         )
 
-    def test_public_and_internal_live_share_same_snapshot(self):
+    def test_public_and_internal_live_use_separate_snapshots(self):
         fake_redis = self.FakeRedis()
         compute_result = {
             "global": [{"participant": "Participant Cache", "punts": 9.8, "posicio": 1}]
@@ -380,9 +380,9 @@ class LiveClassificacionsRedisCacheTests(_BaseTrampoliDataMixin, TestCase):
 
         self.assertEqual(public_res.status_code, 200)
         self.assertEqual(internal_res.status_code, 200)
-        self.assertEqual(mocked_compute.call_count, 1)
+        self.assertEqual(mocked_compute.call_count, 2)
         self.assertEqual(public_res["X-Live-Cache"], "miss")
-        self.assertEqual(internal_res["X-Live-Cache"], "hit")
+        self.assertEqual(internal_res["X-Live-Cache"], "miss")
         self.assertIn("permissions", public_res.json())
         self.assertNotIn("permissions", internal_res.json())
 
@@ -475,8 +475,8 @@ class LiveClassificacionsRedisCacheTests(_BaseTrampoliDataMixin, TestCase):
         snapshot = self._snapshot_payload()
         snapshot["stamp"] = old_stamp
         snapshot["generated_at"] = (timezone.now() - timedelta(seconds=1)).isoformat()
-        fake_redis.set(live_cache.live_cache_key(self.comp.id), json.dumps(snapshot))
-        fake_redis.set(live_cache.live_dirty_key(self.comp.id), "dirty-1")
+        fake_redis.set(live_cache.live_cache_key(self.comp.id, "public"), json.dumps(snapshot))
+        fake_redis.set(live_cache.live_dirty_key(self.comp.id, "public"), "dirty-1")
 
         compute_result = {
             "global": [{"participant": "Participant Cache", "punts": 9.9, "posicio": 1}]
@@ -495,7 +495,7 @@ class LiveClassificacionsRedisCacheTests(_BaseTrampoliDataMixin, TestCase):
 
     def test_lock_contention_waits_for_snapshot_without_recompute(self):
         fake_redis = self.FakeRedis()
-        fake_redis.set(live_cache.live_lock_key(self.comp.id), "busy")
+        fake_redis.set(live_cache.live_lock_key(self.comp.id, "public"), "busy")
         waited_snapshot = json.loads(self._snapshot_blob())
         with patch("competicions_trampoli.live_cache._live_redis_client", return_value=fake_redis):
             with patch("competicions_trampoli.live_cache._wait_for_live_snapshot", return_value=waited_snapshot):
@@ -509,10 +509,10 @@ class LiveClassificacionsRedisCacheTests(_BaseTrampoliDataMixin, TestCase):
     def test_stale_snapshot_is_served_when_refresh_lock_is_busy(self):
         fake_redis = self.FakeRedis()
         fake_redis.set(
-            live_cache.live_cache_key(self.comp.id),
+            live_cache.live_cache_key(self.comp.id, "public"),
             self._snapshot_blob(generated_at=timezone.now() - timedelta(seconds=10)),
         )
-        fake_redis.set(live_cache.live_lock_key(self.comp.id), "busy")
+        fake_redis.set(live_cache.live_lock_key(self.comp.id, "public"), "busy")
         with patch("competicions_trampoli.live_cache._live_redis_client", return_value=fake_redis):
             with patch("competicions_trampoli.views.classificacions.live.compute_classificacio") as mocked_compute:
                 res = self.client.get(self._public_url())
@@ -538,8 +538,8 @@ class LiveClassificacionsRedisCacheTests(_BaseTrampoliDataMixin, TestCase):
 
     def test_fresh_snapshot_with_dirty_forces_refresh_and_clears_dirty(self):
         fake_redis = self.FakeRedis()
-        fake_redis.set(live_cache.live_cache_key(self.comp.id), self._snapshot_blob())
-        dirty_key = live_cache.live_dirty_key(self.comp.id)
+        fake_redis.set(live_cache.live_cache_key(self.comp.id, "public"), self._snapshot_blob())
+        dirty_key = live_cache.live_dirty_key(self.comp.id, "public")
         fake_redis.set(dirty_key, "dirty-1")
         compute_result = {
             "global": [{"participant": "Participant Cache", "punts": 9.8, "posicio": 1}]
@@ -633,7 +633,7 @@ class LiveClassificacionsRedisCacheTests(_BaseTrampoliDataMixin, TestCase):
         snapshot = json.loads(self._snapshot_blob())
         stamp = snapshot["stamp"]
         fake_redis = self.FakeRedis()
-        fake_redis.set(live_cache.live_cache_key(self.comp.id), json.dumps(snapshot))
+        fake_redis.set(live_cache.live_cache_key(self.comp.id, "public"), json.dumps(snapshot))
 
         team_ctx = EquipContext.objects.create(
             competicio=self.comp,

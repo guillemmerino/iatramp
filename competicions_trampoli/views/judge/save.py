@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_POST
 
 from ...models.judging import JudgeDeviceToken
+from ...models.scoring import ScorePublicationPolicy, ScoreRevision
 from ...scoring_engine import ScoringError
 from ...services.judging.submissions import persist_subject_score_patch
 from ...services.judging.supervision import (
@@ -27,6 +28,7 @@ from ...services.scoring.team_scoring import (
     logical_team_inputs_to_runtime_inputs,
     runtime_schema_for_comp_aparell,
 )
+from ...services.scoring.publication import score_write_context
 from ._assignment_scope import (
     assignment_id_from_request,
     clamp_exercici_for_scope,
@@ -163,6 +165,51 @@ def judge_save_partial(request, token):
         return JsonResponse({"ok": False, "error": "Intentes editar un camp no autoritzat per aquest QR"}, status=403)
     schema = runtime_schema_for_comp_aparell(base_schema, comp_aparell, member_count=team_member_count)
 
+    # Quan hi ha supervisor, el crash és una decisió única seva. Clients antics
+    # poden continuar enviant la clau, però no han de poder modificar-la.
+    inputs_patch = dict(inputs_patch)
+    for patch_code in list(inputs_patch):
+        if not str(patch_code).startswith("__crash__"):
+            continue
+        runtime_code = _patch_base_code(patch_code)
+        requires_supervision = field_requires_supervision(
+            competicio=competicio,
+            comp_aparell=comp_aparell,
+            phase=scope.phase,
+            runtime_field_code=runtime_code,
+        )
+        is_supervisor = token_is_supervisor_for_field(
+            token=tok,
+            assignment=scope.assignment,
+            comp_aparell=comp_aparell,
+            runtime_field_code=runtime_code,
+        )
+        if requires_supervision and not is_supervisor:
+            inputs_patch.pop(patch_code, None)
+            continue
+        if requires_supervision and is_supervisor:
+            field = next(
+                (item for item in (schema.get("fields") or []) if item.get("code") == runtime_code),
+                {},
+            )
+            n_judges = max(1, int(((field.get("judges") or {}).get("count")) or 1))
+            supervisor_perm = next(
+                (
+                    item for item in resolved_permissions
+                    if str(item.get("runtime_field_code") or item.get("field_code") or "") == runtime_code
+                    and str(item.get("role") or "standard") == "supervisor"
+                ),
+                {},
+            )
+            supervisor_index = max(1, int(supervisor_perm.get("judge_index") or 1)) - 1
+            raw_crash = inputs_patch.get(patch_code)
+            crash_at = (
+                raw_crash[supervisor_index]
+                if isinstance(raw_crash, list) and len(raw_crash) > supervisor_index
+                else raw_crash
+            )
+            inputs_patch[patch_code] = [crash_at] * n_judges
+
     sanitized = _sanitize_patch_by_permissions(schema, resolved_permissions, inputs_patch)
     sanitized_by_field = _group_patch_by_field(sanitized)
     raw_by_field = _group_patch_by_field(inputs_patch)
@@ -210,14 +257,15 @@ def judge_save_partial(request, token):
 
     try:
         if immediate_patch:
-            entry = persist_subject_score_patch(
-                competicio=competicio,
-                comp_aparell=comp_aparell,
-                exercici=exercici,
-                subject=subject,
-                phase=scope.phase,
-                patch=immediate_patch,
-            )
+            with score_write_context(source=ScoreRevision.Source.JUDGE, judge_token=tok):
+                entry = persist_subject_score_patch(
+                    competicio=competicio,
+                    comp_aparell=comp_aparell,
+                    exercici=exercici,
+                    subject=subject,
+                    phase=scope.phase,
+                    patch=immediate_patch,
+                )
             approve_pending_submissions_for_published_fields(
                 competicio=competicio,
                 comp_aparell=comp_aparell,
@@ -259,6 +307,11 @@ def judge_save_partial(request, token):
             if pending_submissions and immediate_patch
             else "pending"
             if pending_submissions
+            else "pending_organization"
+            if ScorePublicationPolicy.objects.filter(
+                competicio=competicio,
+                mode=ScorePublicationPolicy.Mode.ORGANIZATION_REVIEW,
+            ).exists()
             else "published"
         ),
         "requires_supervision": bool(pending_submissions),

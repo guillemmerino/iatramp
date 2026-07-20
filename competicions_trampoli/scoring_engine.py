@@ -1441,5 +1441,13 @@ class ScoringEngine:
             context[code] = val
             apply_aliases(context)
 
-        total = to_float(outputs.get("TOTAL", outputs.get("total", 0)))
+        # Historical schemas use both ``TOTAL``/``total`` and the Catalan
+        # shorthand ``tot`` for the final score.  Keep the lookup explicit so
+        # a valid zero is not mistaken for a missing value.
+        total_value = 0
+        for total_code in ("TOTAL", "total", "tot"):
+            if total_code in outputs:
+                total_value = outputs[total_code]
+                break
+        total = to_float(total_value)
         return EngineResult(inputs=norm_inputs, outputs=outputs, total=total)

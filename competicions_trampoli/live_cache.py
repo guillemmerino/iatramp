@@ -30,16 +30,20 @@ def _live_redis_client():
     return redis.from_url(REDIS_URL, encoding="utf-8", decode_responses=True)
 
 
-def live_cache_key(competicio_id: int) -> str:
-    return f"live:classificacions:{int(competicio_id)}"
+def _live_audience(audience) -> str:
+    return "public" if str(audience or "internal").strip().lower() == "public" else "internal"
 
 
-def live_lock_key(competicio_id: int) -> str:
-    return f"lock:live:classificacions:{int(competicio_id)}"
+def live_cache_key(competicio_id: int, audience="internal") -> str:
+    return f"live:classificacions:{_live_audience(audience)}:{int(competicio_id)}"
 
 
-def live_dirty_key(competicio_id: int) -> str:
-    return f"dirty:live:classificacions:{int(competicio_id)}"
+def live_lock_key(competicio_id: int, audience="internal") -> str:
+    return f"lock:live:classificacions:{_live_audience(audience)}:{int(competicio_id)}"
+
+
+def live_dirty_key(competicio_id: int, audience="internal") -> str:
+    return f"dirty:live:classificacions:{_live_audience(audience)}:{int(competicio_id)}"
 
 
 def _coerce_live_datetime(raw):
@@ -72,30 +76,30 @@ def _decode_live_snapshot(raw):
     return data
 
 
-def load_live_snapshot(redis_client, competicio_id: int):
-    return _decode_live_snapshot(redis_client.get(live_cache_key(competicio_id)))
+def load_live_snapshot(redis_client, competicio_id: int, audience="internal"):
+    return _decode_live_snapshot(redis_client.get(live_cache_key(competicio_id, audience)))
 
 
-def store_live_snapshot(redis_client, competicio_id: int, payload: dict) -> dict:
+def store_live_snapshot(redis_client, competicio_id: int, payload: dict, audience="internal") -> dict:
     snapshot = _build_live_snapshot(payload)
     ttl = LIVE_CACHE_FRESH_TTL_SECONDS + LIVE_CACHE_STALE_GRACE_SECONDS
     redis_client.set(
-        live_cache_key(competicio_id),
+        live_cache_key(competicio_id, audience),
         json.dumps(snapshot, ensure_ascii=False),
         ex=ttl,
     )
     return snapshot
 
 
-def get_live_dirty_marker(redis_client, competicio_id: int):
-    return redis_client.get(live_dirty_key(competicio_id))
+def get_live_dirty_marker(redis_client, competicio_id: int, audience="internal"):
+    return redis_client.get(live_dirty_key(competicio_id, audience))
 
 
-def clear_live_dirty_if_match(redis_client, competicio_id: int, marker: str) -> bool:
+def clear_live_dirty_if_match(redis_client, competicio_id: int, marker: str, audience="internal") -> bool:
     if not marker:
         return False
     try:
-        key = live_dirty_key(competicio_id)
+        key = live_dirty_key(competicio_id, audience)
         if redis_client.get(key) != marker:
             return False
         redis_client.delete(key)
@@ -105,17 +109,19 @@ def clear_live_dirty_if_match(redis_client, competicio_id: int, marker: str) -> 
         return False
 
 
-def mark_live_dirty(competicio_id: int, marker=None):
+def mark_live_dirty(competicio_id: int, marker=None, audience="all"):
     if not competicio_id:
         return None
     marker = str(marker or uuid.uuid4())
     try:
         redis_client = _live_redis_client()
-        redis_client.set(
-            live_dirty_key(competicio_id),
-            marker,
-            ex=LIVE_CACHE_DIRTY_TTL_SECONDS,
-        )
+        audiences = ("internal", "public") if audience == "all" else (_live_audience(audience),)
+        for target in audiences:
+            redis_client.set(
+                live_dirty_key(competicio_id, target),
+                marker,
+                ex=LIVE_CACHE_DIRTY_TTL_SECONDS,
+            )
     except Exception:
         logger.warning("Failed to mark live dirty", exc_info=True)
     return marker
@@ -141,10 +147,10 @@ def _live_snapshot_is_usable(snapshot: dict, now=None) -> bool:
     return age <= (LIVE_CACHE_FRESH_TTL_SECONDS + LIVE_CACHE_STALE_GRACE_SECONDS)
 
 
-def _try_acquire_live_lock(redis_client, competicio_id: int):
+def _try_acquire_live_lock(redis_client, competicio_id: int, audience="internal"):
     token = str(uuid.uuid4())
     acquired = redis_client.set(
-        live_lock_key(competicio_id),
+        live_lock_key(competicio_id, audience),
         token,
         nx=True,
         ex=LIVE_CACHE_LOCK_TTL_SECONDS,
@@ -152,24 +158,24 @@ def _try_acquire_live_lock(redis_client, competicio_id: int):
     return token if acquired else None
 
 
-def _release_live_lock(redis_client, competicio_id: int, token: str) -> None:
+def _release_live_lock(redis_client, competicio_id: int, token: str, audience="internal") -> None:
     if not token:
         return
     try:
-        key = live_lock_key(competicio_id)
+        key = live_lock_key(competicio_id, audience)
         if redis_client.get(key) == token:
             redis_client.delete(key)
     except Exception:
         logger.warning("Failed to release live cache lock", exc_info=True)
 
 
-def _wait_for_live_snapshot(redis_client, competicio_id: int, attempts=None, delay=None):
+def _wait_for_live_snapshot(redis_client, competicio_id: int, attempts=None, delay=None, audience="internal"):
     attempts = LIVE_CACHE_WAIT_ATTEMPTS if attempts is None else max(0, int(attempts))
     delay = LIVE_CACHE_WAIT_DELAY_SECONDS if delay is None else max(0.0, float(delay))
     for _ in range(attempts):
         if delay > 0:
             time.sleep(delay)
-        snapshot = load_live_snapshot(redis_client, competicio_id)
+        snapshot = load_live_snapshot(redis_client, competicio_id, audience)
         if snapshot:
             return snapshot
     return None
@@ -192,7 +198,8 @@ def _live_response_from_snapshot(snapshot: dict, since_raw=None) -> dict:
     return response
 
 
-def get_live_payload_cached(competicio, compute_payload, since_raw=None):
+def get_live_payload_cached(competicio, compute_payload, since_raw=None, audience="internal"):
+    audience = _live_audience(audience)
     try:
         redis_client = _live_redis_client()
     except Exception:
@@ -200,48 +207,48 @@ def get_live_payload_cached(competicio, compute_payload, since_raw=None):
         return compute_payload(competicio, since_raw=since_raw), "fallback"
 
     try:
-        snapshot = load_live_snapshot(redis_client, competicio.id)
-        dirty_marker = get_live_dirty_marker(redis_client, competicio.id)
+        snapshot = load_live_snapshot(redis_client, competicio.id, audience)
+        dirty_marker = get_live_dirty_marker(redis_client, competicio.id, audience)
         now = timezone.now()
 
         if snapshot and _live_snapshot_is_fresh(snapshot, now=now) and not dirty_marker:
             return _live_response_from_snapshot(snapshot, since_raw=since_raw), "hit"
 
         if snapshot and _live_snapshot_is_usable(snapshot, now=now):
-            lock_token = _try_acquire_live_lock(redis_client, competicio.id)
+            lock_token = _try_acquire_live_lock(redis_client, competicio.id, audience)
             if lock_token:
                 try:
-                    refresh_dirty_marker = dirty_marker or get_live_dirty_marker(redis_client, competicio.id)
+                    refresh_dirty_marker = dirty_marker or get_live_dirty_marker(redis_client, competicio.id, audience)
                     payload = compute_payload(competicio, since_raw=None)
                     try:
-                        snapshot = store_live_snapshot(redis_client, competicio.id, payload)
+                        snapshot = store_live_snapshot(redis_client, competicio.id, payload, audience)
                     except Exception:
                         logger.warning("Failed to store refreshed live snapshot", exc_info=True)
                         snapshot = _build_live_snapshot(payload)
                     if refresh_dirty_marker:
-                        clear_live_dirty_if_match(redis_client, competicio.id, refresh_dirty_marker)
+                        clear_live_dirty_if_match(redis_client, competicio.id, refresh_dirty_marker, audience)
                     return _live_response_from_snapshot(snapshot, since_raw=since_raw), "refresh"
                 finally:
-                    _release_live_lock(redis_client, competicio.id, lock_token)
+                    _release_live_lock(redis_client, competicio.id, lock_token, audience)
             return _live_response_from_snapshot(snapshot, since_raw=since_raw), "stale"
 
-        lock_token = _try_acquire_live_lock(redis_client, competicio.id)
+        lock_token = _try_acquire_live_lock(redis_client, competicio.id, audience)
         if lock_token:
             try:
-                refresh_dirty_marker = dirty_marker or get_live_dirty_marker(redis_client, competicio.id)
+                refresh_dirty_marker = dirty_marker or get_live_dirty_marker(redis_client, competicio.id, audience)
                 payload = compute_payload(competicio, since_raw=None)
                 try:
-                    snapshot = store_live_snapshot(redis_client, competicio.id, payload)
+                    snapshot = store_live_snapshot(redis_client, competicio.id, payload, audience)
                 except Exception:
                     logger.warning("Failed to store fresh live snapshot", exc_info=True)
                     snapshot = _build_live_snapshot(payload)
                 if refresh_dirty_marker:
-                    clear_live_dirty_if_match(redis_client, competicio.id, refresh_dirty_marker)
+                    clear_live_dirty_if_match(redis_client, competicio.id, refresh_dirty_marker, audience)
                 return _live_response_from_snapshot(snapshot, since_raw=since_raw), "miss"
             finally:
-                _release_live_lock(redis_client, competicio.id, lock_token)
+                _release_live_lock(redis_client, competicio.id, lock_token, audience)
 
-        waited_snapshot = _wait_for_live_snapshot(redis_client, competicio.id)
+        waited_snapshot = _wait_for_live_snapshot(redis_client, competicio.id, audience=audience)
         if waited_snapshot:
             return _live_response_from_snapshot(waited_snapshot, since_raw=since_raw), "wait-hit"
     except Exception:

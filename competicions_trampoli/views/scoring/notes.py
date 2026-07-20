@@ -3,6 +3,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.generic import TemplateView
 
+from ...access import user_has_competicio_capability
 from ...models import Competicio, Inscripcio, InscripcioMedia
 from ...models.competicio import CompeticioAparell
 from ...models.rotacions import RotacioAssignacio, RotacioAssignacioSerieEquip, RotacioFranja
@@ -541,6 +542,12 @@ class ScoringNotesHome(TemplateView):
             "updates_cursor_init": timezone.now().isoformat(),
             "avatar_messages": NOTES_AVATAR_MESSAGES,
             "avatar_initial_topic": "scores_qrs_overview",
+            "can_publish_scores": user_has_competicio_capability(
+                self.request.user, competicio, "scoring.publish"
+            ),
+            "can_manage_publication_policy": user_has_competicio_capability(
+                self.request.user, competicio, "scoring.publication_policy.manage"
+            ),
         })
         return ctx
 

@@ -14,6 +14,7 @@ from .models.scoring import (
     TeamScoreEntry,
     TeamScoreEntryVideo,
 )
+from .services.scoring.publication import record_score_revision
 from .services.scoring.schema_resolution import copy_global_scoring_schema_to_comp_aparell_if_missing
 
 
@@ -40,8 +41,8 @@ def _competicio_aparell_saved_copy_global_schema(sender, instance, created, **kw
 
 
 @receiver(post_save, sender=ScoreEntry)
-def _scoreentry_saved_mark_live_dirty(sender, instance, **kwargs):
-    _mark_live_dirty_on_commit(getattr(instance, "competicio_id", None))
+def _scoreentry_saved_mark_live_dirty(sender, instance, created=False, **kwargs):
+    record_score_revision(instance, created=created)
 
 
 @receiver(post_delete, sender=ScoreEntry)
@@ -50,8 +51,8 @@ def _scoreentry_deleted_mark_live_dirty(sender, instance, **kwargs):
 
 
 @receiver(post_save, sender=TeamScoreEntry)
-def _teamscoreentry_saved_mark_live_dirty(sender, instance, **kwargs):
-    _mark_live_dirty_on_commit(getattr(instance, "competicio_id", None))
+def _teamscoreentry_saved_mark_live_dirty(sender, instance, created=False, **kwargs):
+    record_score_revision(instance, created=created)
 
 
 @receiver(post_delete, sender=TeamScoreEntry)

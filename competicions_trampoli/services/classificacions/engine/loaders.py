@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Callable
 
 from ....models import Inscripcio
 from ....models.competicio import CompeticioAparell, ProgramUnitSlot
-from ....models.scoring import ScoreEntry, TeamScoreEntry
+from ....models.scoring import (
+    PublishedScoreEntry,
+    PublishedTeamScoreEntry,
+    ScoreEntry,
+    TeamScoreEntry,
+)
 from ..phase_scope import PHASE_SCOPE_PER_APP, normalize_phase_scope_payload
 from ...scoring.team_scoring import is_team_context_app
 from ...inscripcions.admission import load_excluded_app_ids_by_inscripcio as load_admission_excluded_app_ids_by_inscripcio
@@ -26,6 +33,22 @@ from .model_utils import is_relational_field
 ScoreKey = tuple[int, int, int]
 TeamScoreKey = tuple[int, int, int]
 InscripcioMatcher = Callable[[Inscripcio], bool]
+_score_audience = ContextVar("classification_score_audience", default="internal")
+
+
+@contextmanager
+def classification_score_audience(audience="internal"):
+    token = _score_audience.set("public" if str(audience).lower() == "public" else "internal")
+    try:
+        yield
+    finally:
+        _score_audience.reset(token)
+
+
+def _score_models_for_audience():
+    if _score_audience.get() == "public":
+        return PublishedScoreEntry, PublishedTeamScoreEntry
+    return ScoreEntry, TeamScoreEntry
 
 
 @dataclass(slots=True)
@@ -131,8 +154,9 @@ def load_score_entries(
     phase_id=None,
     include_all_phases: bool = False,
 ) -> list[ScoreEntry]:
+    score_model, _team_score_model = _score_models_for_audience()
     qs = (
-        ScoreEntry.objects
+        score_model.objects
         .filter(
             competicio=competicio,
             inscripcio__in=list(inscripcions or []),
@@ -161,8 +185,9 @@ def load_team_score_entries(
     if tipus != "equips" or team_mode != "native_team" or not team_apps:
         return team_apps, []
 
+    _score_model, team_score_model = _score_models_for_audience()
     qs = (
-        TeamScoreEntry.objects
+        team_score_model.objects
         .filter(competicio=competicio, comp_aparell__in=team_apps)
         .select_related("team_subject__equip", "team_subject__context", "comp_aparell", "fase")
     )

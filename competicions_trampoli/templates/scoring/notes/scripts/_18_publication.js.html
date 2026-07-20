@@ -1,0 +1,300 @@
+  const NOTES_PUBLICATION_STATE = {
+    mode: "auto",
+    activity: [],
+    selected: new Set(),
+    firstActivityId: null,
+    pendingActivity: null,
+    refreshTimer: null,
+    searchTimer: null,
+  };
+
+  function publicationRelativeTime(raw){
+    const date = raw ? new Date(raw) : null;
+    if(!date || Number.isNaN(date.getTime())) return "—";
+    const seconds = Math.round((date.getTime() - Date.now()) / 1000);
+    const formatter = new Intl.RelativeTimeFormat("ca", {numeric:"auto"});
+    if(Math.abs(seconds) < 60) return formatter.format(seconds, "second");
+    const minutes = Math.round(seconds / 60);
+    if(Math.abs(minutes) < 60) return formatter.format(minutes, "minute");
+    const hours = Math.round(minutes / 60);
+    if(Math.abs(hours) < 24) return formatter.format(hours, "hour");
+    return date.toLocaleString("ca-ES", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"});
+  }
+
+  function publicationStatusClass(status){
+    return ["pending", "supervisor_pending", "published", "rejected", "superseded"].includes(status) ? status : "superseded";
+  }
+
+  function publicationRequest(url, options={}){
+    const headers = Object.assign({"Accept":"application/json"}, options.headers || {});
+    if(options.method && options.method !== "GET"){
+      headers["Content-Type"] = "application/json";
+      headers["X-CSRFToken"] = CSRF_TOKEN || "";
+    }
+    return fetch(url, Object.assign({}, options, {headers})).then(async (response) => {
+      const data = await response.json();
+      if(!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      return data;
+    });
+  }
+
+  function updatePublicationSelection(){
+    const bar = document.querySelector('[data-bulk-actions="1"]');
+    const count = document.querySelector('[data-selected-count="1"]');
+    const n = NOTES_PUBLICATION_STATE.selected.size;
+    if(count) count.textContent = `${n} seleccionada${n === 1 ? "" : "s"}`;
+    if(bar) bar.classList.toggle("d-none", n === 0);
+  }
+
+  async function openPublicationActivityItem(item){
+    const subject = (INS || []).find((candidate) => (
+      String(candidate.subject_kind || "inscripcio") === String(item.subject_kind)
+      && String(candidate.subject_id || candidate.id) === String(item.subject_id)
+    ));
+    if(!subject){
+      const input = document.querySelector('[data-notes-search-input="1"]');
+      if(input) input.value = item.subject_name || "";
+      return;
+    }
+    const unit = unitsForSubject(subject).find((candidate) => String(candidate.comp_aparell_id) === String(item.comp_aparell_id))
+      || unitsForSubject(subject)[0];
+    if(!unit) return;
+    await openSearchContext({
+      unit_identity: unitIdentity(unit),
+      comp_aparell_id: unit.comp_aparell_id,
+      unit_key: unit.key,
+      franja_id: unit.franja_id,
+      exercicis: [item.exercici || 1],
+    }, subject);
+    document.querySelector('[data-notes-main-shell="1"]')?.scrollIntoView({behavior:"smooth", block:"start"});
+  }
+
+  function renderPublicationActivity(rows){
+    const list = document.querySelector('[data-activity-list="1"]');
+    if(!list) return;
+    list.innerHTML = "";
+    if(!rows.length){
+      list.appendChild(el("div", {class:"notes-activity-empty", text:"No hi ha activitat amb aquests filtres."}));
+      return;
+    }
+    rows.forEach((item) => {
+      const row = el("article", {class:`notes-activity-row status-${publicationStatusClass(item.status)}`});
+      if(NOTES_PUBLICATION_PERMISSIONS.publish && item.status === "pending"){
+        const check = el("input", {type:"checkbox", class:"notes-activity-check", "aria-label":`Selecciona ${item.subject_name}`});
+        check.checked = NOTES_PUBLICATION_STATE.selected.has(Number(item.id));
+        check.addEventListener("change", () => {
+          if(check.checked) NOTES_PUBLICATION_STATE.selected.add(Number(item.id));
+          else NOTES_PUBLICATION_STATE.selected.delete(Number(item.id));
+          updatePublicationSelection();
+        });
+        row.appendChild(check);
+      } else {
+        row.appendChild(el("span", {class:"notes-activity-marker", "aria-hidden":"true"}));
+      }
+      const body = el("div", {class:"notes-activity-body"});
+      const title = el("div", {class:"notes-activity-row-title"});
+      title.appendChild(el("strong", {text:item.subject_name || "Subjecte"}));
+      title.appendChild(el("span", {class:`notes-status-pill ${publicationStatusClass(item.status)}`, text:item.is_correction && item.status === "pending" ? "Correcció pendent" : item.status_label}));
+      body.appendChild(title);
+      body.appendChild(el("div", {
+        class:"notes-activity-context",
+        text:[item.app_label, item.fase_label, `Exercici ${item.exercici}`].filter(Boolean).join(" · "),
+      }));
+      body.appendChild(el("div", {
+        class:"notes-activity-origin",
+        text:`${item.source_label} · ${item.actor} · ${publicationRelativeTime(item.created_at)}`,
+        title:new Date(item.created_at).toLocaleString("ca-ES"),
+      }));
+      row.appendChild(body);
+      const score = el("div", {class:"notes-activity-score"});
+      score.appendChild(el("strong", {text:item.total === null ? "—" : formatComputedValue(item.total)}));
+      if(item.is_correction && item.published_total !== null){
+        score.appendChild(el("small", {text:`Públic: ${formatComputedValue(item.published_total)}`}));
+      }
+      row.appendChild(score);
+      const actions = el("div", {class:"notes-activity-actions"});
+      const openBtn = el("button", {type:"button", class:"btn btn-sm notes-btn-theme-outline", text:"Obrir"});
+      openBtn.addEventListener("click", () => openPublicationActivityItem(item));
+      actions.appendChild(openBtn);
+      if(NOTES_PUBLICATION_PERMISSIONS.publish && item.status === "pending"){
+        const publishBtn = el("button", {type:"button", class:"btn btn-sm notes-btn-theme-solid", text:"Publicar"});
+        publishBtn.addEventListener("click", () => publishPublicationRevisions([item.id]));
+        actions.appendChild(publishBtn);
+        const rejectBtn = el("button", {type:"button", class:"btn btn-sm btn-outline-danger", text:"Rebutjar"});
+        rejectBtn.addEventListener("click", () => rejectPublicationRevision(item));
+        actions.appendChild(rejectBtn);
+      }
+      row.appendChild(actions);
+      list.appendChild(row);
+    });
+  }
+
+  function publicationActivityUrl(){
+    const url = new URL(NOTES_PUBLICATION_ENDPOINTS.activity, window.location.origin);
+    const status = document.querySelector('[data-activity-status="1"]')?.value || "";
+    const source = document.querySelector('[data-activity-source="1"]')?.value || "";
+    const query = document.querySelector('[data-activity-search="1"]')?.value?.trim() || "";
+    if(status) url.searchParams.set("status", status);
+    if(source) url.searchParams.set("source", source);
+    if(query) url.searchParams.set("q", query);
+    return url.toString();
+  }
+
+  async function loadPublicationActivity({background=false}={}){
+    try{
+      const data = await publicationRequest(publicationActivityUrl());
+      const rows = data.activity || [];
+      const firstId = rows[0]?.id || null;
+      const list = document.querySelector('[data-activity-list="1"]');
+      const interacting = list && (list.scrollTop > 40 || list.contains(document.activeElement));
+      if(background && interacting && NOTES_PUBLICATION_STATE.firstActivityId && firstId !== NOTES_PUBLICATION_STATE.firstActivityId){
+        NOTES_PUBLICATION_STATE.pendingActivity = rows;
+        const notice = document.querySelector('[data-new-activity="1"]');
+        if(notice){
+          notice.textContent = "Hi ha notes noves. Prem aquí per actualitzar la llista.";
+          notice.classList.remove("d-none");
+        }
+        return;
+      }
+      NOTES_PUBLICATION_STATE.activity = rows;
+      NOTES_PUBLICATION_STATE.firstActivityId = firstId;
+      renderPublicationActivity(rows);
+    }catch(error){
+      if(!background){
+        const list = document.querySelector('[data-activity-list="1"]');
+        if(list){
+          list.innerHTML = "";
+          list.appendChild(el("div", {
+            class:"notes-activity-empty is-error",
+            text:`No s'ha pogut carregar l'activitat. ${String(error.message || error)}`,
+          }));
+        }
+      }
+    }
+  }
+
+  async function loadPublicationStatus(){
+    try{
+      const data = await publicationRequest(NOTES_PUBLICATION_ENDPOINTS.status);
+      NOTES_PUBLICATION_STATE.mode = data.mode;
+      const label = document.querySelector('[data-publication-mode-label="1"]');
+      const meta = document.querySelector('[data-publication-meta="1"]');
+      if(label) label.textContent = data.mode === "organization_review" ? "Validació de l'organització activada" : "Publicació automàtica activada";
+      if(meta) meta.textContent = data.last_published_at ? `Última publicació ${publicationRelativeTime(data.last_published_at)}.` : "Encara no hi ha cap publicació registrada.";
+      const counts = data.counts || {};
+      const bindings = {pending:"[data-kpi-pending='1']", published:"[data-kpi-published='1']", rejected:"[data-kpi-rejected='1']", supervisor_pending:"[data-kpi-supervisor='1']"};
+      Object.entries(bindings).forEach(([key, selector]) => {
+        const target = document.querySelector(selector);
+        if(target) target.textContent = String(counts[key] || 0);
+      });
+      const toggle = document.querySelector('[data-publication-toggle="1"]');
+      if(toggle){
+        toggle.disabled = false;
+        toggle.textContent = data.mode === "organization_review" ? "Desactivar validació" : "Activar validació prèvia";
+      }
+      document.querySelector('[data-publication-banner="1"]')?.classList.toggle("is-review", data.mode === "organization_review");
+    }catch(error){
+      const label = document.querySelector('[data-publication-mode-label="1"]');
+      if(label) label.textContent = "No s'ha pogut consultar la publicació";
+    }
+  }
+
+  async function publishPublicationRevisions(ids){
+    const cleanIds = Array.from(new Set((ids || []).map(Number).filter(Boolean)));
+    if(!cleanIds.length) return;
+    try{
+      await publicationRequest(NOTES_PUBLICATION_ENDPOINTS.publish, {method:"POST", body:JSON.stringify({revision_ids:cleanIds})});
+      cleanIds.forEach((id) => NOTES_PUBLICATION_STATE.selected.delete(id));
+      updatePublicationSelection();
+      await Promise.all([loadPublicationStatus(), loadPublicationActivity()]);
+    }catch(error){
+      if(typeof window.showAlert === "function") await window.showAlert(error.message || "No s'han pogut publicar les notes.", "Publicació no completada");
+      else window.alert(error.message || "No s'han pogut publicar les notes.");
+    }
+  }
+
+  async function rejectPublicationRevision(item){
+    const note = typeof window.showPrompt === "function"
+      ? await window.showPrompt(`Motiu del rebuig de la nota de ${item.subject_name}:`, "", "Rebutjar revisió")
+      : window.prompt(`Motiu del rebuig de la nota de ${item.subject_name}:`);
+    if(note === null) return;
+    if(!String(note).trim()){
+      if(typeof window.showAlert === "function") await window.showAlert("Cal indicar un motiu per deixar una traça clara.", "Falta el motiu");
+      else window.alert("Cal indicar un motiu.");
+      return;
+    }
+    try{
+      await publicationRequest(NOTES_PUBLICATION_ENDPOINTS.reject, {method:"POST", body:JSON.stringify({revision_id:item.id, note})});
+      NOTES_PUBLICATION_STATE.selected.delete(Number(item.id));
+      updatePublicationSelection();
+      await Promise.all([loadPublicationStatus(), loadPublicationActivity()]);
+    }catch(error){
+      if(typeof window.showAlert === "function") await window.showAlert(error.message || "No s'ha pogut rebutjar la nota.", "Rebuig no completat");
+      else window.alert(error.message || "No s'ha pogut rebutjar la nota.");
+    }
+  }
+
+  async function togglePublicationPolicy(){
+    const nextMode = NOTES_PUBLICATION_STATE.mode === "organization_review" ? "auto" : "organization_review";
+    const message = nextMode === "organization_review"
+      ? "A partir d'ara les notes noves requeriran validació de l'organització abans de ser públiques. Continuar?"
+      : "Les notes futures es publicaran automàticament. Les pendents s'han d'haver resolt abans. Continuar?";
+    const confirmed = typeof window.showConfirm === "function"
+      ? await window.showConfirm(message, "Canviar el circuit de publicació")
+      : window.confirm(message);
+    if(!confirmed) return;
+    try{
+      await publicationRequest(NOTES_PUBLICATION_ENDPOINTS.policy, {method:"POST", body:JSON.stringify({mode:nextMode})});
+      await loadPublicationStatus();
+    }catch(error){
+      if(typeof window.showAlert === "function") await window.showAlert(error.message || "No s'ha pogut canviar el mode.", "Configuració no desada");
+      else window.alert(error.message || "No s'ha pogut canviar el mode.");
+    }
+  }
+
+  function bindPublicationOperations(){
+    const status = document.querySelector('[data-activity-status="1"]');
+    const source = document.querySelector('[data-activity-source="1"]');
+    const search = document.querySelector('[data-activity-search="1"]');
+    [status, source].forEach((control) => control?.addEventListener("change", () => loadPublicationActivity()));
+    search?.addEventListener("input", () => {
+      window.clearTimeout(NOTES_PUBLICATION_STATE.searchTimer);
+      NOTES_PUBLICATION_STATE.searchTimer = window.setTimeout(() => loadPublicationActivity(), 250);
+    });
+    document.querySelector('[data-activity-refresh="1"]')?.addEventListener("click", () => loadPublicationActivity());
+    document.querySelector('[data-publication-toggle="1"]')?.addEventListener("click", togglePublicationPolicy);
+    document.querySelector('[data-publish-selected="1"]')?.addEventListener("click", () => publishPublicationRevisions(Array.from(NOTES_PUBLICATION_STATE.selected)));
+    document.querySelector('[data-clear-selection="1"]')?.addEventListener("click", () => {
+      NOTES_PUBLICATION_STATE.selected.clear();
+      updatePublicationSelection();
+      renderPublicationActivity(NOTES_PUBLICATION_STATE.activity);
+    });
+    document.querySelectorAll('[data-activity-status-filter]').forEach((button) => button.addEventListener("click", () => {
+      if(status) status.value = button.dataset.activityStatusFilter || "";
+      loadPublicationActivity();
+    }));
+    document.querySelector('[data-supervisor-filter="1"]')?.addEventListener("click", () => {
+      if(status) status.value = "supervisor_pending";
+      loadPublicationActivity();
+    });
+    document.querySelector('[data-new-activity="1"]')?.addEventListener("click", () => {
+      const rows = NOTES_PUBLICATION_STATE.pendingActivity || [];
+      NOTES_PUBLICATION_STATE.pendingActivity = null;
+      NOTES_PUBLICATION_STATE.activity = rows;
+      NOTES_PUBLICATION_STATE.firstActivityId = rows[0]?.id || null;
+      document.querySelector('[data-new-activity="1"]')?.classList.add("d-none");
+      renderPublicationActivity(rows);
+    });
+  }
+
+  function initPublicationOperations(){
+    if(!document.querySelector('[data-notes-operations="1"]')) return;
+    bindPublicationOperations();
+    Promise.all([loadPublicationStatus(), loadPublicationActivity()]);
+    NOTES_PUBLICATION_STATE.refreshTimer = window.setInterval(() => {
+      if(document.visibilityState === "visible"){
+        loadPublicationStatus();
+        loadPublicationActivity({background:true});
+      }
+    }, 5000);
+  }

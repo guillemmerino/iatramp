@@ -39,6 +39,58 @@
       color: #fff;
       border-color: #0d6efd;
     }
+    .permission-computed-dropdown {
+      width: 14rem;
+      min-width: 14rem;
+    }
+    .permission-computed-dropdown summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .5rem;
+      min-height: 31px;
+      padding: .25rem .5rem;
+      border: 1px solid #ced4da;
+      border-radius: .25rem;
+      background: #fff;
+      color: #212529;
+      cursor: pointer;
+      font-size: .875rem;
+      list-style: none;
+      white-space: nowrap;
+    }
+    .permission-computed-dropdown summary span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .permission-computed-dropdown summary::-webkit-details-marker { display: none; }
+    .permission-computed-dropdown summary::after {
+      content: "▾";
+      color: #6c757d;
+      font-size: .75rem;
+    }
+    .permission-computed-dropdown[open] summary::after { content: "▴"; }
+    .permission-computed-dropdown__panel {
+      width: 100%;
+      min-width: 100%;
+      margin-top: .3rem;
+      padding: .45rem;
+      border: 1px solid #ced4da;
+      border-radius: .35rem;
+      background: #fff;
+      box-shadow: 0 .5rem 1rem rgba(15, 23, 42, .12);
+    }
+    .permission-computed-dropdown__panel select {
+      width: 100%;
+      min-height: 20rem;
+    }
+    .permission-computed-dropdown.is-disabled summary {
+      background: #e9ecef;
+      cursor: default;
+      opacity: .7;
+      pointer-events: none;
+    }
 {% include "judge/_subject_scope_filters_style.html" %}
     .qr-public-row,
     .qr-judge-row {
@@ -280,6 +332,7 @@
                           <th style="min-width:220px;" data-team-column="1">Membres</th>
                         {% endif %}
                         <th>Rol</th>
+                        <th style="min-width:190px;">Càlculs visibles</th>
                         <th>Jutge</th>
                         <th>Start</th>
                         <th>Count</th>
@@ -331,6 +384,10 @@
                             {% if f.role.errors %}
                               <div class="text-danger small mt-1">{{ f.role.errors }}</div>
                             {% endif %}
+                          </td>
+                          <td data-computed-column="1">
+                            {{ f.display_computed_codes }}
+                            {% if f.display_computed_codes.errors %}<div class="text-danger small mt-1">{{ f.display_computed_codes.errors }}</div>{% endif %}
                           </td>
                           <td>
                             {{ f.judge_index }}
@@ -388,6 +445,7 @@
                       {{ formset.empty_form.member_slots }}
                     {% endif %}
                     <td>{{ formset.empty_form.role }}</td>
+                    <td data-computed-column="1">{{ formset.empty_form.display_computed_codes }}</td>
                     <td>{{ formset.empty_form.judge_index }}</td>
                     <td>{{ formset.empty_form.item_start }}</td>
                     <td>{{ formset.empty_form.item_count }}</td>
@@ -747,6 +805,20 @@
       setSelectOptions(select, fields, "-");
     }
 
+    function refreshComputedChoices(row) {
+      const select = row.querySelector('select[name$="-display_computed_codes"]');
+      if (!select) return;
+      const selected = new Set(Array.from(select.selectedOptions || []).map((option) => option.value));
+      select.innerHTML = "";
+      (currentApp().computed || []).forEach((item) => {
+        const option = document.createElement("option");
+        option.value = String(item.code || "");
+        option.textContent = `${item.code} - ${item.label || item.code}`;
+        option.selected = selected.has(option.value);
+        select.appendChild(option);
+      });
+    }
+
     function renderMemberSlots(row) {
       const picker = row.querySelector('[data-member-slot-picker="1"]');
       if (!picker) return [];
@@ -806,10 +878,49 @@
       );
     }
 
+    function enhanceComputedSelect(select) {
+      if (!select) return null;
+      if (select._permissionComputedDropdown) {
+        select._syncPermissionComputedSummary?.();
+        return select._permissionComputedDropdown;
+      }
+      const dropdown = document.createElement("details");
+      dropdown.className = "permission-computed-dropdown";
+      const summary = document.createElement("summary");
+      const summaryText = document.createElement("span");
+      const panel = document.createElement("div");
+      panel.className = "permission-computed-dropdown__panel";
+      summary.appendChild(summaryText);
+      select.parentNode.insertBefore(dropdown, select);
+      dropdown.appendChild(summary);
+      dropdown.appendChild(panel);
+      panel.appendChild(select);
+      select.size = Math.min(14, Math.max(10, select.options.length || 10));
+
+      const syncSummary = () => {
+        const selected = Array.from(select.selectedOptions || []);
+        summaryText.textContent = selected.length === 0
+          ? "Cap càlcul"
+          : selected.length === 1
+            ? selected[0].textContent
+            : `${selected.length} càlculs seleccionats`;
+        select.size = Math.min(14, Math.max(10, select.options.length || 10));
+      };
+      select.addEventListener("change", syncSummary);
+      select._permissionComputedDropdown = dropdown;
+      select._syncPermissionComputedSummary = syncSummary;
+      syncSummary();
+      return dropdown;
+    }
+
     function bindPermissionRow(row) {
       if (!row) return;
       refreshFieldChoices(row);
+      refreshComputedChoices(row);
       const fieldSelect = row.querySelector('select[name$="-field_code"]');
+      const roleSelect = row.querySelector('select[name$="-role"]');
+      const computedSelect = row.querySelector('select[name$="-display_computed_codes"]');
+      const computedDropdown = enhanceComputedSelect(computedSelect);
       const scopeSelect = row.querySelector('select[name$="-scope"]');
       const modeSelect = row.querySelector('select[name$="-member_mode"]');
       const slotsInput = row.querySelector('input[name$="-member_slots"]');
@@ -874,9 +985,18 @@
         const canConfigureItems = !!(meta && String(meta.type || "") === "matrix");
         if (itemLabelsControls) itemLabelsControls.classList.toggle("d-none", !canConfigureItems);
         if (itemLabelsSummaryEl) itemLabelsSummaryEl.textContent = canConfigureItems ? itemLabelsSummary(meta) : "";
+        const isSupervisor = !!roleSelect && roleSelect.value === "supervisor";
+        if (computedSelect) {
+          computedSelect.disabled = !isSupervisor;
+          computedSelect.closest('[data-computed-column="1"]')?.classList.toggle("text-muted", !isSupervisor);
+          computedDropdown?.classList.toggle("is-disabled", !isSupervisor);
+          if (!isSupervisor && computedDropdown) computedDropdown.open = false;
+          computedSelect._syncPermissionComputedSummary?.();
+        }
       }
 
       fieldSelect.addEventListener("change", refreshVisibility);
+      roleSelect?.addEventListener("change", refreshVisibility);
       modeSelect.addEventListener("change", syncToInput);
       if (itemLabelsTrigger) {
         itemLabelsTrigger.addEventListener("click", () => openItemLabelsModal(fieldSelect.value));

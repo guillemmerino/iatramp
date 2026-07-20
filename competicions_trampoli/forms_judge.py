@@ -85,11 +85,16 @@ class PermissionRowForm(forms.Form):
         required=False,
         widget=forms.HiddenInput(),
     )
+    display_computed_codes = forms.MultipleChoiceField(
+        required=False,
+        widget=forms.SelectMultiple(attrs={"class": "form-select form-select-sm", "size": "3"}),
+    )
 
-    def __init__(self, *args, field_choices=None, **kwargs):
+    def __init__(self, *args, field_choices=None, computed_choices=None, **kwargs):
         super().__init__(*args, **kwargs)
         choices = field_choices or FIELD_CHOICES_EMPTY
         self.fields["field_code"].choices = choices
+        self.fields["display_computed_codes"].choices = computed_choices or []
         self.fields["item_start"].initial = 1
         self.fields["scope"].initial = "shared"
         self.fields["role"].initial = "standard"

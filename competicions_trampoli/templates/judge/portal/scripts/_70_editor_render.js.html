@@ -138,6 +138,7 @@
     const start = Math.max(1, Number(perm.item_start || 1));
     const count = perm.item_count ? Math.max(1, Number(perm.item_count)) : (nItems - start + 1);
     const crashEnabled = crashEnabledForField(field);
+    const supervisorControlledCrash = crashEnabled && !!perm.crash_supervisor_controlled && perm.role !== "supervisor";
     const crashCode = `__crash__${perm.runtime_field_code}`;
     const crashVals = crashEnabled && Array.isArray(effectiveInput(insId, exercici, crashCode))
       ? deepClone(effectiveInput(insId, exercici, crashCode))
@@ -196,7 +197,7 @@
 
       row.appendChild(lab);
       row.appendChild(inp);
-      if(crashEnabled){
+      if(crashEnabled && !supervisorControlledCrash){
         const btn = document.createElement("button");
         btn.className = "btn btn-sm btn-outline-danger judge-crash-btn";
         btn.type = "button";
@@ -219,6 +220,237 @@
     }
     applyCrashDisableInMatrix(group, Number(crashVals[j - 1] || 0));
     lineWrap.appendChild(group);
+    if(supervisorControlledCrash){
+      const crashAt = Number(crashVals[j - 1] || 0);
+      const status = document.createElement("div");
+      status.className = "judge-readonly-crash";
+      status.textContent = crashAt > 0
+        ? `Crash: ${getItemDisplayLabel(perm.field_code, crashAt)}`
+        : "Crash: encara no indicat pel supervisor";
+      lineWrap.appendChild(status);
+    }
+  }
+
+  function supervisorMatrixGroupKey(perm){
+    const field = perm && perm.field;
+    if(!perm || perm.role !== "supervisor" || !field || String(field.type || "") !== "matrix") return "";
+    const count = perm.item_count == null ? "all" : String(perm.item_count);
+    return [perm.idx, perm.runtime_field_code, perm.member_slot || "shared", perm.item_start || 1, count].join("|");
+  }
+
+  function applyCrashDisableInSupervisorRow(row, crashAt){
+    const cut = Number(crashAt || 0);
+    row.querySelectorAll('[data-supervisor-matrix-cell="1"]').forEach((cell) => {
+      const itemIndex = Number(cell.dataset.itemIndex || 0);
+      const input = cell.querySelector('input[data-kind="matrix"]');
+      if(input) input.disabled = cut > 0 && itemIndex >= cut;
+    });
+  }
+
+  function renderSupervisorMatrix(parent, insId, exercici, perms){
+    const orderedPerms = [...perms].sort((a, b) => Number(a.judge_index || 1) - Number(b.judge_index || 1));
+    const firstPerm = orderedPerms[0];
+    const field = firstPerm && firstPerm.field;
+    if(!firstPerm || !field) return;
+
+    const nJudges = Math.max(1, Number((field.judges && field.judges.count) || orderedPerms.length || 1));
+    const nItems = Math.max(1, Number((field.items && field.items.count) || 1));
+    const start = Math.max(1, Number(firstPerm.item_start || 1));
+    const count = firstPerm.item_count ? Math.max(1, Number(firstPerm.item_count)) : (nItems - start + 1);
+    const visibleItemIndexes = Array.from({length: count}, (_value, offset) => start + offset)
+      .filter((itemIndex) => itemIndex <= nItems);
+    const code = String(firstPerm.runtime_field_code || firstPerm.field_code || "");
+    const crashEnabled = crashEnabledForField(field);
+    const crashCode = `__crash__${code}`;
+    const rawCrashValues = crashEnabled && Array.isArray(effectiveInput(insId, exercici, crashCode))
+      ? deepClone(effectiveInput(insId, exercici, crashCode))
+      : [];
+    const supervisorJudgeIndex0 = Math.max(0, Number(firstPerm.supervised_by_judge_index || firstPerm.judge_index || 1) - 1);
+    let uniqueCrash = Number(rawCrashValues[supervisorJudgeIndex0] || rawCrashValues.find((value) => Number(value || 0) > 0) || 0);
+
+    const block = document.createElement("div");
+    block.className = "judge-field-block judge-supervisor-matrix-block";
+    const head = document.createElement("div");
+    head.className = "judge-field-head";
+    const title = document.createElement("div");
+    title.className = "judge-field-title";
+    title.textContent = field.label || code || firstPerm.field_code || "Camp";
+    const badges = document.createElement("div");
+    badges.className = "judge-field-badges";
+    appendFieldBadge(badges, firstPerm.field_code, "code");
+    appendFieldBadge(badges, `${nJudges} jutges`, "judge");
+    appendFieldBadge(badges, "Supervisor", "supervisor");
+    if(firstPerm.item_count){
+      appendFieldBadge(badges, `Items ${start}-${start + visibleItemIndexes.length - 1}`, "range");
+    }
+    if(firstPerm.member_slot){
+      appendFieldBadge(badges, `M${firstPerm.member_slot}`, "member");
+    }
+    head.appendChild(title);
+    head.appendChild(badges);
+    block.appendChild(head);
+
+    const body = document.createElement("div");
+    body.className = "judge-field-body judge-supervisor-matrix-wrap";
+    const table = document.createElement("table");
+    table.className = "judge-supervisor-matrix";
+    table.dataset.supervisorMatrix = "1";
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    const judgeHeader = document.createElement("th");
+    judgeHeader.scope = "col";
+    judgeHeader.className = "judge-supervisor-row-head";
+    judgeHeader.textContent = "Jutge";
+    headerRow.appendChild(judgeHeader);
+    visibleItemIndexes.forEach((itemIndex) => {
+      const th = document.createElement("th");
+      th.scope = "col";
+      const itemLabel = document.createElement("span");
+      itemLabel.className = "judge-supervisor-item-label";
+      itemLabel.textContent = getItemDisplayLabel(firstPerm.field_code, itemIndex);
+      th.appendChild(itemLabel);
+      if(crashEnabled){
+        const crashButton = document.createElement("button");
+        crashButton.type = "button";
+        crashButton.className = "judge-supervisor-item-crash";
+        crashButton.dataset.supervisorCrashButton = "1";
+        crashButton.dataset.itemIndex = String(itemIndex);
+        crashButton.textContent = "C";
+        crashButton.title = `Marca ${getItemDisplayLabel(firstPerm.field_code, itemIndex)} com a crash per a tots els jutges`;
+        crashButton.setAttribute("aria-label", crashButton.title);
+        crashButton.classList.toggle("is-active", uniqueCrash === itemIndex);
+        crashButton.addEventListener("click", () => {
+          uniqueCrash = uniqueCrash === itemIndex ? 0 : itemIndex;
+          updateDraftValue(insId, exercici, crashCode, Array(nJudges).fill(uniqueCrash), firstPerm);
+          headerRow.querySelectorAll('[data-supervisor-crash-button="1"]').forEach((button) => {
+            button.classList.toggle("is-active", Number(button.dataset.itemIndex || 0) === uniqueCrash);
+          });
+          body.querySelectorAll('[data-supervisor-judge-row="1"]').forEach((row) => {
+            applyCrashDisableInSupervisorRow(row, uniqueCrash);
+          });
+        });
+        th.appendChild(crashButton);
+      }
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    orderedPerms.forEach((perm) => {
+      const judgeIndex = Math.max(1, Number(perm.judge_index || 1));
+      const judgeIndex0 = judgeIndex - 1;
+      const mat = Array.isArray(effectiveInput(insId, exercici, code))
+        ? deepClone(effectiveInput(insId, exercici, code))
+        : [];
+      while(mat.length < nJudges) mat.push([]);
+      while((mat[judgeIndex0] || []).length < nItems){
+        mat[judgeIndex0] = Array.isArray(mat[judgeIndex0]) ? mat[judgeIndex0] : [];
+        mat[judgeIndex0].push(null);
+      }
+      const rowPresent = isJudgeRowPresent(insId, exercici, code, judgeIndex);
+      const row = document.createElement("tr");
+      row.dataset.supervisorJudgeRow = "1";
+      row.dataset.judgeIndex = String(judgeIndex);
+      if(perm.is_supervisor_row) row.classList.add("is-supervisor-row");
+
+      const rowHead = document.createElement("th");
+      rowHead.scope = "row";
+      rowHead.className = "judge-supervisor-row-head";
+      rowHead.textContent = `J${judgeIndex}`;
+      if(perm.is_supervisor_row){
+        const ownLabel = document.createElement("span");
+        ownLabel.className = "judge-supervisor-own-label";
+        ownLabel.textContent = "Supervisor";
+        rowHead.appendChild(ownLabel);
+      }
+      row.appendChild(rowHead);
+
+      visibleItemIndexes.forEach((itemIndex) => {
+        const itemIndex0 = itemIndex - 1;
+        const cell = document.createElement("td");
+        cell.dataset.supervisorMatrixCell = "1";
+        cell.dataset.itemIndex = String(itemIndex);
+        const input = document.createElement("input");
+        input.className = "form-control form-control-sm input-salt judge-supervisor-matrix-input";
+        input.type = "number";
+        input.inputMode = "decimal";
+        input.step = decimalsStep(field.decimals);
+        const displayValue = presentJudgeDisplayValue(mat[judgeIndex0][itemIndex0], rowPresent);
+        input.value = (displayValue ?? "");
+        input.dataset.kind = "matrix";
+        input.dataset.itemIndex0 = String(itemIndex0);
+        input.dataset.permKey = perm.key;
+        input._scoreField = field;
+        input.setAttribute("aria-label", `J${judgeIndex}, ${getItemDisplayLabel(firstPerm.field_code, itemIndex)}`);
+        input.addEventListener("input", () => {
+          const next = Array.isArray(effectiveInput(insId, exercici, code))
+            ? deepClone(effectiveInput(insId, exercici, code))
+            : [];
+          while(next.length < nJudges) next.push([]);
+          while((next[judgeIndex0] || []).length < nItems){
+            next[judgeIndex0] = Array.isArray(next[judgeIndex0]) ? next[judgeIndex0] : [];
+            next[judgeIndex0].push(null);
+          }
+          next[judgeIndex0][itemIndex0] = input.value === "" ? null : Number(input.value);
+          updateDraftValue(insId, exercici, code, next, perm);
+        });
+        bindScoreInputNavigation(input, insId, exercici);
+        cell.appendChild(input);
+        row.appendChild(cell);
+      });
+
+      if(crashEnabled) applyCrashDisableInSupervisorRow(row, uniqueCrash);
+      tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+    body.appendChild(table);
+    block.appendChild(body);
+    parent.appendChild(block);
+  }
+
+  function renderSupervisorComputedFields(parent, insId, exercici, perms){
+    const codes = Array.from(new Set(
+      (perms || [])
+        .filter((perm) => perm && perm.role === "supervisor")
+        .flatMap((perm) => perm.display_computed_codes || [])
+        .map((code) => String(code || "").trim())
+        .filter(Boolean)
+    ));
+    if(!codes.length) return;
+    const outputs = (getEntry(insId, exercici).outputs || {});
+    const computedByCode = new Map(
+      (SCHEMA.computed || [])
+        .filter((item) => item && item.code)
+        .map((item) => [String(item.code), item])
+    );
+    const panel = document.createElement("section");
+    panel.className = "judge-supervisor-computed";
+    const title = document.createElement("div");
+    title.className = "judge-supervisor-computed-title";
+    title.textContent = "Notes calculades";
+    panel.appendChild(title);
+    const grid = document.createElement("div");
+    grid.className = "judge-supervisor-computed-grid";
+    codes.forEach((code) => {
+      const meta = computedByCode.get(code) || {};
+      const card = document.createElement("div");
+      card.className = "judge-supervisor-computed-card";
+      const label = document.createElement("span");
+      label.textContent = meta.label || code;
+      const value = document.createElement("strong");
+      const rawValue = outputs[code];
+      value.textContent = rawValue === null || rawValue === undefined || rawValue === ""
+        ? "—"
+        : Number.isFinite(Number(rawValue))
+          ? Number(rawValue).toLocaleString("ca-ES", {maximumFractionDigits: 3})
+          : String(rawValue);
+      card.appendChild(label);
+      card.appendChild(value);
+      grid.appendChild(card);
+    });
+    panel.appendChild(grid);
+    parent.appendChild(panel);
   }
 
   function renderPermissionBlock(parent, insId, exercici, perm){
@@ -292,7 +524,19 @@
       wrap.dataset.editorRendered = "1";
       return;
     }
-    resolvedPerms.forEach(perm => renderPermissionBlock(wrap, String(insId), exerciseKey(exercici), perm));
+    renderSupervisorComputedFields(wrap, String(insId), exerciseKey(exercici), resolvedPerms);
+    const renderedSupervisorMatrices = new Set();
+    resolvedPerms.forEach((perm) => {
+      const groupKey = supervisorMatrixGroupKey(perm);
+      if(!groupKey){
+        renderPermissionBlock(wrap, String(insId), exerciseKey(exercici), perm);
+        return;
+      }
+      if(renderedSupervisorMatrices.has(groupKey)) return;
+      renderedSupervisorMatrices.add(groupKey);
+      const groupedPerms = resolvedPerms.filter((candidate) => supervisorMatrixGroupKey(candidate) === groupKey);
+      renderSupervisorMatrix(wrap, String(insId), exerciseKey(exercici), groupedPerms);
+    });
     wrap.dataset.editorRendered = "1";
   }
 

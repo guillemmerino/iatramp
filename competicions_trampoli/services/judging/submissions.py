@@ -7,7 +7,7 @@ from django.db import transaction
 
 from ...models.inscripcions import Inscripcio
 from ...models.judging import JudgeScoreSubmission
-from ...models.scoring import TeamCompetitiveSubject
+from ...models.scoring import ScoreRevision, TeamCompetitiveSubject
 from ...scoring_engine import ScoringEngine
 from ...services.scoring.judge_presence import (
     build_runtime_inputs_from_canonical,
@@ -25,6 +25,7 @@ from ...services.scoring.team_scoring import (
     runtime_schema_for_comp_aparell,
 )
 from .supervision import mark_submission_approved, token_is_supervisor_for_field
+from ...services.scoring.publication import score_write_context
 
 
 def _apply_sanitized_patch(current_inputs: dict, sanitized_patch: dict, schema: dict) -> dict:
@@ -226,14 +227,15 @@ def approve_judge_score_submission(*, submission, supervisor_token, supervisor_a
         raise PermissionDenied("Aquest token no supervisa aquest camp.")
     subject = _subject_from_submission(submission)
     final_patch = dict(inputs_patch or submission.normalized_inputs_patch or submission.inputs_patch or {})
-    entry = persist_subject_score_patch(
-        competicio=submission.competicio,
-        comp_aparell=submission.comp_aparell,
-        exercici=submission.exercici,
-        subject=subject,
-        phase=submission.fase,
-        patch=final_patch,
-        submission=submission,
-    )
+    with score_write_context(source=ScoreRevision.Source.SUPERVISOR, judge_token=supervisor_token):
+        entry = persist_subject_score_patch(
+            competicio=submission.competicio,
+            comp_aparell=submission.comp_aparell,
+            exercici=submission.exercici,
+            subject=subject,
+            phase=submission.fase,
+            patch=final_patch,
+            submission=submission,
+        )
     mark_submission_approved(submission, token=supervisor_token, assignment=supervisor_assignment)
     return submission, entry

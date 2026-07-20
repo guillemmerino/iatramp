@@ -104,7 +104,10 @@ def _selected_public_token(competicio, request):
 
 def _permission_formset(permission_formset_cls, request, competicio, comp_aparell, *, bind=False):
     app_context = _schema_context_for_app(competicio, comp_aparell)
-    kwargs = {"form_kwargs": {"field_choices": app_context["field_choices"]}}
+    kwargs = {"form_kwargs": {
+        "field_choices": app_context["field_choices"],
+        "computed_choices": app_context["computed_choices"],
+    }}
     if bind:
         return permission_formset_cls(request.POST, **kwargs), app_context
     return permission_formset_cls(**kwargs), app_context

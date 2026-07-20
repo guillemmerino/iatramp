@@ -31,6 +31,8 @@ from ...services.scoring.team_scoring import (
     runtime_inputs_to_logical_team_inputs,
     runtime_schema_for_comp_aparell,
 )
+from ...models.scoring import ScoreRevision
+from ...services.scoring.publication import score_write_context
 from .helpers import (
     _allowed_input_codes_for_schema,
     _logical_team_input_codes,
@@ -143,7 +145,8 @@ def scoring_save(request, pk):
     )
     entry.outputs = result.outputs
     entry.total = result.total
-    entry.save()
+    with score_write_context(source=ScoreRevision.Source.ORGANIZATION, user=request.user):
+        entry.save()
 
     response = {
         "ok": True,
@@ -273,7 +276,8 @@ def scoring_save_partial(request, pk):
     )
     entry.outputs = result.outputs
     entry.total = result.total
-    entry.save(update_fields=["inputs", "outputs", "total", "updated_at"])
+    with score_write_context(source=ScoreRevision.Source.ORGANIZATION, user=request.user):
+        entry.save(update_fields=["inputs", "outputs", "total", "updated_at"])
 
     response = {
         "ok": True,

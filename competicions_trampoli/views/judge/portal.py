@@ -43,7 +43,7 @@ from ...services.judging.assignments import (
     effective_assignments_for_token,
     resolve_effective_assignment,
 )
-from ...services.judging.supervision import permission_is_supervisor
+from ...services.judging.supervision import field_requires_supervision, permission_is_supervisor
 from ...services.judging.subject_scope import (
     filter_inscripcions_queryset_by_subject_scope,
     filter_subject_dicts_by_subject_scope,
@@ -367,6 +367,17 @@ def judge_portal(request, token, assignment_id=None):
     _schema_obj, base_schema = resolve_scoring_schema_for_comp_aparell(comp_aparell)
 
     permissions = _normalize_permissions(selected_assignment.permissions)
+    for permission in permissions:
+        runtime_code = str(permission.get("runtime_field_code") or permission.get("field_code") or "").strip()
+        permission["crash_supervisor_controlled"] = bool(
+            runtime_code
+            and field_requires_supervision(
+                competicio=competicio,
+                comp_aparell=comp_aparell,
+                phase=phase,
+                runtime_field_code=runtime_code,
+            )
+        )
     assignment_subject_scope_summary = subject_scope_summary(
         selected_assignment.subject_scope,
         competicio=competicio,
