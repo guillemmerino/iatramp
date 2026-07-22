@@ -802,6 +802,8 @@ def judge_portal(request, token, assignment_id=None):
 
     save_url = scoped_api_url(save_url)
     updates_url = scoped_api_url(updates_url)
+    draft_update_url = scoped_api_url(reverse("judge_draft_update", kwargs={"token": str(tok.id)}))
+    draft_updates_url = scoped_api_url(reverse("judge_draft_updates", kwargs={"token": str(tok.id)}))
     supervision_pending_url = scoped_api_url(reverse("judge_supervision_pending", kwargs={"token": str(tok.id)}))
     supervision_approve_url = scoped_api_url(reverse("judge_supervision_approve", kwargs={"token": str(tok.id)}))
     video_status_url = (
@@ -846,6 +848,8 @@ def judge_portal(request, token, assignment_id=None):
         "scores_payload_json": scores_payload,
         "save_url": save_url,
         "updates_url": updates_url,
+        "draft_update_url": draft_update_url,
+        "draft_updates_url": draft_updates_url,
         "supervision_pending_url": supervision_pending_url,
         "supervision_approve_url": supervision_approve_url,
         "judge_has_supervision_permissions": any(permission_is_supervisor(item) for item in permissions),

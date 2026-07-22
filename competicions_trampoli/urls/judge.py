@@ -105,6 +105,8 @@ urlpatterns = [
     path("judge/<uuid:token>/", views_judge.judge_portal, name="judge_portal"),
     path("judge/<uuid:token>/qr.png", views_judge.judge_qr_png, name="judge_qr_png"),
     path("judge/<uuid:token>/api/save/", views_judge.judge_save_partial, name="judge_save_partial"),
+    path("judge/<uuid:token>/api/drafts/update/", views_judge.judge_draft_update, name="judge_draft_update"),
+    path("judge/<uuid:token>/api/drafts/updates/", views_judge.judge_draft_updates, name="judge_draft_updates"),
     path("judge/<uuid:token>/api/updates/", views_judge.judge_updates, name="judge_updates"),
     path(
         "judge/<uuid:token>/api/supervision/pending/",

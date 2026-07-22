@@ -275,6 +275,86 @@ class JudgeScoreSubmission(models.Model):
         )
 
 
+class JudgeScoreDraft(models.Model):
+    """Valor provisional sincronitzat entre els portals de jutges."""
+
+    competicio = models.ForeignKey(Competicio, on_delete=models.CASCADE, related_name="judge_score_drafts")
+    comp_aparell = models.ForeignKey(
+        CompeticioAparell,
+        on_delete=models.CASCADE,
+        related_name="judge_score_drafts",
+    )
+    fase = models.ForeignKey(
+        CompeticioAparellFase,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="judge_score_drafts",
+    )
+    submitted_by_token = models.ForeignKey(
+        JudgeDeviceToken,
+        on_delete=models.CASCADE,
+        related_name="score_drafts",
+    )
+    submitted_by_assignment = models.ForeignKey(
+        JudgePortalAssignment,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="score_drafts",
+    )
+    subject_kind = models.CharField(max_length=30, default="inscripcio")
+    subject_id = models.PositiveIntegerField()
+    exercici = models.PositiveSmallIntegerField(default=1)
+    field_code = models.CharField(max_length=80)
+    runtime_field_code = models.CharField(max_length=120)
+    judge_index = models.PositiveSmallIntegerField(default=1)
+    item_start = models.PositiveSmallIntegerField(default=1)
+    item_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    role = models.CharField(max_length=20, default="standard")
+    inputs_patch = models.JSONField(default=dict, blank=True)
+    normalized_inputs_patch = models.JSONField(default=dict, blank=True)
+    version = models.PositiveBigIntegerField(default=1)
+    client_sequence = models.PositiveBigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["updated_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "submitted_by_token",
+                    "submitted_by_assignment",
+                    "subject_kind",
+                    "subject_id",
+                    "exercici",
+                    "runtime_field_code",
+                ],
+                condition=models.Q(submitted_by_assignment__isnull=False),
+                name="uniq_judgedraft_assignment_subject_field",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["competicio", "comp_aparell", "fase", "updated_at"], name="judgedraft_scope_upd_idx"),
+            models.Index(fields=["subject_kind", "subject_id", "exercici"], name="judgedraft_subject_ex_idx"),
+            models.Index(fields=["submitted_by_token", "updated_at"], name="judgedraft_token_upd_idx"),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.subject_kind = str(self.subject_kind or "inscripcio").strip().lower() or "inscripcio"
+        self.field_code = str(self.field_code or "").strip()
+        self.runtime_field_code = str(self.runtime_field_code or self.field_code).strip()
+        self.role = str(self.role or "standard").strip().lower() or "standard"
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return (
+            f"JudgeScoreDraft v{self.version} comp={self.competicio_id} "
+            f"field={self.runtime_field_code} subject={self.subject_kind}:{self.subject_id}"
+        )
+
+
 class PublicLiveToken(models.Model):
     """
     Token per compartir Classificacions Live amb el públic (sense autenticació).

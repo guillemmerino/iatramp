@@ -5,7 +5,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_POST
 
-from ...models.judging import JudgeDeviceToken
+from ...models.judging import JudgeDeviceToken, JudgeScoreDraft
 from ...models.scoring import ScorePublicationPolicy, ScoreRevision
 from ...scoring_engine import ScoringError
 from ...services.judging.submissions import persist_subject_score_patch
@@ -257,7 +257,12 @@ def judge_save_partial(request, token):
 
     try:
         if immediate_patch:
-            with score_write_context(source=ScoreRevision.Source.JUDGE, judge_token=tok):
+            write_source = (
+                ScoreRevision.Source.SUPERVISOR
+                if supervisor_published_codes
+                else ScoreRevision.Source.JUDGE
+            )
+            with score_write_context(source=write_source, judge_token=tok):
                 entry = persist_subject_score_patch(
                     competicio=competicio,
                     comp_aparell=comp_aparell,
@@ -277,6 +282,29 @@ def judge_save_partial(request, token):
                 token=tok,
                 assignment=scope.assignment,
             )
+            if supervisor_published_codes:
+                draft_qs = JudgeScoreDraft.objects.select_for_update().filter(
+                    competicio=competicio,
+                    comp_aparell=comp_aparell,
+                    fase=scope.phase,
+                    subject_kind=str(subject["subject_kind"]),
+                    subject_id=int(subject["subject_id"]),
+                    exercici=exercici,
+                    runtime_field_code__in=sorted(set(supervisor_published_codes)),
+                )
+                captured_versions = payload.get("captured_draft_versions")
+                if isinstance(captured_versions, dict):
+                    clean_versions = {}
+                    for raw_id, raw_version in captured_versions.items():
+                        try:
+                            clean_versions[int(raw_id)] = int(raw_version)
+                        except (TypeError, ValueError):
+                            continue
+                    for draft in draft_qs.filter(id__in=clean_versions):
+                        if int(draft.version) <= clean_versions.get(int(draft.id), -1):
+                            draft.delete()
+                else:
+                    draft_qs.delete()
         else:
             entry = _existing_entry_for_subject(competicio, comp_aparell, exercici, subject, scope.phase)
     except ScoringError as exc:

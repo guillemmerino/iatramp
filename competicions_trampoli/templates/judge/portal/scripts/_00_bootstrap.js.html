@@ -28,6 +28,8 @@
 
   const SAVE_URL = "{{ save_url }}";
   const UPDATES_URL = "{{ updates_url }}";
+  const DRAFT_UPDATE_URL = "{{ draft_update_url }}";
+  const DRAFT_UPDATES_URL = "{{ draft_updates_url }}";
   const SUPERVISION_PENDING_URL = "{{ supervision_pending_url }}";
   const SUPERVISION_APPROVE_URL = "{{ supervision_approve_url }}";
   const JUDGE_HAS_SUPERVISION = {{ judge_has_supervision_permissions|yesno:"true,false" }};
@@ -73,6 +75,9 @@
   let currentRecordingEntryKey = null;
   let lastSince = UPDATES_CURSOR_INIT || new Date().toISOString();
   let lastAfterId = "";
+  let draftSince = null;
+  let draftAfterId = "";
+  let draftClientSequence = 0;
   let supportSince = null;
   let supportAfterId = "";
   let supportConversation = null;
@@ -84,6 +89,7 @@
   const supportMessages = [];
   const DRAFTS = {};
   const DIRTY_BY_ENTRY = {};
+  const LIVE_DRAFT_META = {};
 
   window.refreshJudgePortal = function refreshJudgePortal(){
     const hasPendingChanges = Object.values(DIRTY_BY_ENTRY || {}).some((dirtySet) => {

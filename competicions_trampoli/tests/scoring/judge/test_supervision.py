@@ -5,8 +5,8 @@ from django.test import TestCase
 from django.urls import reverse
 
 from ...base import _BaseTrampoliDataMixin
-from ....models.judging import JudgeDeviceToken, JudgePortalAssignment, JudgeScoreSubmission
-from ....models.scoring import ScoreEntry, ScoringSchema
+from ....models.judging import JudgeDeviceToken, JudgePortalAssignment, JudgeScoreDraft, JudgeScoreSubmission
+from ....models.scoring import ScoreEntry, ScoreRevision, ScoringSchema
 from ....services.judging.supervision import validate_single_supervisor_per_field
 from ....views.judge.admin import _validate_permission_row
 from ....views.judge.permissions import _normalize_permissions
@@ -199,6 +199,124 @@ class JudgeSupervisionFlowTests(_BaseTrampoliDataMixin, TestCase):
         self.assertEqual(submission.inputs_patch, {"E": [0.1, 0.2, 0.3, 0.4, 0.5]})
         self.assertEqual(submission.normalized_inputs_patch.get("E"), [0.1, 0.2, 0.3, 0.4, 0.5])
 
+    def test_standard_live_update_creates_draft_without_submission_or_score_entry(self):
+        response = self.client.post(
+            reverse("judge_draft_update", kwargs={"token": self.standard_token.id}),
+            data=json.dumps({**self._standard_submission_payload(), "client_sequence": 1}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        draft = JudgeScoreDraft.objects.get(submitted_by_token=self.standard_token)
+        self.assertEqual(draft.runtime_field_code, "E")
+        self.assertEqual(
+            draft.normalized_inputs_patch["E"]["__set_matrix__"],
+            [[0, 0, 0.1], [0, 1, 0.2], [0, 2, 0.3], [0, 3, 0.4], [0, 4, 0.5]],
+        )
+        self.assertFalse(JudgeScoreSubmission.objects.exists())
+        self.assertFalse(ScoreEntry.objects.exists())
+
+    def test_supervisor_crash_is_live_for_standard_without_publishing(self):
+        update_response = self.client.post(
+            reverse("judge_draft_update", kwargs={"token": self.supervisor_token.id}),
+            data=json.dumps({
+                "assignment_id": self.supervisor_assignment.id,
+                "subject_kind": "inscripcio",
+                "subject_id": self.inscripcio.id,
+                "exercici": 1,
+                "client_sequence": 1,
+                "inputs_patch": {"__crash__E": [3, 3]},
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(update_response.status_code, 200, update_response.content)
+        self.assertFalse(ScoreEntry.objects.exists())
+
+        feed_response = self.client.get(
+            reverse("judge_draft_updates", kwargs={"token": self.standard_token.id}),
+            {"assignment_id": self.standard_assignment.id, "exercici": 1},
+        )
+        self.assertEqual(feed_response.status_code, 200, feed_response.content)
+        drafts = feed_response.json()["drafts"]
+        self.assertEqual(len(drafts), 1)
+        self.assertEqual(
+            drafts[0]["normalized_inputs_patch"]["__crash__E"]["__set_list__"],
+            [[0, 3], [1, 3]],
+        )
+
+    def test_supervisor_save_clears_live_drafts_and_records_supervisor_source(self):
+        JudgeScoreDraft.objects.create(
+            competicio=self.competicio,
+            comp_aparell=self.comp_aparell,
+            fase=None,
+            submitted_by_token=self.standard_token,
+            submitted_by_assignment=self.standard_assignment,
+            subject_kind="inscripcio",
+            subject_id=self.inscripcio.id,
+            exercici=1,
+            field_code="E",
+            runtime_field_code="E",
+            judge_index=1,
+            inputs_patch={"E": [0.6, 0.7, 0.8, 0.9, 1.0]},
+            normalized_inputs_patch={"E": {"__set_matrix__": [[0, 0, 0.6]]}},
+        )
+        response = self.client.post(
+            reverse("judge_save_partial", kwargs={"token": self.supervisor_token.id}),
+            data=json.dumps({
+                "assignment_id": self.supervisor_assignment.id,
+                "subject_kind": "inscripcio",
+                "subject_id": self.inscripcio.id,
+                "exercici": 1,
+                "inputs_patch": {
+                    "E": [
+                        [0.6, 0.7, 0.8, 0.9, 1.0],
+                        [0.1, 0.2, 0.3, 0.4, 0.5],
+                    ],
+                    "__crash__E": [3, 3],
+                },
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(JudgeScoreDraft.objects.exists())
+        self.assertEqual(ScoreRevision.objects.latest("id").source, ScoreRevision.Source.SUPERVISOR)
+
+    def test_supervisor_snapshot_does_not_delete_a_newer_live_draft(self):
+        draft = JudgeScoreDraft.objects.create(
+            competicio=self.competicio,
+            comp_aparell=self.comp_aparell,
+            submitted_by_token=self.standard_token,
+            submitted_by_assignment=self.standard_assignment,
+            subject_kind="inscripcio",
+            subject_id=self.inscripcio.id,
+            exercici=1,
+            field_code="E",
+            runtime_field_code="E",
+            judge_index=1,
+            inputs_patch={"E": [0.6, 0.7, 0.8, 0.9, 1.0]},
+            normalized_inputs_patch={"E": {"__set_matrix__": [[0, 0, 0.6]]}},
+            version=2,
+        )
+        response = self.client.post(
+            reverse("judge_save_partial", kwargs={"token": self.supervisor_token.id}),
+            data=json.dumps({
+                "assignment_id": self.supervisor_assignment.id,
+                "subject_kind": "inscripcio",
+                "subject_id": self.inscripcio.id,
+                "exercici": 1,
+                "captured_draft_versions": {str(draft.id): 1},
+                "inputs_patch": {
+                    "E": [
+                        [0.6, 0.7, 0.8, 0.9, 1.0],
+                        [0.1, 0.2, 0.3, 0.4, 0.5],
+                    ],
+                },
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(JudgeScoreDraft.objects.filter(pk=draft.pk, version=2).exists())
+
     def test_standard_judge_cannot_submit_supervisor_controlled_crash(self):
         payload = self._standard_submission_payload()
         payload["inputs_patch"]["__crash__E"] = [3, 3]
@@ -322,6 +440,9 @@ class JudgeSupervisionFlowTests(_BaseTrampoliDataMixin, TestCase):
         self.assertContains(response, "Notes calculades")
         self.assertContains(response, "crash_supervisor_controlled")
         self.assertContains(response, "mergePendingPatchIntoDraft")
+        self.assertContains(response, "DRAFT_UPDATE_URL")
+        self.assertContains(response, "pollLiveDrafts")
+        self.assertContains(response, "captured_draft_versions")
         self.assertNotContains(response, 'id="judgeSupervisionPanel"')
 
         standard_response = self.client.get(

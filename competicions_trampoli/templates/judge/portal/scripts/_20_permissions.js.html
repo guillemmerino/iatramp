@@ -207,8 +207,9 @@
     const draft = getDraft(insId, exercici);
     draft[code] = nextValue;
     markDirty(insId, exercici, perm.key);
-    setStatus(insId, exercici, "", "Pendent de desar...");
+    setStatus(insId, exercici, "", "Sincronitzant...");
     refreshExerciseChipStates(insId);
+    scheduleLiveDraftSync(insId, exercici);
   }
 
   function decimalsStep(dec){

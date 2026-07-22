@@ -30,6 +30,31 @@
       const nJudges = Math.max(1, Number((field && field.judges && field.judges.count) || item.judge_index || 1));
       const nItems = Math.max(1, Number((field && field.items && field.items.count) || 1));
 
+      if(payload && typeof payload === "object" && Array.isArray(payload.__set_list__)){
+        const current = ensureArrayLength(nextInputs[cleanCode], nJudges, isCrash ? 0 : null);
+        payload.__set_list__.forEach((pair) => {
+          if(!Array.isArray(pair) || pair.length < 2) return;
+          const index = Number(pair[0]);
+          if(index >= 0 && index < nJudges) current[index] = deepClone(pair[1]);
+        });
+        nextInputs[cleanCode] = current;
+        return;
+      }
+
+      if(payload && typeof payload === "object" && Array.isArray(payload.__set_matrix__)){
+        const current = ensureArrayLength(nextInputs[cleanCode], nJudges, []);
+        payload.__set_matrix__.forEach((triple) => {
+          if(!Array.isArray(triple) || triple.length < 3) return;
+          const row = Number(triple[0]);
+          const col = Number(triple[1]);
+          if(row < 0 || row >= nJudges || col < 0 || col >= nItems) return;
+          current[row] = ensureArrayLength(current[row], nItems, null);
+          current[row][col] = deepClone(triple[2]);
+        });
+        nextInputs[cleanCode] = current;
+        return;
+      }
+
       if(isCrash || type === "list"){
         const current = ensureArrayLength(nextInputs[cleanCode], nJudges, null);
         let value = payload;
@@ -71,13 +96,19 @@
     const insId = resolveInsDomId(item.subject_id);
     const exercici = exerciseKey(item.exercici);
     const entry = getEntry(insId, exercici);
+    rememberLiveDraft(item);
     const mergedInputs = mergePendingPatchIntoInputs(entry.inputs || {}, item);
+    const patch = pendingPatchSource(item);
+    const includesCrash = Object.keys(patch || {}).some((code) => String(code).startsWith("__crash__"));
     mergePendingPatchIntoDraft(insId, exercici, item);
     setEntry(insId, exercici, {
       ...entry,
       inputs: mergedInputs,
     });
-    if(isEditorRendered(insId, exercici) && !hasDirty(insId, exercici) && !isEditingEntry(insId, exercici)){
+    if(
+      isEditorRendered(insId, exercici)
+      && (includesCrash || (!hasDirty(insId, exercici) && !isEditingEntry(insId, exercici)))
+    ){
       renderEditor(insId, exercici, { force: true });
     }
     refreshExerciseChipStates(insId);
@@ -96,13 +127,43 @@
   }
 
   function mergePendingPatchIntoDraft(insId, exercici, item){
-    if(!hasDirty(insId, exercici) || pendingRowIsDirty(insId, exercici, item)) return;
+    if(pendingRowIsDirty(insId, exercici, item)) return;
     const draft = DRAFTS[entryKey(insId, exercici)];
     if(!draft || typeof draft !== "object") return;
     const mergedDraft = mergePendingPatchIntoInputs(draft, item);
     Object.keys(mergedDraft || {}).forEach((code) => {
       draft[code] = mergedDraft[code];
     });
+  }
+
+  async function pollLiveDrafts(opts = {}){
+    if(!DRAFT_UPDATES_URL) return;
+    const url = new URL(DRAFT_UPDATES_URL, window.location.origin);
+    if(draftSince) url.searchParams.set("since", draftSince);
+    if(draftAfterId) url.searchParams.set("after_id", draftAfterId);
+    if(JUDGE_ASSIGNMENT_ID) url.searchParams.set("assignment_id", String(JUDGE_ASSIGNMENT_ID));
+    allExerciseKeys().forEach((exercici) => url.searchParams.append("exercici", String(exercici)));
+    let delay = 800;
+    try{
+      const res = await fetch(url.toString(), { headers: { "Accept": "application/json" } });
+      const data = await res.json().catch(() => ({}));
+      if(res.ok && data.ok){
+        let changed = false;
+        (data.drafts || []).forEach((item) => {
+          changed = applyPendingSubmissionToEntry(item) || changed;
+        });
+        if(changed) refreshInsNavStatuses();
+        draftSince = data.next_since || draftSince;
+        draftAfterId = String(data.next_after_id || "");
+        if(data.has_more) delay = 0;
+      }
+    } catch(_err){
+      // La sincronitzacio es reintentara en el cicle seguent.
+    } finally {
+      if(delay !== null){
+        window.setTimeout(() => pollLiveDrafts({ drain: delay === 0 }), delay);
+      }
+    }
   }
 
   async function loadSupervisionPendingIntegrated(opts = {}){

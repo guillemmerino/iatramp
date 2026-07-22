@@ -13,6 +13,20 @@
 
   function buildPatchFromCard(insId, exercici){
     const draft = DRAFTS[entryKey(insId, exercici)];
+    if(JUDGE_HAS_SUPERVISION){
+      const snapshot = {};
+      permittedFieldCodesForIns(insId).forEach((code) => {
+        const value = effectiveInput(insId, exercici, code);
+        if(value !== undefined) snapshot[code] = deepClone(value);
+        const field = schemaField(code);
+        if(field && field.crash && field.crash.enabled){
+          const crashCode = `__crash__${code}`;
+          const crashValue = effectiveInput(insId, exercici, crashCode);
+          if(crashValue !== undefined) snapshot[crashCode] = deepClone(crashValue);
+        }
+      });
+      return Object.keys(snapshot).length ? snapshot : null;
+    }
     if(!draft || typeof draft !== "object") return null;
     const keys = Object.keys(draft);
     if(!keys.length) return null;
@@ -52,6 +66,117 @@
       payload.fase_id = Number(JUDGE_FASE_ID);
     }
     return payload;
+  }
+
+  const LIVE_DRAFT_SYNC = {};
+
+  function liveDraftSyncState(insId, exercici){
+    const key = entryKey(insId, exercici);
+    if(!LIVE_DRAFT_SYNC[key]){
+      LIVE_DRAFT_SYNC[key] = { timer: null, inFlight: false, queued: false, sequence: 0 };
+    }
+    return LIVE_DRAFT_SYNC[key];
+  }
+
+  function scheduleLiveDraftSync(insId, exercici){
+    if(!DRAFT_UPDATE_URL) return;
+    const state = liveDraftSyncState(insId, exercici);
+    state.sequence = ++draftClientSequence;
+    state.queued = true;
+    if(state.timer) window.clearTimeout(state.timer);
+    state.timer = window.setTimeout(() => flushLiveDraftSync(insId, exercici), 300);
+  }
+
+  async function flushLiveDraftSync(insId, exercici){
+    const state = liveDraftSyncState(insId, exercici);
+    if(state.timer){
+      window.clearTimeout(state.timer);
+      state.timer = null;
+    }
+    if(state.inFlight){
+      state.queued = true;
+      return;
+    }
+    const patch = buildPatchFromCardForLiveSync(insId, exercici);
+    if(!patch) return;
+    const sentSequence = state.sequence || ++draftClientSequence;
+    state.inFlight = true;
+    state.queued = false;
+    try{
+      const payload = buildSavePayload(insId, exercici, patch);
+      payload.client_sequence = sentSequence;
+      const res = await fetch(DRAFT_UPDATE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF_TOKEN },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || !data.ok){
+        setStatus(insId, exercici, "err", data.error || "No s'ha pogut sincronitzar");
+        state.queued = res.status >= 500;
+        return;
+      }
+      (data.drafts || []).forEach(rememberLiveDraft);
+      if(state.sequence === sentSequence){
+        clearDirty(insId, exercici);
+        setStatus(insId, exercici, "ok", "Sincronitzat");
+      }
+    } catch(_err){
+      state.queued = true;
+      setStatus(insId, exercici, "err", "Sense connexio; reintent pendent");
+    } finally {
+      state.inFlight = false;
+      if(state.queued || state.sequence !== sentSequence){
+        state.timer = window.setTimeout(() => flushLiveDraftSync(insId, exercici), 500);
+      }
+    }
+  }
+
+  async function settleLiveDraftSync(insId, exercici){
+    const state = liveDraftSyncState(insId, exercici);
+    await flushLiveDraftSync(insId, exercici);
+    const deadline = Date.now() + 2500;
+    while(Date.now() < deadline){
+      if(state.inFlight){
+        await new Promise((resolve) => window.setTimeout(resolve, 40));
+        continue;
+      }
+      if(state.queued || state.timer){
+        await flushLiveDraftSync(insId, exercici);
+        continue;
+      }
+      break;
+    }
+  }
+
+  function buildPatchFromCardForLiveSync(insId, exercici){
+    const draft = DRAFTS[entryKey(insId, exercici)];
+    if(!draft || typeof draft !== "object" || !Object.keys(draft).length) return null;
+    return deepClone(draft);
+  }
+
+  function rememberLiveDraft(item){
+    if(!item || item.id == null || item.version == null) return;
+    LIVE_DRAFT_META[String(item.id)] = {
+      id: Number(item.id),
+      version: Number(item.version),
+      subject_id: Number(item.subject_id != null ? item.subject_id : item.inscripcio_id),
+      exercici: Number(item.exercici),
+      runtime_field_code: String(item.runtime_field_code || item.field_code || ""),
+    };
+  }
+
+  function capturedLiveDraftVersions(insId, exercici){
+    const subject = subjectForId(insId);
+    const subjectId = Number(subject.subject_id || insId);
+    const exerciseNumber = Number(exercici);
+    const captured = {};
+    Object.values(LIVE_DRAFT_META).forEach((item) => {
+      if(item.subject_id === subjectId && item.exercici === exerciseNumber){
+        captured[String(item.id)] = item.version;
+      }
+    });
+    return captured;
   }
 
   function scoreConfirmEls(){
@@ -349,7 +474,10 @@
     SCORE_CONFIRM_STATE.insId = String(insId);
     SCORE_CONFIRM_STATE.exercici = exercici;
     SCORE_CONFIRM_STATE.patch = deepClone(patch);
-    SCORE_CONFIRM_STATE.opts = opts || {};
+    SCORE_CONFIRM_STATE.opts = {
+      ...(opts || {}),
+      capturedDraftVersions: capturedLiveDraftVersions(insId, exercici),
+    };
     SCORE_CONFIRM_STATE.previousFocus = document.activeElement;
     renderScoreConfirmSummary(insId, exercici, patch);
     setScoreConfirmSaving(false, "");
@@ -371,10 +499,15 @@
     hideScoreConfirmDom();
     const previousFocus = SCORE_CONFIRM_STATE.previousFocus;
     const opts = SCORE_CONFIRM_STATE.opts || {};
+    const insIdForRefresh = SCORE_CONFIRM_STATE.insId;
+    const exerciciForRefresh = SCORE_CONFIRM_STATE.exercici;
     clearScoreConfirmState();
     SCORE_CONFIRM_STATE.previousFocus = null;
     if(reason === "cancel" && typeof opts.onCancel === "function"){
       opts.onCancel();
+    }
+    if(reason === "cancel" && insIdForRefresh){
+      renderEditor(insIdForRefresh, exerciciForRefresh, { force: true });
     }
     if(previousFocus && typeof previousFocus.focus === "function"){
       window.setTimeout(() => previousFocus.focus(), 0);
@@ -417,6 +550,9 @@
 
     try{
       const payload = opts.payload || buildSavePayload(insId, exercici, patch);
+      if(opts.capturedDraftVersions){
+        payload.captured_draft_versions = opts.capturedDraftVersions;
+      }
       if(typeof opts.onBeforeSave === "function"){
         opts.onBeforeSave({ insId, exercici, patch, payload });
       }
@@ -485,6 +621,7 @@
 
   async function saveNow(insId, exercici){
     exercici = exerciseKey(exercici);
+    await settleLiveDraftSync(insId, exercici);
     const patch = buildPatchFromCard(insId, exercici);
     if(!patch){
       setStatus(insId, exercici, "info", "No hi ha canvis pendents");
@@ -500,6 +637,7 @@
     const baseEntry = getEntry(insId, exercici);
     const mergedInputs = (baseEntry.inputs && typeof baseEntry.inputs === "object") ? { ...baseEntry.inputs } : {};
     const incomingInputs = (update.inputs && typeof update.inputs === "object") ? update.inputs : {};
+    const incomingHasCrash = Object.keys(incomingInputs).some((code) => String(code).startsWith("__crash__"));
 
     Object.entries(incomingInputs).forEach(([code, val]) => {
       mergedInputs[code] = val;
@@ -514,12 +652,13 @@
     refreshInsNavStatuses();
     refreshExerciseChipStates(insId);
 
-    if(hasDirty(insId, exercici) || isEditingEntry(insId, exercici)){
+    if((hasDirty(insId, exercici) || isEditingEntry(insId, exercici)) && !incomingHasCrash){
       setStatus(insId, exercici, "info", "Canvi remot rebut (pendent de desar)");
       return;
     }
 
     if(Object.keys(incomingInputs).length){
+      if(!hasDirty(insId, exercici)) clearDraft(insId, exercici);
       if(isEditorRendered(insId, exercici)){
         renderEditor(insId, exercici, { force: true });
       }
