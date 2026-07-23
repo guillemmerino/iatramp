@@ -459,7 +459,7 @@
                 </template>
 
                 <div class="text-muted small mb-3">
-                  Start/Count limita items en camps matrix. Els camps i fases canvien segons l'aparell seleccionat.
+                  Start/Count limita items en camps matrix. Pots crear una assignacio sense camps i fer-la servir nomes com a controlador.
                 </div>
                 <div class="d-flex justify-content-end">
                   <button class="btn btn-sm btn-primary" type="submit">Afegir assignacio</button>
@@ -559,6 +559,32 @@
                                   <span class="text-muted small">Sense permisos</span>
                                 {% endfor %}
                               </div>
+                              {% if row.assignment.is_active and t.is_active and not t.revoked_at %}
+                                <form method="post" class="mt-2 border-top pt-2">
+                                  {% csrf_token %}
+                                  <input type="hidden" name="action" value="configure_guided_flow">
+                                  <input type="hidden" name="assignment_id" value="{{ row.assignment.id }}">
+                                  <div class="d-flex flex-wrap align-items-end gap-2">
+                                    <div>
+                                      <label class="form-label small text-muted mb-1">Flux de competicio</label>
+                                      <select class="form-select form-select-sm" name="flow_mode">
+                                        <option value="free" {% if not row.flow_enabled %}selected{% endif %}>Mode lliure</option>
+                                        <option value="guided" {% if row.flow_enabled %}selected{% endif %}>Mode guiat</option>
+                                      </select>
+                                    </div>
+                                    <div class="form-check mb-1">
+                                      <input class="form-check-input" type="checkbox" name="is_controller" value="1" id="flow-controller-{{ row.assignment.id }}" {% if row.is_flow_controller %}checked{% endif %}>
+                                      <label class="form-check-label small" for="flow-controller-{{ row.assignment.id }}">Controlador</label>
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-primary" type="submit">Desar flux</button>
+                                  </div>
+                                  {% if row.flow_enabled and not row.flow_lane.controller_assignment_id %}
+                                    <div class="text-warning small mt-1">Mode guiat sense controlador assignat.</div>
+                                  {% elif row.is_flow_controller %}
+                                    <div class="text-success small mt-1">Aquest acces controla el flux.</div>
+                                  {% endif %}
+                                </form>
+                              {% endif %}
                               {% if row.assignment.is_active and t.is_active and not t.revoked_at %}
                                 <form method="post" class="mt-2">
                                   {% csrf_token %}

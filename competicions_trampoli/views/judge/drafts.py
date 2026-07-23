@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
 
 from ...models.inscripcions import Inscripcio
-from ...models.judging import JudgeDeviceToken, JudgeScoreDraft
+from ...models.judging import JudgeDeviceToken, JudgeScoreDraft, JudgeScoringWindow
 from ...services.inscripcions.admission import load_excluded_app_ids_by_inscripcio
 from ...services.judging.subject_scope import (
     filter_inscripcions_queryset_by_subject_scope,
@@ -17,6 +17,7 @@ from ...services.judging.supervision import (
     normalize_judge_role,
     token_is_supervisor_for_field,
 )
+from ...services.judging.flow import lane_for_scope
 from ...services.scoring.schema_resolution import resolve_scoring_schema_for_comp_aparell
 from ...services.scoring.scoring_subjects import resolve_scoring_subject, serialize_subject_payload
 from ...services.scoring.team_scoring import (
@@ -84,6 +85,7 @@ def _draft_payload(draft):
     return {
         "id": draft.id,
         "version": draft.version,
+        "scoring_window_id": draft.scoring_window_id,
         "field_code": draft.field_code,
         "runtime_field_code": draft.runtime_field_code,
         "exercici": draft.exercici,
@@ -149,6 +151,22 @@ def judge_draft_update(request, token):
     scope, scope_error = resolve_assignment_scope_for_request(tok, assignment_id_from_request(request, payload))
     if scope_error is not None:
         return scope_error
+    lane = lane_for_scope(scope)
+    scoring_window = None
+    if lane is not None:
+        try:
+            window_id = int(payload.get("window_id") or 0)
+        except (TypeError, ValueError):
+            window_id = 0
+        scoring_window = (
+            JudgeScoringWindow.objects.select_for_update()
+            .filter(pk=window_id, lane=lane)
+            .first()
+        )
+        if scoring_window is None:
+            return JsonResponse({"ok": False, "error": "No hi ha cap puntuacio activa.", "reason": "window_missing"}, status=409)
+        if scoring_window.status not in {JudgeScoringWindow.Status.OPEN, JudgeScoringWindow.Status.CLOSING}:
+            return JsonResponse({"ok": False, "error": "La puntuacio ja esta tancada.", "reason": "window_closed"}, status=409)
     patch = payload.get("inputs_patch") or {}
     if not isinstance(patch, dict) or not patch:
         return JsonResponse({"ok": False, "error": "inputs_patch ha de ser un objecte no buit"}, status=400)
@@ -177,6 +195,17 @@ def judge_draft_update(request, token):
         error_response = checker(scope, subject)
         if error_response is not None:
             return error_response
+    if scoring_window is not None:
+        requested_exercise = clamp_exercici_for_scope(scope, payload.get("exercici"))
+        if (
+            scoring_window.subject_kind != str(subject["subject_kind"])
+            or int(scoring_window.subject_id) != int(subject["subject_id"])
+            or int(scoring_window.exercici) != int(requested_exercise)
+        ):
+            return JsonResponse(
+                {"ok": False, "error": "Aquest no es el participant actiu.", "reason": "window_subject_mismatch"},
+                status=409,
+            )
 
     permissions = _normalize_permissions(scope.permissions)
     resolved_permissions = _resolve_permissions_for_subject(permissions, scope.comp_aparell, subject)
@@ -233,6 +262,7 @@ def judge_draft_update(request, token):
             "competicio": scope.competicio,
             "comp_aparell": scope.comp_aparell,
             "fase": scope.phase,
+            "scoring_window": scoring_window,
             "submitted_by_token": tok,
             "submitted_by_assignment_id": scope.assignment_id,
             "subject_kind": str(subject["subject_kind"]),
@@ -267,6 +297,7 @@ def judge_draft_updates(request, token):
     scope, scope_error = resolve_assignment_scope_for_request(tok, assignment_id_from_request(request))
     if scope_error is not None:
         return scope_error
+    lane = lane_for_scope(scope)
     cursor = parse_feed_cursor(request)
     qs = JudgeScoreDraft.objects.filter(
         competicio=scope.competicio,
@@ -274,6 +305,14 @@ def judge_draft_updates(request, token):
         fase=scope.phase,
         subject_id__in=_allowed_subject_ids(scope),
     )
+    if lane is not None:
+        active_window = (
+            JudgeScoringWindow.objects
+            .filter(lane=lane, status__in=[JudgeScoringWindow.Status.OPEN, JudgeScoringWindow.Status.CLOSING])
+            .order_by("-sequence", "-id")
+            .first()
+        )
+        qs = qs.filter(scoring_window=active_window) if active_window is not None else qs.none()
     raw_exercises = request.GET.getlist("exercici")
     if raw_exercises:
         qs = qs.filter(exercici__in=[clamp_exercici_for_scope(scope, value) for value in raw_exercises])

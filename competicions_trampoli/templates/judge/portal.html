@@ -21,7 +21,10 @@
   <div class="card-surface">
     {% include "judge/portal/_header.html" %}
 
-    {% if permissions %}
+    {% if judge_flow_enabled %}
+      {% include "judge/portal/guided/_shell.html" %}
+      {% include "judge/portal/_support_drawer.html" %}
+    {% elif permissions %}
 
       <div id="listWrap">
         {% include "judge/portal/_group_tabs.html" %}
@@ -54,6 +57,7 @@
 {% include "judge/portal/scripts/_70_editor_render.js.html" %}
 {% include "judge/portal/scripts/_80_save_updates.js.html" %}
 {% include "judge/portal/scripts/_85_supervision.js.html" %}
+{% include "judge/portal/scripts/_87_guided_flow.js.html" %}
 {% include "judge/portal/scripts/_66_competition_mode_modal.js.html" %}
 {% include "judge/portal/scripts/_90_init.js.html" %}
 </script>

@@ -157,6 +157,159 @@ class JudgePortalAssignment(models.Model):
         return f"{self.judge_token_id} / {self.comp_aparell_id} / {phase} / {self.label or self.ordre}"
 
 
+class JudgeScoringLane(models.Model):
+    """Canal compartit que governa el participant actiu d'un aparell/fase."""
+
+    competicio = models.ForeignKey(
+        Competicio,
+        on_delete=models.CASCADE,
+        related_name="judge_scoring_lanes",
+    )
+    comp_aparell = models.ForeignKey(
+        CompeticioAparell,
+        on_delete=models.CASCADE,
+        related_name="judge_scoring_lanes",
+    )
+    fase = models.ForeignKey(
+        CompeticioAparellFase,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="judge_scoring_lanes",
+    )
+    label = models.CharField(max_length=160, blank=True, default="")
+    is_enabled = models.BooleanField(default=False)
+    controller_assignment = models.ForeignKey(
+        JudgePortalAssignment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="controlled_scoring_lanes",
+    )
+    version = models.PositiveBigIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["competicio_id", "comp_aparell_id", "fase_id", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["competicio", "comp_aparell"],
+                condition=models.Q(fase__isnull=True),
+                name="uniq_judgelane_preliminary",
+            ),
+            models.UniqueConstraint(
+                fields=["competicio", "comp_aparell", "fase"],
+                condition=models.Q(fase__isnull=False),
+                name="uniq_judgelane_phase",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["competicio", "is_enabled"], name="judgelane_comp_enabled_idx"),
+            models.Index(fields=["comp_aparell", "fase"], name="judgelane_app_phase_idx"),
+        ]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.comp_aparell_id and self.comp_aparell.competicio_id != self.competicio_id:
+            errors["comp_aparell"] = "L'aparell no pertany a la mateixa competicio."
+        if self.fase_id:
+            if self.fase.competicio_id != self.competicio_id:
+                errors["fase"] = "La fase no pertany a la mateixa competicio."
+            elif self.fase.comp_aparell_id != self.comp_aparell_id:
+                errors["fase"] = "La fase no pertany a aquest aparell."
+        controller = self.controller_assignment
+        if controller is not None:
+            if controller.competicio_id != self.competicio_id:
+                errors["controller_assignment"] = "El controlador no pertany a la mateixa competicio."
+            elif controller.comp_aparell_id != self.comp_aparell_id:
+                errors["controller_assignment"] = "El controlador no pertany al mateix aparell."
+            elif controller.fase_id != self.fase_id:
+                errors["controller_assignment"] = "El controlador no pertany a la mateixa fase."
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f"Canal jutges {self.comp_aparell_id} / {self.fase_id or 'preliminar'}"
+
+
+class JudgeScoringWindow(models.Model):
+    class Status(models.TextChoices):
+        OPEN = "open", "Oberta"
+        CLOSING = "closing", "Tancant"
+        LOCKED = "locked", "Bloquejada"
+        FINALIZED = "finalized", "Finalitzada"
+        CANCELLED = "cancelled", "Cancel·lada"
+
+    lane = models.ForeignKey(
+        JudgeScoringLane,
+        on_delete=models.CASCADE,
+        related_name="scoring_windows",
+    )
+    sequence = models.PositiveBigIntegerField(default=1)
+    subject_kind = models.CharField(max_length=30, default="inscripcio")
+    subject_id = models.PositiveIntegerField()
+    exercici = models.PositiveSmallIntegerField(default=1)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
+    opened_by_assignment = models.ForeignKey(
+        JudgePortalAssignment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="opened_scoring_windows",
+    )
+    closed_by_assignment = models.ForeignKey(
+        JudgePortalAssignment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="closed_scoring_windows",
+    )
+    finalized_by_assignment = models.ForeignKey(
+        JudgePortalAssignment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="finalized_scoring_windows",
+    )
+    configuration_snapshot = models.JSONField(default=dict, blank=True)
+    final_inputs = models.JSONField(default=dict, blank=True)
+    final_outputs = models.JSONField(default=dict, blank=True)
+    final_total = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
+    error_message = models.CharField(max_length=500, blank=True, default="")
+    opened_at = models.DateTimeField(auto_now_add=True)
+    closing_at = models.DateTimeField(null=True, blank=True)
+    locked_at = models.DateTimeField(null=True, blank=True)
+    finalized_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-sequence", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["lane"],
+                condition=models.Q(status="open"),
+                name="uniq_active_judge_window_per_lane",
+            ),
+            models.UniqueConstraint(
+                fields=["lane", "sequence"],
+                name="uniq_judge_window_lane_sequence",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["lane", "status"], name="judgewindow_lane_status_idx"),
+            models.Index(fields=["subject_kind", "subject_id", "exercici"], name="judgewindow_subject_ex_idx"),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.subject_kind = str(self.subject_kind or "inscripcio").strip().lower() or "inscripcio"
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Finestra {self.lane_id}.{self.sequence} / {self.subject_kind}:{self.subject_id} / {self.status}"
+
+
 class JudgeScoreSubmission(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", "Pendent"
@@ -290,6 +443,13 @@ class JudgeScoreDraft(models.Model):
         null=True,
         blank=True,
         related_name="judge_score_drafts",
+    )
+    scoring_window = models.ForeignKey(
+        JudgeScoringWindow,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="score_drafts",
     )
     submitted_by_token = models.ForeignKey(
         JudgeDeviceToken,

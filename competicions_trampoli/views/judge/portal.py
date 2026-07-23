@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from django.conf import settings
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
@@ -44,6 +45,7 @@ from ...services.judging.assignments import (
     resolve_effective_assignment,
 )
 from ...services.judging.supervision import field_requires_supervision, permission_is_supervisor
+from ...services.judging.flow import assignment_is_controller, lane_for_scope
 from ...services.judging.subject_scope import (
     filter_inscripcions_queryset_by_subject_scope,
     filter_subject_dicts_by_subject_scope,
@@ -389,6 +391,13 @@ def judge_portal(request, token, assignment_id=None):
         and standard_supervised
         and standard_unsupervised
     )
+    flow_scope = SimpleNamespace(competicio=competicio, comp_aparell=comp_aparell, phase=phase)
+    judge_flow_lane = lane_for_scope(flow_scope)
+    judge_flow_enabled = judge_flow_lane is not None
+    judge_flow_is_controller = assignment_is_controller(judge_flow_lane, selected_assignment)
+    if judge_flow_enabled:
+        judge_save_button_visible = False
+        judge_save_non_supervised_only = False
     assignment_subject_scope_summary = subject_scope_summary(
         selected_assignment.subject_scope,
         competicio=competicio,
@@ -817,6 +826,12 @@ def judge_portal(request, token, assignment_id=None):
     draft_updates_url = scoped_api_url(reverse("judge_draft_updates", kwargs={"token": str(tok.id)}))
     supervision_pending_url = scoped_api_url(reverse("judge_supervision_pending", kwargs={"token": str(tok.id)}))
     supervision_approve_url = scoped_api_url(reverse("judge_supervision_approve", kwargs={"token": str(tok.id)}))
+    flow_state_url = scoped_api_url(reverse("judge_flow_state", kwargs={"token": str(tok.id)}))
+    flow_open_url = scoped_api_url(reverse("judge_flow_open", kwargs={"token": str(tok.id)}))
+    flow_close_url = scoped_api_url(reverse("judge_flow_close", kwargs={"token": str(tok.id)}))
+    flow_finalize_url = scoped_api_url(reverse("judge_flow_finalize", kwargs={"token": str(tok.id)}))
+    flow_reopen_url = scoped_api_url(reverse("judge_flow_reopen", kwargs={"token": str(tok.id)}))
+    flow_cancel_url = scoped_api_url(reverse("judge_flow_cancel", kwargs={"token": str(tok.id)}))
     video_status_url = (
         scoped_api_url(reverse("judge_video_status", kwargs={"token": str(tok.id)}))
         if video_capture_enabled
@@ -866,6 +881,15 @@ def judge_portal(request, token, assignment_id=None):
         "judge_has_supervision_permissions": judge_has_supervision_permissions,
         "judge_save_button_visible": judge_save_button_visible,
         "judge_save_non_supervised_only": judge_save_non_supervised_only,
+        "judge_flow_enabled": judge_flow_enabled,
+        "judge_flow_is_controller": judge_flow_is_controller,
+        "judge_flow_has_controller": bool(judge_flow_lane and judge_flow_lane.controller_assignment_id),
+        "flow_state_url": flow_state_url,
+        "flow_open_url": flow_open_url,
+        "flow_close_url": flow_close_url,
+        "flow_finalize_url": flow_finalize_url,
+        "flow_reopen_url": flow_reopen_url,
+        "flow_cancel_url": flow_cancel_url,
         "updates_cursor_init": timezone.now().isoformat(),
         "video_capture_enabled": video_capture_enabled,
         "video_status_url": video_status_url,

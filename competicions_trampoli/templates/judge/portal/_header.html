@@ -11,7 +11,8 @@
             <span><strong>QR:</strong> <span class="fw-semibold">{{ token_obj.label }}</span></span>
           {% endif %}
         </div>
-        {% if permissions %}
+        {% if permissions or judge_flow_enabled %}
+        {% if not judge_flow_enabled %}
           <div class="judge-assignment-summary mt-2">
             <span class="judge-assignment-label">Camps puntuats</span>
             <span class="judge-assignment-values" data-perm-text></span>
@@ -35,7 +36,7 @@
         {% if not judge_kiosk %}
         <a class="btn btn-sm btn-outline-secondary" href="{% url 'scoring_notes_home' competicio.id %}">Tornar a notes</a>
         {% endif %}
-        {% if permissions %}
+        {% if permissions and not judge_flow_enabled %}
         {% if judge_pwa_enabled %}
         <button
           type="button"
@@ -64,6 +65,7 @@
         >
           <span class="judge-nav-toggle-icon" aria-hidden="true">&#9662;</span>
         </button>
+        {% endif %}
         <button
           type="button"
           class="judge-support-toggle"

@@ -290,6 +290,30 @@
     .qr-assignment-card__actions {
       margin-top: .55rem;
     }
+    .qr-flow-config {
+      display: grid;
+      gap: .6rem;
+      margin-top: .65rem;
+      padding: .7rem;
+      border: 1px solid var(--notes-soft-border);
+      border-radius: 9px;
+      background: #fffcf5;
+    }
+    .qr-flow-config__field {
+      min-width: 0;
+    }
+    .qr-flow-config__label {
+      display: block;
+      margin-bottom: .3rem;
+    }
+    .qr-flow-config__controller {
+      display: flex;
+      align-items: center;
+      min-height: 28px;
+    }
+    .qr-flow-config__submit {
+      width: 100%;
+    }
     .qr-admin-detail-identity {
       border: 1px solid var(--notes-border);
       border-radius: 10px;
@@ -901,6 +925,32 @@
                     {% endfor %}
                   </div>
                   {% if row.assignment.is_active %}
+                    <form method="post" class="qr-flow-config">
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="configure_guided_flow">
+                      <input type="hidden" name="assignment_id" value="{{ row.assignment.id }}">
+                      <div class="qr-flow-config__field">
+                        <label class="qr-flow-config__label small text-muted">Flux de competicio</label>
+                        <select class="form-select form-select-sm" name="flow_mode">
+                          <option value="free"{% if not row.flow_enabled %} selected{% endif %}>Mode lliure</option>
+                          <option value="guided"{% if row.flow_enabled %} selected{% endif %}>Mode guiat</option>
+                        </select>
+                      </div>
+                      <div class="qr-flow-config__controller">
+                        <div class="form-check mb-0">
+                          <input class="form-check-input" type="checkbox" name="is_controller" value="1" id="flowController{{ row.assignment.id }}"{% if row.is_flow_controller %} checked{% endif %}>
+                          <label class="form-check-label small" for="flowController{{ row.assignment.id }}">Jutge controlador</label>
+                        </div>
+                      </div>
+                      <button class="btn btn-sm btn-outline-primary qr-flow-config__submit" type="submit">Desar flux</button>
+                      {% if row.flow_enabled %}
+                        {% if row.is_flow_controller %}
+                          <div class="small text-success mt-2">Aquest acces controla l'obertura i el tancament.</div>
+                        {% elif not row.flow_lane.controller_assignment_id %}
+                          <div class="small text-warning mt-2">Mode guiat sense controlador assignat.</div>
+                        {% endif %}
+                      {% endif %}
+                    </form>
                     <form method="post" class="qr-assignment-card__actions">
                       {% csrf_token %}
                       <input type="hidden" name="action" value="deactivate_assignment">

@@ -72,6 +72,10 @@
     if(JUDGE_FASE_ID){
       payload.fase_id = Number(JUDGE_FASE_ID);
     }
+    if(JUDGE_FLOW_ENABLED && GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window){
+      payload.window_id = Number(GUIDED_FLOW_STATE.window.id);
+      payload.window_version = Number(GUIDED_FLOW_STATE.lane_version || 0);
+    }
     return payload;
   }
 

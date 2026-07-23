@@ -32,6 +32,14 @@
   const DRAFT_UPDATES_URL = "{{ draft_updates_url }}";
   const SUPERVISION_PENDING_URL = "{{ supervision_pending_url }}";
   const SUPERVISION_APPROVE_URL = "{{ supervision_approve_url }}";
+  const JUDGE_FLOW_ENABLED = {{ judge_flow_enabled|yesno:"true,false" }};
+  const JUDGE_FLOW_IS_CONTROLLER = {{ judge_flow_is_controller|yesno:"true,false" }};
+  const FLOW_STATE_URL = "{{ flow_state_url }}";
+  const FLOW_OPEN_URL = "{{ flow_open_url }}";
+  const FLOW_CLOSE_URL = "{{ flow_close_url }}";
+  const FLOW_FINALIZE_URL = "{{ flow_finalize_url }}";
+  const FLOW_REOPEN_URL = "{{ flow_reopen_url }}";
+  const FLOW_CANCEL_URL = "{{ flow_cancel_url }}";
   const JUDGE_HAS_SUPERVISION = {{ judge_has_supervision_permissions|yesno:"true,false" }};
   const JUDGE_SAVE_NON_SUPERVISED_ONLY = {{ judge_save_non_supervised_only|yesno:"true,false" }};
   const VIDEO_STATUS_URL = "{{ video_status_url }}";
@@ -91,6 +99,7 @@
   const DRAFTS = {};
   const DIRTY_BY_ENTRY = {};
   const LIVE_DRAFT_META = {};
+  let GUIDED_FLOW_STATE = null;
 
   window.refreshJudgePortal = function refreshJudgePortal(){
     const hasPendingChanges = Object.values(DIRTY_BY_ENTRY || {}).some((dirtySet) => {

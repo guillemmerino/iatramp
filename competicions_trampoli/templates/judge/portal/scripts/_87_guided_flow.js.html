@@ -1,0 +1,267 @@
+  let guidedFlowPollTimer = null;
+  let guidedRenderedWindowKey = "";
+  let guidedFinalizeTimer = null;
+
+  function guidedFlowElements(){
+    return {
+      root: document.getElementById("guidedFlowRoot"),
+      waiting: document.getElementById("guidedWaitingPanel"),
+      waitingTitle: document.getElementById("guidedWaitingTitle"),
+      waitingCopy: document.getElementById("guidedWaitingCopy"),
+      current: document.getElementById("guidedCurrentPanel"),
+      currentName: document.getElementById("guidedCurrentName"),
+      currentMeta: document.getElementById("guidedCurrentMeta"),
+      currentStatus: document.getElementById("guidedCurrentStatus"),
+      editor: document.getElementById("guidedEditorHost"),
+      subject: document.getElementById("guidedSubjectSelect"),
+      exercise: document.getElementById("guidedExerciseSelect"),
+      open: document.getElementById("guidedOpenButton"),
+      actions: document.getElementById("guidedControllerActions"),
+      close: document.getElementById("guidedCloseButton"),
+      closePublish: document.getElementById("guidedClosePublishButton"),
+      cancel: document.getElementById("guidedCancelButton"),
+      statuses: document.getElementById("guidedJudgeStatuses"),
+      message: document.getElementById("guidedControllerMessage"),
+      pendingList: document.getElementById("guidedPendingList"),
+      pendingCount: document.getElementById("guidedPendingCount"),
+      pendingEmpty: document.getElementById("guidedPendingEmpty"),
+    };
+  }
+
+  function guidedSubjectName(subject){
+    return String(
+      (subject && (subject.nom_i_cognoms || subject.name || subject.nom || subject.label))
+      || `Participant ${(subject && subject.subject_id) || ""}`
+    ).trim();
+  }
+
+  function populateGuidedFlowSelectors(){
+    const els = guidedFlowElements();
+    if(els.subject && !els.subject.dataset.ready){
+      SUBJECTS.forEach((subject) => {
+        const option = document.createElement("option");
+        option.value = String(subject.id || subject.subject_id || "");
+        option.textContent = guidedSubjectName(subject);
+        els.subject.appendChild(option);
+      });
+      els.subject.dataset.ready = "1";
+    }
+    if(els.exercise && !els.exercise.dataset.ready){
+      EXERCISES.forEach((exercise) => {
+        const option = document.createElement("option");
+        option.value = String(exercise);
+        option.textContent = `Exercici ${exercise}`;
+        els.exercise.appendChild(option);
+      });
+      els.exercise.dataset.ready = "1";
+    }
+  }
+
+  function setGuidedControllerMessage(text, kind = ""){
+    const el = guidedFlowElements().message;
+    if(!el) return;
+    el.textContent = text || "";
+    el.className = `small mt-2 ${kind === "error" ? "text-danger" : (kind === "ok" ? "text-success" : "text-muted")}`;
+  }
+
+  function renderGuidedJudgeStatuses(items){
+    const host = guidedFlowElements().statuses;
+    if(!host) return;
+    host.innerHTML = "";
+    (items || []).forEach((item) => {
+      const badge = document.createElement("span");
+      badge.className = "guided-flow-status";
+      badge.textContent = `${item.label || "Jutge"}: sincronitzat`;
+      host.appendChild(badge);
+    });
+  }
+
+  function renderGuidedPendingWindows(items){
+    const els = guidedFlowElements();
+    const pending = Array.isArray(items) ? items : [];
+    if(els.pendingCount) els.pendingCount.textContent = String(pending.length);
+    if(els.pendingEmpty) els.pendingEmpty.classList.toggle("d-none", pending.length > 0);
+    if(!els.pendingList) return;
+    els.pendingList.innerHTML = "";
+    pending.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "guided-flow-pending-item";
+      const copy = document.createElement("div");
+      copy.className = "guided-flow-pending-copy";
+      const name = document.createElement("div");
+      name.className = "guided-flow-pending-name";
+      name.textContent = item.subject_label || `Participant ${item.subject_id}`;
+      const meta = document.createElement("div");
+      meta.className = "small text-muted";
+      meta.textContent = `Exercici ${item.exercici} · ${item.draft_count || 0} camps sincronitzats`;
+      copy.append(name, meta);
+      const actions = document.createElement("div");
+      actions.className = "guided-flow-pending-actions";
+      const publish = document.createElement("button");
+      publish.type = "button";
+      publish.className = "btn btn-sm btn-success";
+      publish.textContent = "Publicar";
+      publish.addEventListener("click", () => finalizeGuidedFlow(item.id));
+      const reopen = document.createElement("button");
+      reopen.type = "button";
+      reopen.className = "btn btn-sm btn-outline-primary";
+      reopen.textContent = "Reobrir";
+      reopen.disabled = !!(GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window);
+      reopen.addEventListener("click", () => reopenGuidedFlow(item.id));
+      const discard = document.createElement("button");
+      discard.type = "button";
+      discard.className = "btn btn-sm btn-outline-danger";
+      discard.textContent = "Descartar";
+      discard.addEventListener("click", () => cancelGuidedFlow(item.id));
+      actions.append(publish, reopen, discard);
+      row.append(copy, actions);
+      els.pendingList.appendChild(row);
+    });
+  }
+
+  function renderGuidedFlowState(state){
+    GUIDED_FLOW_STATE = state || null;
+    const els = guidedFlowElements();
+    if(!els.root) return;
+    const windowState = state && state.window;
+    const isOpen = !!windowState && windowState.status === "open";
+
+    if(els.open) els.open.disabled = !!windowState || !state.has_controller;
+    if(els.actions) els.actions.classList.toggle("d-none", !windowState);
+    if(els.close) els.close.classList.toggle("d-none", !isOpen);
+    if(els.closePublish) els.closePublish.classList.toggle("d-none", !isOpen);
+    if(els.subject) els.subject.disabled = !!windowState;
+    if(els.exercise) els.exercise.disabled = !!windowState;
+    renderGuidedJudgeStatuses(windowState ? windowState.judge_statuses : []);
+    renderGuidedPendingWindows(state ? state.pending_windows : []);
+
+    if(!windowState || windowState.is_assigned === false){
+      if(els.waiting) els.waiting.classList.remove("d-none");
+      if(els.current) els.current.classList.add("d-none");
+      if(els.waitingTitle){
+        els.waitingTitle.textContent = windowState && windowState.is_assigned === false
+          ? "Actuacio no assignada a aquest jutge"
+          : "Esperant el seguent gimnasta";
+      }
+      if(els.waitingCopy){
+        els.waitingCopy.textContent = windowState && windowState.is_assigned === false
+          ? "Continua esperant; el teu torn s'obrira automaticament."
+          : state.has_controller
+          ? "La puntuacio s'obrira automaticament."
+          : "Encara no hi ha cap controlador assignat.";
+      }
+      guidedRenderedWindowKey = "";
+      return;
+    }
+
+    if(els.waiting) els.waiting.classList.add("d-none");
+    if(els.current) els.current.classList.remove("d-none");
+    if(els.currentName) els.currentName.textContent = windowState.subject_label || `Participant ${windowState.subject_id}`;
+    if(els.currentMeta) els.currentMeta.textContent = `Exercici ${windowState.exercici}`;
+    if(els.currentStatus){
+      els.currentStatus.textContent = "Puntuacio oberta";
+    }
+
+    if(els.editor){
+      const domId = resolveInsDomId(windowState.subject_id);
+      const renderKey = `${windowState.id}:${domId}:${windowState.exercici}`;
+      if(isOpen && guidedRenderedWindowKey !== renderKey){
+        els.editor.innerHTML = "";
+        renderEditorInto(els.editor, domId, windowState.exercici, { force: true, guidedFlow: true });
+        guidedRenderedWindowKey = renderKey;
+      }
+      els.editor.querySelectorAll("input,button,select,textarea").forEach((control) => {
+        control.disabled = !isOpen;
+      });
+    }
+  }
+
+  async function pollGuidedFlowState(){
+    if(!JUDGE_FLOW_ENABLED || !FLOW_STATE_URL) return;
+    try{
+      const response = await fetch(FLOW_STATE_URL, { headers: { "Accept": "application/json" } });
+      const data = await response.json().catch(() => ({}));
+      if(response.ok && data.ok) renderGuidedFlowState(data);
+    } catch(_error){
+      setGuidedControllerMessage("Sense connexio; reintentant...", "error");
+    } finally {
+      guidedFlowPollTimer = window.setTimeout(pollGuidedFlowState, 800);
+    }
+  }
+
+  async function guidedFlowRequest(url, payload){
+    setGuidedControllerMessage("Processant...");
+    const body = { ...(payload || {}) };
+    if(JUDGE_ASSIGNMENT_ID) body.assignment_id = Number(JUDGE_ASSIGNMENT_ID);
+    try{
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF_TOKEN },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json().catch(() => ({}));
+      if(!response.ok || !data.ok){
+        setGuidedControllerMessage(data.error || "No s'ha pogut completar l'accio.", "error");
+        return null;
+      }
+      renderGuidedFlowState(data);
+      setGuidedControllerMessage("Accio completada.", "ok");
+      return data;
+    } catch(_error){
+      setGuidedControllerMessage("Error de connexio.", "error");
+      return null;
+    }
+  }
+
+  async function openGuidedFlow(){
+    const els = guidedFlowElements();
+    const subject = subjectForId(els.subject ? els.subject.value : "");
+    await guidedFlowRequest(FLOW_OPEN_URL, {
+      subject_kind: subject.subject_kind || (TEAM_SUBJECT_MODE ? "team_unit" : "inscripcio"),
+      subject_id: Number(subject.subject_id || (els.subject && els.subject.value)),
+      exercici: Number((els.exercise && els.exercise.value) || 1),
+    });
+  }
+
+  async function closeGuidedFlow(){
+    const windowState = GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window;
+    if(!windowState) return;
+    const data = await guidedFlowRequest(FLOW_CLOSE_URL, { window_id: windowState.id });
+    if(data) setGuidedControllerMessage("Nota desada com a pendent.", "ok");
+  }
+
+  async function closeAndPublishGuidedFlow(){
+    const windowState = GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window;
+    if(!windowState) return;
+    const windowId = windowState.id;
+    const data = await guidedFlowRequest(FLOW_CLOSE_URL, { window_id: windowId });
+    if(!data) return;
+    if(guidedFinalizeTimer) window.clearTimeout(guidedFinalizeTimer);
+    guidedFinalizeTimer = window.setTimeout(() => finalizeGuidedFlow(windowId), 1200);
+  }
+
+  async function finalizeGuidedFlow(windowId){
+    if(windowId) await guidedFlowRequest(FLOW_FINALIZE_URL, { window_id: windowId });
+  }
+
+  async function reopenGuidedFlow(windowId){
+    if(windowId) await guidedFlowRequest(FLOW_REOPEN_URL, { window_id: windowId });
+  }
+
+  async function cancelGuidedFlow(windowId = null){
+    const current = GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window;
+    const targetId = windowId || (current && current.id);
+    if(!targetId || !window.confirm("Vols cancel·lar aquesta puntuacio i descartar els esborranys?")) return;
+    await guidedFlowRequest(FLOW_CANCEL_URL, { window_id: targetId });
+  }
+
+  function initGuidedFlow(){
+    if(!JUDGE_FLOW_ENABLED) return;
+    populateGuidedFlowSelectors();
+    const els = guidedFlowElements();
+    if(els.open) els.open.addEventListener("click", openGuidedFlow);
+    if(els.close) els.close.addEventListener("click", closeGuidedFlow);
+    if(els.closePublish) els.closePublish.addEventListener("click", closeAndPublishGuidedFlow);
+    if(els.cancel) els.cancel.addEventListener("click", () => cancelGuidedFlow());
+    pollGuidedFlowState();
+  }

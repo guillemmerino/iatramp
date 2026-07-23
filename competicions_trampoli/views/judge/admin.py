@@ -12,7 +12,13 @@ from ...access import user_has_competicio_capability
 from ...forms_judge import JudgeTokenCreateForm, PermissionRowForm
 from ...models import Competicio
 from ...models.competicio import CompeticioAparell, CompeticioAparellFase
-from ...models.judging import JudgeDeviceToken, JudgePortalAssignment, PublicLiveToken
+from ...models.judging import (
+    JudgeDeviceToken,
+    JudgePortalAssignment,
+    JudgeScoringLane,
+    JudgeScoringWindow,
+    PublicLiveToken,
+)
 from ...services.scoring.schema_resolution import resolve_scoring_schema_for_comp_aparell
 from ...services.scoring.team_scoring import (
     build_permission_label,
@@ -187,8 +193,6 @@ def _build_permissions_from_formset(formset, schema_by_code, comp_aparell, *, te
         perms.append(perm)
     if len(perms) > MAX_TOKEN_PERMISSIONS:
         raise ValueError(f"Maxim {MAX_TOKEN_PERMISSIONS} permisos per assignacio.")
-    if not perms:
-        raise ValueError("Has d'afegir almenys un permis (camp + jutge).")
     return perms
 
 
@@ -197,6 +201,15 @@ def _assignment_summary_rows(assignments):
     for assignment in assignments:
         phase = getattr(assignment, "fase", None)
         comp_aparell = getattr(assignment, "comp_aparell", None)
+        lane = (
+            JudgeScoringLane.objects
+            .filter(
+                competicio=assignment.competicio,
+                comp_aparell=assignment.comp_aparell,
+                **({"fase": phase} if phase is not None else {"fase__isnull": True}),
+            )
+            .first()
+        )
         rows.append({
             "assignment": assignment,
             "app_label": getattr(comp_aparell, "display_nom", None) or str(comp_aparell or ""),
@@ -206,6 +219,9 @@ def _assignment_summary_rows(assignments):
                 competicio=getattr(assignment, "competicio", None),
             ),
             "permission_summaries": _permission_summary_rows(assignment.permissions),
+            "flow_lane": lane,
+            "flow_enabled": bool(lane and lane.is_enabled),
+            "is_flow_controller": bool(lane and lane.controller_assignment_id == assignment.id),
         })
     return rows
 
@@ -451,7 +467,61 @@ def qr_admin_home(request, competicio_id, token_id=None):
             assignment = get_object_or_404(JudgePortalAssignment, pk=assignment_id, competicio=competicio)
             assignment.is_active = False
             assignment.save(update_fields=["is_active", "updated_at"])
+            JudgeScoringLane.objects.filter(controller_assignment=assignment).update(
+                controller_assignment=None,
+                version=models.F("version") + 1,
+            )
             messages.success(request, "Assignacio desactivada.")
+            return redirect(_qr_admin_url(competicio, selected_judge=assignment.judge_token))
+
+        if action == "configure_guided_flow":
+            assignment = get_object_or_404(
+                JudgePortalAssignment.objects.select_related("judge_token", "comp_aparell", "fase"),
+                pk=request.POST.get("assignment_id"),
+                competicio=competicio,
+                is_active=True,
+            )
+            mode = str(request.POST.get("flow_mode") or "free").strip().lower()
+            phase_filter = {"fase": assignment.fase} if assignment.fase_id else {"fase__isnull": True}
+            lane = JudgeScoringLane.objects.filter(
+                competicio=competicio,
+                comp_aparell=assignment.comp_aparell,
+                **phase_filter,
+            ).first()
+            if mode == "guided":
+                if lane is None:
+                    lane = JudgeScoringLane.objects.create(
+                        competicio=competicio,
+                        comp_aparell=assignment.comp_aparell,
+                        fase=assignment.fase,
+                        label=assignment.label or assignment.comp_aparell.display_nom,
+                    )
+                lane.is_enabled = True
+                if str(request.POST.get("is_controller") or "").lower() in {"1", "true", "yes", "on"}:
+                    lane.controller_assignment = assignment
+                elif lane.controller_assignment_id == assignment.id:
+                    lane.controller_assignment = None
+                lane.version += 1
+                lane.full_clean()
+                lane.save(update_fields=["is_enabled", "controller_assignment", "version", "updated_at"])
+                messages.success(request, "Mode guiat actualitzat.")
+            else:
+                if lane is not None:
+                    has_active_window = lane.scoring_windows.filter(
+                        status__in=[
+                            JudgeScoringWindow.Status.OPEN,
+                            JudgeScoringWindow.Status.CLOSING,
+                            JudgeScoringWindow.Status.LOCKED,
+                        ]
+                    ).exists()
+                    if has_active_window:
+                        messages.error(request, "Tanca o cancel·la la puntuacio activa abans de desactivar el mode guiat.")
+                        return redirect(_qr_admin_url(competicio, selected_judge=assignment.judge_token))
+                    lane.is_enabled = False
+                    lane.controller_assignment = None
+                    lane.version += 1
+                    lane.save(update_fields=["is_enabled", "controller_assignment", "version", "updated_at"])
+                messages.success(request, "Mode lliure activat.")
             return redirect(_qr_admin_url(competicio, selected_judge=assignment.judge_token))
 
         if action in {"create_device", "create_judge_qr", "create_judge"}:

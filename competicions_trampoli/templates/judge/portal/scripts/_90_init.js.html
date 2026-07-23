@@ -10,18 +10,22 @@
   }, { passive:false });
 
   buildPermText();
-  initPortalViewModeControl();
-  initGroupTabs();
-  initInsNavigation();
   initSupportUi();
-  if(VIDEO_CAPTURE_ENABLED){
-    initVideoUI();
+  if(JUDGE_FLOW_ENABLED){
+    initGuidedFlow();
+  } else {
+    initPortalViewModeControl();
+    initGroupTabs();
+    initInsNavigation();
+    if(VIDEO_CAPTURE_ENABLED){
+      initVideoUI();
+    }
+    initExercisePanels();
+    renderVisibleEditorsInActiveGroup();
+    loadVisibleExerciseVideos();
   }
   if(JUDGE_HAS_SUPERVISION){
     initSupervisionPanel();
   }
-  initExercisePanels();
-  renderVisibleEditorsInActiveGroup();
-  loadVisibleExerciseVideos();
   pollUpdates();
   pollLiveDrafts();

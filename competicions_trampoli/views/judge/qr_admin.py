@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from django.contrib import messages
+from django.db.models import F
 from django.forms import formset_factory
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -13,7 +14,13 @@ from ...access import user_has_competicio_capability
 from ...forms_judge import JudgeTokenCreateForm, PermissionRowForm
 from ...models import Competicio
 from ...models.competicio import CompeticioAparell, CompeticioAparellFase
-from ...models.judging import JudgeDeviceToken, JudgePortalAssignment, PublicLiveToken
+from ...models.judging import (
+    JudgeDeviceToken,
+    JudgePortalAssignment,
+    JudgeScoringLane,
+    JudgeScoringWindow,
+    PublicLiveToken,
+)
 from ...services.avatar.notes.qrs import AVATAR_MESSAGES as QR_ADMIN_AVATAR_MESSAGES
 from ...services.judging.subject_scope import subject_scope_from_post, subject_scope_options_for_competicio
 from ...services.judging.supervision import validate_single_supervisor_per_field
@@ -243,7 +250,64 @@ def qr_admin_home(request, competicio_id, token_id=None):
             )
             assignment.is_active = False
             assignment.save(update_fields=["is_active", "updated_at"])
+            JudgeScoringLane.objects.filter(controller_assignment=assignment).update(
+                controller_assignment=None,
+                version=F("version") + 1,
+            )
             messages.success(request, "Assignacio desactivada.")
+            return redirect(_qr_admin_url(competicio, assignment.judge_token))
+
+        elif action == "configure_guided_flow":
+            assignment = get_object_or_404(
+                JudgePortalAssignment.objects.select_related("judge_token", "comp_aparell", "fase"),
+                pk=request.POST.get("assignment_id"),
+                competicio=competicio,
+                is_active=True,
+            )
+            mode = str(request.POST.get("flow_mode") or "free").strip().lower()
+            phase_filter = {"fase": assignment.fase} if assignment.fase_id else {"fase__isnull": True}
+            lane = JudgeScoringLane.objects.filter(
+                competicio=competicio,
+                comp_aparell=assignment.comp_aparell,
+                **phase_filter,
+            ).first()
+            if mode == "guided":
+                if lane is None:
+                    lane = JudgeScoringLane.objects.create(
+                        competicio=competicio,
+                        comp_aparell=assignment.comp_aparell,
+                        fase=assignment.fase,
+                        label=assignment.label or assignment.comp_aparell.display_nom,
+                    )
+                lane.is_enabled = True
+                if str(request.POST.get("is_controller") or "").lower() in {"1", "true", "yes", "on"}:
+                    lane.controller_assignment = assignment
+                elif lane.controller_assignment_id == assignment.id:
+                    lane.controller_assignment = None
+                lane.version += 1
+                lane.full_clean()
+                lane.save(update_fields=["is_enabled", "controller_assignment", "version", "updated_at"])
+                messages.success(request, "Mode guiat actualitzat.")
+            else:
+                if lane is not None:
+                    has_active_window = lane.scoring_windows.filter(
+                        status__in=[
+                            JudgeScoringWindow.Status.OPEN,
+                            JudgeScoringWindow.Status.CLOSING,
+                            JudgeScoringWindow.Status.LOCKED,
+                        ]
+                    ).exists()
+                    if has_active_window:
+                        messages.error(
+                            request,
+                            "Tanca o cancel·la la puntuacio activa abans de desactivar el mode guiat.",
+                        )
+                        return redirect(_qr_admin_url(competicio, assignment.judge_token))
+                    lane.is_enabled = False
+                    lane.controller_assignment = None
+                    lane.version += 1
+                    lane.save(update_fields=["is_enabled", "controller_assignment", "version", "updated_at"])
+                messages.success(request, "Mode lliure activat.")
             return redirect(_qr_admin_url(competicio, assignment.judge_token))
 
         elif action == "delete_assignment":

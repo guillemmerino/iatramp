@@ -107,6 +107,12 @@ urlpatterns = [
     path("judge/<uuid:token>/api/save/", views_judge.judge_save_partial, name="judge_save_partial"),
     path("judge/<uuid:token>/api/drafts/update/", views_judge.judge_draft_update, name="judge_draft_update"),
     path("judge/<uuid:token>/api/drafts/updates/", views_judge.judge_draft_updates, name="judge_draft_updates"),
+    path("judge/<uuid:token>/api/flow/state/", views_judge.judge_flow_state, name="judge_flow_state"),
+    path("judge/<uuid:token>/api/flow/open/", views_judge.judge_flow_open, name="judge_flow_open"),
+    path("judge/<uuid:token>/api/flow/close/", views_judge.judge_flow_close, name="judge_flow_close"),
+    path("judge/<uuid:token>/api/flow/finalize/", views_judge.judge_flow_finalize, name="judge_flow_finalize"),
+    path("judge/<uuid:token>/api/flow/reopen/", views_judge.judge_flow_reopen, name="judge_flow_reopen"),
+    path("judge/<uuid:token>/api/flow/cancel/", views_judge.judge_flow_cancel, name="judge_flow_cancel"),
     path("judge/<uuid:token>/api/updates/", views_judge.judge_updates, name="judge_updates"),
     path(
         "judge/<uuid:token>/api/supervision/pending/",

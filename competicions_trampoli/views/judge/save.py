@@ -29,6 +29,7 @@ from ...services.scoring.team_scoring import (
     logical_team_inputs_to_runtime_inputs,
     runtime_schema_for_comp_aparell,
 )
+from ...services.judging.flow import lane_for_scope
 from ...services.scoring.publication import score_write_context
 from ._assignment_scope import (
     assignment_id_from_request,
@@ -111,6 +112,15 @@ def judge_save_partial(request, token):
     scope, scope_error = resolve_assignment_scope_for_request(tok, assignment_id_from_request(request, payload))
     if scope_error is not None:
         return scope_error
+    if lane_for_scope(scope) is not None:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "En mode guiat la nota la finalitza el controlador.",
+                "reason": "guided_flow_uses_drafts",
+            },
+            status=409,
+        )
 
     subject_payload = {
         "subject_kind": payload.get("subject_kind"),
