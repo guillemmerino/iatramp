@@ -9,7 +9,7 @@ Expected include context:
   <div class="judge-competition-exercise-band" data-competition-exercise-section="1" data-exercici="{{ ex }}">
     <div class="judge-competition-exercise-title">Exercici {{ ex }}</div>
     {% for ins in bloc.list %}
-      {% include "judge/portal/modes/_entry_card_competition_order.html" with bloc=bloc ins=ins ex=ex off_program_mode=off_program_mode team_subject_mode=team_subject_mode video_capture_enabled=video_capture_enabled judge_kiosk=judge_kiosk only %}
+      {% include "judge/portal/modes/_entry_card_competition_order.html" with bloc=bloc ins=ins ex=ex off_program_mode=off_program_mode team_subject_mode=team_subject_mode video_capture_enabled=video_capture_enabled judge_kiosk=judge_kiosk judge_save_button_visible=judge_save_button_visible judge_save_non_supervised_only=judge_save_non_supervised_only only %}
     {% endfor %}
   </div>
 {% endfor %}

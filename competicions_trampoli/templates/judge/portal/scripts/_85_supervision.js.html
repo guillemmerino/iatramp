@@ -105,11 +105,22 @@
       ...entry,
       inputs: mergedInputs,
     });
-    if(
-      isEditorRendered(insId, exercici)
-      && (includesCrash || (!hasDirty(insId, exercici) && !isEditingEntry(insId, exercici)))
-    ){
-      renderEditor(insId, exercici, { force: true });
+    if(isEditorRendered(insId, exercici)){
+      let crashAppliedInPlace = false;
+      if(includesCrash){
+        Object.keys(patch || {})
+          .filter((code) => String(code).startsWith("__crash__"))
+          .forEach((code) => {
+            crashAppliedInPlace = applyRemoteCrashWithoutRerender(
+              insId,
+              exercici,
+              String(code).replace(/^__crash__/, "")
+            ) || crashAppliedInPlace;
+          });
+      }
+      if(!crashAppliedInPlace && !hasDirty(insId, exercici) && !isEditingEntry(insId, exercici)){
+        renderEditor(insId, exercici, { force: true });
+      }
     }
     refreshExerciseChipStates(insId);
     return true;

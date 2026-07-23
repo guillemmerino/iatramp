@@ -27,6 +27,10 @@
       member_slot: (p && p.member_slot != null && p.member_slot !== "") ? Math.max(1, Number(p.member_slot)) : null,
       label: String((p && p.label) || ""),
       role: String((p && p.role) || "standard").trim().toLowerCase() === "supervisor" ? "supervisor" : "standard",
+      supervisor_mode: String((p && p.supervisor_mode) || "scoring").trim().toLowerCase() === "review_only"
+        ? "review_only"
+        : "scoring",
+      requires_supervision: !!(p && p.requires_supervision),
       crash_supervisor_controlled: !!(p && p.crash_supervisor_controlled),
       display_computed_codes: Array.isArray(p && p.display_computed_codes)
         ? p.display_computed_codes.map((code) => String(code || "").trim()).filter(Boolean)
@@ -66,7 +70,7 @@
     const n = normalizePerm(p);
     const c = (n.item_count == null) ? "all" : String(n.item_count);
     const slot = n.member_slot ? `|m${n.member_slot}` : (n.scope === "member" ? "|member" : "|shared");
-    return `${idx}|${n.runtime_field_code}|j${n.judge_index}|s${n.item_start}|c${c}${slot}`;
+    return `${idx}|${n.runtime_field_code}|j${n.judge_index}|s${n.item_start}|c${c}|${n.supervisor_mode}${slot}`;
   }
 
   function expandedSupervisorPerms(base, idx, field){
@@ -74,14 +78,15 @@
     const type = String(field.type || "number");
     if(type !== "matrix" && type !== "list") return null;
     const nJudges = Math.max(1, Number((field.judges && field.judges.count) || base.judge_index || 1));
+    const reviewOnly = base.supervisor_mode === "review_only";
     const out = [];
     for(let judgeIndex = 1; judgeIndex <= nJudges; judgeIndex += 1){
       const next = {
         ...base,
         judge_index: judgeIndex,
-        supervised_by_judge_index: base.judge_index,
-        is_supervisor_row: judgeIndex === base.judge_index,
-        is_supervised_row: judgeIndex !== base.judge_index,
+        supervised_by_judge_index: reviewOnly ? null : base.judge_index,
+        is_supervisor_row: !reviewOnly && judgeIndex === base.judge_index,
+        is_supervised_row: reviewOnly || judgeIndex !== base.judge_index,
       };
       out.push({
         ...next,

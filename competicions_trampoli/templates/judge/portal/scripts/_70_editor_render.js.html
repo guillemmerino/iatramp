@@ -49,8 +49,12 @@
     const badges = document.createElement("div");
     badges.className = "judge-field-badges";
     appendFieldBadge(badges, perm.field_code, "code");
-    appendFieldBadge(badges, `Jutge ${perm.judge_index}`, "judge");
-    if(perm.is_supervisor_row){
+    if(perm.supervisor_mode !== "review_only" || perm.is_supervised_row){
+      appendFieldBadge(badges, `Jutge ${perm.judge_index}`, "judge");
+    }
+    if(perm.role === "supervisor" && perm.supervisor_mode === "review_only"){
+      appendFieldBadge(badges, "Supervisor revisor", "supervisor");
+    } else if(perm.is_supervisor_row){
       appendFieldBadge(badges, "Supervisor", "supervisor");
     } else if(perm.is_supervised_row){
       appendFieldBadge(badges, "Supervisat", "supervised");
@@ -158,6 +162,10 @@
     const group = document.createElement("div");
     group.className = "judge-items-strip";
     group.dataset.itemStrip = "1";
+    group.dataset.runtimeFieldCode = String(perm.runtime_field_code || perm.field_code || "");
+    group.dataset.fieldCode = String(perm.field_code || "");
+    group.dataset.judgeIndex = String(j);
+    group.style.setProperty("--judge-item-count", String(Math.max(1, count)));
     for(let k=0; k<count; k++){
       const idx1 = start + k;
       const idx0 = idx1 - 1;
@@ -224,11 +232,40 @@
       const crashAt = Number(crashVals[j - 1] || 0);
       const status = document.createElement("div");
       status.className = "judge-readonly-crash";
+      status.dataset.crashStatus = "1";
       status.textContent = crashAt > 0
         ? `Crash: ${getItemDisplayLabel(perm.field_code, crashAt)}`
         : "Crash: encara no indicat pel supervisor";
       lineWrap.appendChild(status);
     }
+  }
+
+  function applyRemoteCrashWithoutRerender(insId, exercici, runtimeCode){
+    const wrap = document.getElementById(editorInnerId(insId, exercici));
+    if(!wrap || wrap.dataset.editorRendered !== "1") return false;
+    const cleanCode = String(runtimeCode || "");
+    const crashValues = effectiveInput(insId, exercici, `__crash__${cleanCode}`);
+    if(!Array.isArray(crashValues)) return false;
+    let matched = false;
+    wrap.querySelectorAll('[data-item-strip="1"][data-runtime-field-code]').forEach((group) => {
+      if(String(group.dataset.runtimeFieldCode || "") !== cleanCode) return;
+      matched = true;
+      const judgeIndex0 = Math.max(0, Number(group.dataset.judgeIndex || 1) - 1);
+      const crashAt = Number(crashValues[judgeIndex0] || 0);
+      const active = document.activeElement;
+      applyCrashDisableInMatrix(group, crashAt);
+      const status = group.parentElement && group.parentElement.querySelector('[data-crash-status="1"]');
+      if(status){
+        const fieldCode = String(group.dataset.fieldCode || cleanCode);
+        status.textContent = crashAt > 0
+          ? `Crash: ${getItemDisplayLabel(fieldCode, crashAt)}`
+          : "Crash: encara no indicat pel supervisor";
+      }
+      if(active && group.contains(active) && active.disabled && typeof active.blur === "function"){
+        active.blur();
+      }
+    });
+    return matched;
   }
 
   function supervisorMatrixGroupKey(perm){
@@ -270,6 +307,8 @@
 
     const block = document.createElement("div");
     block.className = "judge-field-block judge-supervisor-matrix-block";
+    block.classList.toggle("is-wide", visibleItemIndexes.length > 6);
+    block.dataset.itemCount = String(visibleItemIndexes.length);
     const head = document.createElement("div");
     head.className = "judge-field-head";
     const title = document.createElement("div");
@@ -279,7 +318,11 @@
     badges.className = "judge-field-badges";
     appendFieldBadge(badges, firstPerm.field_code, "code");
     appendFieldBadge(badges, `${nJudges} jutges`, "judge");
-    appendFieldBadge(badges, "Supervisor", "supervisor");
+    appendFieldBadge(
+      badges,
+      firstPerm.supervisor_mode === "review_only" ? "Supervisor revisor" : "Supervisor puntuador",
+      "supervisor"
+    );
     if(firstPerm.item_count){
       appendFieldBadge(badges, `Items ${start}-${start + visibleItemIndexes.length - 1}`, "range");
     }
@@ -500,6 +543,16 @@
     block.appendChild(body);
 
     const type = field.type || "number";
+    block.classList.add(
+      type === "matrix"
+        ? "judge-field-block--matrix"
+        : "judge-field-block--compact"
+    );
+    if(type === "matrix"){
+      const itemCount = Math.max(1, Number((field.items && field.items.count) || 1));
+      block.classList.toggle("is-wide", itemCount > 8);
+      block.dataset.itemCount = String(itemCount);
+    }
     if(type === "number"){
       renderPermNumber(body, insId, exercici, perm, field);
     } else if(type === "list"){
@@ -517,6 +570,7 @@
     if(!wrap) return;
     if(wrap.dataset.editorRendered === "1" && !opts.force) return;
     wrap.dataset.scoreInputNavRoot = "1";
+    wrap.classList.add("judge-fields-layout");
     wrap.innerHTML = "";
     const resolvedPerms = resolvedPermsForIns(insId);
     if(!resolvedPerms.length){

@@ -37,14 +37,23 @@
       width:min(100%, 14rem);
       max-width:14rem;
     }
+    .judge-portal-page input[type="number"]{
+      appearance:textfield;
+      -moz-appearance:textfield;
+    }
+    .judge-portal-page input[type="number"]::-webkit-inner-spin-button,
+    .judge-portal-page input[type="number"]::-webkit-outer-spin-button{
+      margin:0;
+      -webkit-appearance:none;
+    }
     .judge-items-strip{
       display:grid;
-      grid-auto-flow:column;
-      grid-auto-columns:minmax(4.8rem, 5.6rem);
+      grid-template-columns:repeat(var(--judge-item-count, 1), minmax(2.75rem, 1fr));
+      grid-auto-flow:row;
       align-items:start;
-      gap:.5rem;
+      gap:.28rem;
       max-width:100%;
-      padding:.12rem .08rem .42rem;
+      padding:.05rem 0 .12rem;
       overflow-x:auto;
       overflow-y:hidden;
       -webkit-overflow-scrolling:touch;
@@ -60,13 +69,13 @@
       display:flex;
       flex-direction:column;
       align-items:stretch;
-      gap:.25rem;
+      gap:.14rem;
       scroll-snap-align:start;
     }
     .judge-item-label{
-      min-height:2.05rem;
+      min-height:1.55rem;
       color:#475569;
-      font-size:.74rem;
+      font-size:.63rem;
       font-weight:800;
       line-height:1.18;
       text-align:center;
@@ -81,12 +90,15 @@
       max-width:none;
       min-width:0;
       text-align:center;
+      min-height:2rem;
+      padding:.1rem .14rem;
+      font-size:.72rem;
     }
     .judge-crash-btn{
       width:100%;
       min-height:1.7rem;
       padding:.05rem .25rem;
-      font-size:.72rem;
+      font-size:.66rem;
       font-weight:900;
       line-height:1;
     }
@@ -193,6 +205,28 @@
       overflow:hidden;
       box-shadow:0 1px 2px rgba(15,23,42,.04);
     }
+    .judge-fields-layout{
+      display:grid;
+      grid-template-columns:repeat(12, minmax(0, 1fr));
+      align-items:start;
+      gap:.45rem;
+      width:100%;
+      min-width:0;
+      font-size:.78rem;
+    }
+    .judge-fields-layout > .judge-field-block{
+      grid-column:span 4;
+      min-width:0;
+      margin-bottom:0;
+    }
+    .judge-fields-layout > .judge-field-block--matrix,
+    .judge-fields-layout > .judge-supervisor-matrix-block{
+      grid-column:span 6;
+    }
+    .judge-fields-layout > .judge-field-block.is-wide,
+    .judge-fields-layout > .judge-supervisor-computed{
+      grid-column:1 / -1;
+    }
     .judge-field-block.is-disabled{
       border-left-color:#94a3b8;
       background:#f8fafc;
@@ -202,8 +236,8 @@
       align-items:flex-start;
       justify-content:space-between;
       flex-wrap:wrap;
-      gap:.7rem;
-      padding:.55rem .65rem;
+      gap:.35rem;
+      padding:.36rem .45rem;
       background:#f8fbff;
       border-bottom:1px solid #e2e8f0;
     }
@@ -211,6 +245,7 @@
       min-width:0;
       color:#0f172a;
       font-weight:800;
+      font-size:.78rem;
       line-height:1.25;
       overflow-wrap:anywhere;
     }
@@ -219,7 +254,7 @@
       align-items:center;
       justify-content:flex-end;
       flex-wrap:wrap;
-      gap:.3rem;
+      gap:.18rem;
       min-width:0;
     }
     .judge-field-badge{
@@ -230,8 +265,8 @@
       border-radius:999px;
       background:#fff;
       color:#475569;
-      padding:.05rem .45rem;
-      font-size:.72rem;
+      padding:.02rem .32rem;
+      font-size:.6rem;
       font-weight:800;
       line-height:1.25;
       white-space:nowrap;
@@ -242,26 +277,27 @@
     .judge-field-badge.member{ background:#fff7ed; border-color:#fdba74; color:#9a3412; }
     .judge-field-badge.supervisor{ background:#fef3c7; border-color:#facc15; color:#854d0e; }
     .judge-field-badge.supervised{ background:#f1f5f9; border-color:#cbd5e1; color:#475569; }
-    .judge-field-body{ padding:.65rem; }
+    .judge-field-body{ padding:.42rem; }
     .judge-supervisor-matrix-wrap{
       max-width:100%;
-      padding:.4rem;
+      padding:.24rem;
       overflow-x:auto;
       -webkit-overflow-scrolling:touch;
       scrollbar-width:thin;
     }
     .judge-supervisor-matrix{
-      width:max-content;
-      min-width:100%;
+      width:100%;
+      min-width:0;
+      table-layout:fixed;
       border-collapse:separate;
       border-spacing:0;
       color:#334155;
-      font-size:.76rem;
+      font-size:.7rem;
     }
     .judge-supervisor-matrix th,
     .judge-supervisor-matrix td{
-      min-width:4rem;
-      padding:.22rem;
+      min-width:0;
+      padding:.12rem;
       border-right:1px solid #e2e8f0;
       border-bottom:1px solid #e2e8f0;
       background:#fff;
@@ -281,7 +317,8 @@
       position:sticky;
       left:0;
       z-index:2;
-      min-width:4.8rem;
+      width:3.35rem;
+      min-width:3.35rem;
       color:#166534;
       font-weight:900;
       white-space:nowrap;
@@ -296,15 +333,24 @@
       display:block;
       margin-top:.08rem;
       color:#92400e;
-      font-size:.58rem;
+      font-size:.55rem;
       font-weight:800;
       line-height:1;
     }
+    .judge-save-scope-hint{
+      margin-top:.12rem;
+      color:#64748b;
+      font-size:.62rem;
+      font-weight:700;
+      line-height:1.15;
+    }
     .judge-portal-page .judge-supervisor-matrix-input{
-      width:3.55rem;
-      min-width:3.55rem;
-      max-width:3.55rem;
-      padding:.14rem .18rem;
+      width:100%;
+      min-width:0;
+      max-width:none;
+      min-height:2rem;
+      padding:.1rem .12rem;
+      font-size:.72rem;
       text-align:center;
     }
     .judge-supervisor-item-label{ display:block; }
@@ -312,14 +358,14 @@
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      width:1.55rem;
-      min-height:1.3rem;
-      margin-top:.22rem;
+      width:1.35rem;
+      min-height:1.2rem;
+      margin-top:.12rem;
       border:1px solid #fca5a5;
       border-radius:.3rem;
       background:#fff;
       color:#b91c1c;
-      font-size:.68rem;
+      font-size:.62rem;
       font-weight:900;
       line-height:1;
     }
@@ -340,20 +386,20 @@
       background:#fffbeb;
       color:#854d0e;
       padding:.16rem .55rem;
-      font-size:.72rem;
+      font-size:.66rem;
       font-weight:800;
     }
     .judge-supervisor-computed{
-      margin-bottom:.75rem;
+      margin-bottom:0;
       border:1px solid #bfdbfe;
       border-radius:.55rem;
       background:#eff6ff;
-      padding:.55rem .65rem;
+      padding:.38rem .48rem;
     }
     .judge-supervisor-computed-title{
       margin-bottom:.4rem;
       color:#1e3a8a;
-      font-size:.76rem;
+      font-size:.7rem;
       font-weight:900;
       text-transform:uppercase;
       letter-spacing:.035em;
@@ -372,8 +418,8 @@
       background:#fff;
       padding:.3rem .5rem;
     }
-    .judge-supervisor-computed-card span{ color:#475569; font-size:.72rem; font-weight:700; }
-    .judge-supervisor-computed-card strong{ color:#0f172a; font-size:1rem; }
+    .judge-supervisor-computed-card span{ color:#475569; font-size:.68rem; font-weight:700; }
+    .judge-supervisor-computed-card strong{ color:#0f172a; font-size:.88rem; }
     .judge-supervision-panel{
       border:1px solid #facc15;
       border-radius:.55rem;
@@ -984,7 +1030,19 @@
       font-weight:900;
       line-height:1.2;
     }
+    @media (max-width: 700px){
+      .judge-fields-layout > .judge-field-block--compact{
+        grid-column:span 6;
+      }
+      .judge-fields-layout > .judge-field-block--matrix,
+      .judge-fields-layout > .judge-supervisor-matrix-block{
+        grid-column:1 / -1;
+      }
+    }
     @media (max-width: 576px){
+      .judge-fields-layout > .judge-field-block{
+        grid-column:1 / -1;
+      }
       .judge-portal-page{
         padding-left:8px;
         padding-right:8px;
@@ -1084,7 +1142,7 @@
       }
       .judge-item-label{
         min-height:1.85rem;
-        font-size:.7rem;
+        font-size:.64rem;
       }
       .competition-mode-modal .modal-dialog{
         max-width:calc(100vw - 1rem);

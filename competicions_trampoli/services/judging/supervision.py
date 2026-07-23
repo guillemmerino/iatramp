@@ -10,6 +10,8 @@ from ...services.scoring.team_scoring import normalize_permission_target, resolv
 
 ROLE_STANDARD = "standard"
 ROLE_SUPERVISOR = "supervisor"
+SUPERVISOR_MODE_SCORING = "scoring"
+SUPERVISOR_MODE_REVIEW_ONLY = "review_only"
 JUDGE_ROLE_CHOICES = (
     (ROLE_STANDARD, "Jutge"),
     (ROLE_SUPERVISOR, "Supervisor"),
@@ -23,14 +25,31 @@ def normalize_judge_role(value) -> str:
     return role
 
 
+def normalize_supervisor_mode(value) -> str:
+    mode = str(value or SUPERVISOR_MODE_SCORING).strip().lower()
+    if mode not in {SUPERVISOR_MODE_SCORING, SUPERVISOR_MODE_REVIEW_ONLY}:
+        return SUPERVISOR_MODE_SCORING
+    return mode
+
+
 def permission_with_role(permission: dict) -> dict:
     row = normalize_permission_target(permission or {})
     row["role"] = normalize_judge_role(row.get("role"))
+    if row["role"] == ROLE_SUPERVISOR:
+        row["supervisor_mode"] = normalize_supervisor_mode(row.get("supervisor_mode"))
+    else:
+        row.pop("supervisor_mode", None)
     return row
 
 
 def permission_is_supervisor(permission: dict) -> bool:
     return normalize_judge_role((permission or {}).get("role")) == ROLE_SUPERVISOR
+
+
+def permission_is_review_only_supervisor(permission: dict) -> bool:
+    return permission_is_supervisor(permission) and normalize_supervisor_mode(
+        (permission or {}).get("supervisor_mode")
+    ) == SUPERVISOR_MODE_REVIEW_ONLY
 
 
 def _phase_filter(phase):

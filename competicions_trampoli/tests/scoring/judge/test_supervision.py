@@ -56,6 +56,22 @@ class JudgePermissionRoleContractTests(TestCase):
         self.assertEqual(permission["role"], "supervisor")
         self.assertEqual(permission["display_computed_codes"], ["TOTAL", "EXEC"])
 
+    def test_permission_row_accepts_review_only_supervisor_without_judge_slot(self):
+        permission = _validate_permission_row(
+            self.schema_by_code,
+            {
+                "field_code": "E",
+                "judge_index": 1,
+                "item_start": 1,
+                "item_count": "",
+                "role": "supervisor",
+                "supervisor_mode": "review_only",
+            },
+        )
+
+        self.assertEqual(permission["supervisor_mode"], "review_only")
+        self.assertNotIn("judge_index", permission)
+
     def test_runtime_permission_normalization_preserves_role(self):
         permissions = _normalize_permissions(
             [
@@ -66,6 +82,15 @@ class JudgePermissionRoleContractTests(TestCase):
 
         self.assertEqual(permissions[0]["role"], "standard")
         self.assertEqual(permissions[1]["role"], "supervisor")
+        self.assertEqual(permissions[1]["supervisor_mode"], "scoring")
+
+    def test_runtime_permission_normalization_preserves_review_only_mode(self):
+        permission = _normalize_permissions(
+            [{"field_code": "E", "role": "supervisor", "supervisor_mode": "review_only"}]
+        )[0]
+
+        self.assertEqual(permission["role"], "supervisor")
+        self.assertEqual(permission["supervisor_mode"], "review_only")
 
 
 class JudgeSupervisionFlowTests(_BaseTrampoliDataMixin, TestCase):
@@ -244,6 +269,34 @@ class JudgeSupervisionFlowTests(_BaseTrampoliDataMixin, TestCase):
             [[0, 3], [1, 3]],
         )
 
+    def test_review_only_supervisor_crash_preserves_judge_presence(self):
+        self.supervisor_assignment.permissions = [
+            {
+                "field_code": "E",
+                "role": "supervisor",
+                "supervisor_mode": "review_only",
+            }
+        ]
+        self.supervisor_assignment.save(update_fields=["permissions", "updated_at"])
+
+        response = self.client.post(
+            reverse("judge_draft_update", kwargs={"token": self.supervisor_token.id}),
+            data=json.dumps({
+                "assignment_id": self.supervisor_assignment.id,
+                "subject_kind": "inscripcio",
+                "subject_id": self.inscripcio.id,
+                "exercici": 1,
+                "client_sequence": 1,
+                "inputs_patch": {"__crash__E": [0, 3]},
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        crash_patch = response.json()["drafts"][0]["normalized_inputs_patch"]["__crash__E"]
+        self.assertEqual(crash_patch["__set_list__"], [[0, 3], [1, 3]])
+        self.assertTrue(crash_patch["__preserve_presence__"])
+
     def test_supervisor_save_clears_live_drafts_and_records_supervisor_source(self):
         JudgeScoreDraft.objects.create(
             competicio=self.competicio,
@@ -361,6 +414,89 @@ class JudgeSupervisionFlowTests(_BaseTrampoliDataMixin, TestCase):
         )
         self.assertEqual(entry.inputs["__crash__E"], [3, 3])
 
+    def test_review_only_supervisor_publishes_without_creating_own_judge_presence(self):
+        self.supervisor_assignment.permissions = [
+            {
+                "field_code": "E",
+                "item_start": 1,
+                "item_count": None,
+                "role": "supervisor",
+                "supervisor_mode": "review_only",
+                "display_computed_codes": ["TOTAL"],
+            }
+        ]
+        self.supervisor_assignment.save(update_fields=["permissions", "updated_at"])
+
+        response = self.client.post(
+            reverse("judge_save_partial", kwargs={"token": self.supervisor_token.id}),
+            data=json.dumps({
+                "assignment_id": self.supervisor_assignment.id,
+                "subject_kind": "inscripcio",
+                "subject_id": self.inscripcio.id,
+                "exercici": 1,
+                "inputs_patch": {
+                    "E": [[0.1, 0.2, 0.3, 0.4, 0.5], None],
+                    "__crash__E": [0, 0],
+                },
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        entry = ScoreEntry.objects.get(
+            competicio=self.competicio,
+            comp_aparell=self.comp_aparell,
+            inscripcio=self.inscripcio,
+            exercici=1,
+        )
+        self.assertEqual(entry.inputs["__presence__E"], [True, False])
+        self.assertEqual(entry.inputs["E"][0], [0.1, 0.2, 0.3, 0.4, 0.5])
+        self.assertEqual(entry.inputs["E"][1], [None, None, None, None, None])
+        self.assertEqual(entry.inputs["__crash__E"], [0, 0])
+
+    def test_five_scoring_rows_plus_review_only_supervisor_stays_at_five_judges(self):
+        schema_obj = ScoringSchema.objects.get(aparell=self.aparell)
+        schema = dict(schema_obj.schema)
+        schema["fields"] = [dict(field) for field in schema["fields"]]
+        schema["fields"][0]["judges"] = {"count": 5}
+        schema_obj.schema = schema
+        schema_obj.save(update_fields=["schema"])
+        self.supervisor_assignment.permissions = [
+            {
+                "field_code": "E",
+                "role": "supervisor",
+                "supervisor_mode": "review_only",
+            }
+        ]
+        self.supervisor_assignment.save(update_fields=["permissions", "updated_at"])
+        rows = [
+            [round((judge + item + 1) / 10, 1) for item in range(5)]
+            for judge in range(5)
+        ]
+
+        response = self.client.post(
+            reverse("judge_save_partial", kwargs={"token": self.supervisor_token.id}),
+            data=json.dumps({
+                "assignment_id": self.supervisor_assignment.id,
+                "subject_kind": "inscripcio",
+                "subject_id": self.inscripcio.id,
+                "exercici": 1,
+                "inputs_patch": {"E": rows, "__crash__E": [0, 0, 0, 0, 0]},
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        entry = ScoreEntry.objects.get(
+            competicio=self.competicio,
+            comp_aparell=self.comp_aparell,
+            inscripcio=self.inscripcio,
+            exercici=1,
+        )
+        self.assertEqual(entry.inputs["__presence__E"], [True] * 5)
+        self.assertEqual(len(entry.inputs["E"]), 5)
+        self.assertEqual(entry.inputs["E"], rows)
+
     def test_supervisor_approval_publishes_pending_submission_to_score_entry(self):
         submission = JudgeScoreSubmission.objects.create(
             competicio=self.competicio,
@@ -443,6 +579,18 @@ class JudgeSupervisionFlowTests(_BaseTrampoliDataMixin, TestCase):
         self.assertContains(response, "DRAFT_UPDATE_URL")
         self.assertContains(response, "pollLiveDrafts")
         self.assertContains(response, "captured_draft_versions")
+        self.assertContains(response, "applyRemoteCrashWithoutRerender")
+        self.assertContains(response, "active.disabled")
+        self.assertContains(response, "dataset.runtimeFieldCode")
+        self.assertContains(response, "judge-fields-layout")
+        self.assertContains(response, "grid-template-columns:repeat(12")
+        self.assertContains(response, "table-layout:fixed")
+        self.assertContains(response, 'classList.toggle("is-wide"')
+        self.assertContains(response, 'input[type="number"]::-webkit-inner-spin-button')
+        self.assertContains(response, 'input.type !== "number"')
+        self.assertContains(response, 'evt.preventDefault()')
+        self.assertTrue(response.context["judge_save_button_visible"])
+        self.assertContains(response, 'data-judge-save-action="1"')
         self.assertNotContains(response, 'id="judgeSupervisionPanel"')
 
         standard_response = self.client.get(
@@ -454,6 +602,47 @@ class JudgeSupervisionFlowTests(_BaseTrampoliDataMixin, TestCase):
         self.assertEqual(standard_response.status_code, 200)
         self.assertTrue(standard_response.context["permissions"][0]["crash_supervisor_controlled"])
         self.assertContains(standard_response, "Crash: encara no indicat pel supervisor")
+        self.assertFalse(standard_response.context["judge_save_button_visible"])
+        self.assertNotContains(standard_response, 'data-judge-save-action="1"')
+
+    def test_standard_hybrid_portal_keeps_save_with_unsupervised_hint(self):
+        schema_obj = ScoringSchema.objects.get(aparell=self.aparell)
+        schema = dict(schema_obj.schema)
+        schema["fields"] = list(schema.get("fields") or []) + [
+            {"label": "Dificultat", "code": "D", "type": "number", "decimals": 1},
+        ]
+        schema_obj.schema = schema
+        schema_obj.save(update_fields=["schema"])
+        self.standard_assignment.permissions = list(self.standard_assignment.permissions) + [
+            {"field_code": "D", "judge_index": 1, "role": "standard"},
+        ]
+        self.standard_assignment.save(update_fields=["permissions", "updated_at"])
+
+        response = self.client.get(reverse(
+            "judge_portal_assignment",
+            kwargs={"token": self.standard_token.id, "assignment_id": self.standard_assignment.id},
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["judge_save_button_visible"])
+        self.assertTrue(response.context["judge_save_non_supervised_only"])
+        self.assertContains(response, 'data-judge-save-action="1"')
+        self.assertContains(response, "Només camps no supervisats")
+
+    def test_standard_without_supervisor_keeps_normal_save_button(self):
+        self.supervisor_assignment.is_active = False
+        self.supervisor_assignment.save(update_fields=["is_active", "updated_at"])
+
+        response = self.client.get(reverse(
+            "judge_portal_assignment",
+            kwargs={"token": self.standard_token.id, "assignment_id": self.standard_assignment.id},
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["judge_save_button_visible"])
+        self.assertFalse(response.context["judge_save_non_supervised_only"])
+        self.assertContains(response, 'data-judge-save-action="1"')
+        self.assertNotContains(response, "Només camps no supervisats")
 
     def test_supervisor_save_publishes_and_approves_other_pending_rows(self):
         submission = JudgeScoreSubmission.objects.create(

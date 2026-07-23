@@ -15,6 +15,10 @@ PERMISSION_ROLE_CHOICES = [
     ("standard", "Standard"),
     ("supervisor", "Supervisor"),
 ]
+SUPERVISOR_MODE_CHOICES = [
+    ("scoring", "Puntua i supervisa"),
+    ("review_only", "Només revisa"),
+]
 
 
 class JudgeTokenCreateForm(forms.Form):
@@ -85,6 +89,12 @@ class PermissionRowForm(forms.Form):
         required=False,
         widget=forms.HiddenInput(),
     )
+    supervisor_mode = forms.ChoiceField(
+        required=False,
+        choices=SUPERVISOR_MODE_CHOICES,
+        initial="scoring",
+        widget=forms.Select(attrs={"class": "form-select form-select-sm", "style": "min-width:155px"}),
+    )
     display_computed_codes = forms.MultipleChoiceField(
         required=False,
         widget=forms.SelectMultiple(attrs={"class": "form-select form-select-sm", "size": "3"}),
@@ -98,4 +108,5 @@ class PermissionRowForm(forms.Form):
         self.fields["item_start"].initial = 1
         self.fields["scope"].initial = "shared"
         self.fields["role"].initial = "standard"
+        self.fields["supervisor_mode"].initial = "scoring"
         self.fields["member_mode"].initial = "all"

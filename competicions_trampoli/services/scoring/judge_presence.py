@@ -193,10 +193,12 @@ def merge_judge_patch_into_canonical(current_inputs: dict, sanitized_patch: dict
             while len(rows) < n_judges:
                 rows.append(None)
             if isinstance(payload, dict) and "__set_list__" in payload:
+                preserve_presence = bool(payload.get("__preserve_presence__"))
                 for idx, value in payload["__set_list__"]:
                     if idx < 0 or idx >= n_judges:
                         continue
-                    presence[idx] = True
+                    if not preserve_presence:
+                        presence[idx] = True
                     crash_values[idx] = copy.deepcopy(value) if value is not None else 0
                     if not isinstance(rows[idx], list):
                         rows[idx] = [None] * n_items

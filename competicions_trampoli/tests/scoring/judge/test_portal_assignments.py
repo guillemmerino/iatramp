@@ -895,6 +895,19 @@ class JudgePortalAssignmentAdminUiTests(_BaseTrampoliDataMixin, TestCase):
         self.assertEqual(token.permissions, [])
         self.assertTrue(token.can_record_video)
         self.assertFalse(JudgePortalAssignment.objects.filter(judge_token=token).exists())
+        detail = self.client.get(
+            reverse("qr_admin_detail", kwargs={"competicio_id": self.competicio.id, "token_id": token.id})
+        )
+        self.assertContains(detail, "Mode supervisor")
+        self.assertContains(detail, "Només revisa")
+        self.assertContains(detail, 'data-supervisor-mode-control="1"')
+        self.assertContains(detail, 'supervisorModeControl?.classList.toggle("d-none", !isSupervisor)')
+        self.assertContains(detail, 'data-item-labels-trigger="1">Noms d\'items')
+        self.assertContains(detail, "row.querySelector('[name$=\"-scope\"]')")
+        self.assertContains(detail, "row.querySelector('[name$=\"-member_mode\"]')")
+        self.assertContains(detail, "label.htmlFor = input.id")
+        self.assertContains(detail, "height: clamp(24rem, 58vh, 34rem)")
+        self.assertContains(detail, "Math.max(16")
 
     def test_judges_qr_home_adds_assignment_to_existing_device(self):
         token = JudgeDeviceToken.objects.create(
@@ -1194,6 +1207,7 @@ class JudgePortalAssignmentAdminUiTests(_BaseTrampoliDataMixin, TestCase):
                 "form-MAX_NUM_FORMS": "15",
                 "form-0-field_code": "E",
                 "form-0-role": "supervisor",
+                "form-0-supervisor_mode": "review_only",
                 "form-0-display_computed_codes": ["TOTAL"],
                 "form-0-scope": "shared",
                 "form-0-member_mode": "all",
@@ -1211,6 +1225,8 @@ class JudgePortalAssignmentAdminUiTests(_BaseTrampoliDataMixin, TestCase):
         self.assertEqual(assignment.fase_id, phase.id)
         self.assertEqual(assignment.permissions[0]["item_count"], 4)
         self.assertEqual(assignment.permissions[0]["role"], "supervisor")
+        self.assertEqual(assignment.permissions[0]["supervisor_mode"], "review_only")
+        self.assertNotIn("judge_index", assignment.permissions[0])
         self.assertEqual(assignment.permissions[0]["display_computed_codes"], ["TOTAL"])
         self.assertEqual(assignment.subject_scope["categoria"], ["Infantil"])
         self.assertEqual(assignment.subject_scope["group_ids"], [inscripcio.grup_competicio_id])

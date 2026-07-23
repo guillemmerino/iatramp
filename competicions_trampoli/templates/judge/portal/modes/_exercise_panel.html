@@ -13,6 +13,11 @@
     {% if not judge_kiosk %}
     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="copyPrev('{{ ins.id }}', '{{ ex }}')">Copia anterior</button>
     {% endif %}
-    <button type="button" class="btn btn-sm btn-primary" onclick="saveNow('{{ ins.id }}', '{{ ex }}')">Desa</button>
+    {% if judge_save_button_visible %}
+    <div class="d-inline-flex flex-column align-items-start">
+      <button type="button" class="btn btn-sm btn-primary" data-judge-save-action="1" onclick="saveNow('{{ ins.id }}', '{{ ex }}')">Desar</button>
+      {% if judge_save_non_supervised_only %}<small class="judge-save-scope-hint">Només camps no supervisats</small>{% endif %}
+    </div>
+    {% endif %}
   </div>
 </section>

@@ -34,7 +34,12 @@
         </div>
         <div class="d-flex gap-2">
           <button type="button" class="btn btn-sm btn-outline-secondary" id="competitionModeExit">Sortir</button>
-          <button type="button" class="btn btn-sm btn-primary" id="competitionModeSave">Desar</button>
+          {% if judge_save_button_visible %}
+          <div class="d-inline-flex flex-column align-items-start">
+            <button type="button" class="btn btn-sm btn-primary" id="competitionModeSave" data-judge-save-action="1">Desar</button>
+            {% if judge_save_non_supervised_only %}<small class="judge-save-scope-hint">Només camps no supervisats</small>{% endif %}
+          </div>
+          {% endif %}
         </div>
       </div>
     </div>

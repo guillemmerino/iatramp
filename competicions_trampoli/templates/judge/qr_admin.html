@@ -573,7 +573,8 @@
     }
     .permission-computed-dropdown__panel select {
       width: 100%;
-      min-height: 20rem;
+      height: clamp(24rem, 58vh, 34rem) !important;
+      min-height: 24rem;
     }
     .permission-computed-dropdown.is-disabled summary {
       background: #e9ecef;
@@ -654,7 +655,7 @@
             <input type="hidden" name="action" id="qrCreateAction" value="create_judge_qr">
 
             <div class="mb-2" data-avatar-anchor="qr-admin-create-type">
-              <label class="form-label small text-muted mb-1">Tipus</label>
+              <div class="form-label small text-muted mb-1">Tipus</div>
               <div class="btn-group btn-group-sm d-flex qr-admin-type-toggle" role="group" aria-label="Tipus de QR">
                 <input class="btn-check d-none" type="radio" name="qr_access_type" id="qrTypeJudge" value="judge" checked>
                 <label class="btn btn-outline-primary flex-fill" for="qrTypeJudge">
@@ -670,7 +671,7 @@
             </div>
 
             <div class="mb-2" data-avatar-anchor="qr-admin-create-name">
-              <label class="form-label small text-muted mb-1">Etiqueta</label>
+              <label class="form-label small text-muted mb-1" for="{{ create_form.label.id_for_label }}">Etiqueta</label>
               {{ create_form.label }}
               {% if create_form.label.errors %}
                 <div class="text-danger small mt-1">{{ create_form.label.errors }}</div>
@@ -818,8 +819,8 @@
                 <input type="hidden" name="token_id" value="{{ selected_token.id }}">
                 <div class="d-flex flex-wrap align-items-end gap-2">
                   <div class="flex-grow-1" style="min-width:220px;">
-                    <label class="form-label small text-muted mb-1">Titol del QR</label>
-                    <input class="form-control form-control-sm" name="label" maxlength="120" value="{{ selected_token.label }}" placeholder="Sense etiqueta">
+                    <label class="form-label small text-muted mb-1" for="judgeTokenLabel">Titol del QR</label>
+                    <input class="form-control form-control-sm" id="judgeTokenLabel" name="label" maxlength="120" value="{{ selected_token.label }}" placeholder="Sense etiqueta">
                   </div>
                   <button class="btn btn-sm btn-outline-secondary" type="submit">Desar titol</button>
                 </div>
@@ -893,7 +894,7 @@
                   <div class="qr-assignment-card__permissions" aria-label="Permisos configurats">
                     {% for p in row.permission_summaries %}
                       <span class="qr-permission-chip{% if p.is_supervisor %} qr-permission-chip--supervisor{% endif %}">
-                        {{ p.label }} / J{{ p.judge_index }} / {{ p.role_label }}
+                        {{ p.label }} / {% if not p.is_review_only %}J{{ p.judge_index }} / {% endif %}{{ p.role_label }}
                       </span>
                     {% empty %}
                       <span class="text-muted small">Sense permisos.</span>
@@ -947,7 +948,7 @@
 
                   <div class="row g-2 mb-2" data-avatar-anchor="qr-admin-access-apparatus-phase">
                     <div class="col-12 col-md-6">
-                      <label class="form-label small text-muted mb-1">Aparell</label>
+                      <label class="form-label small text-muted mb-1" for="assignmentAppSelect">Aparell</label>
                       <select class="form-select form-select-sm" name="assignment_comp_aparell_id" id="assignmentAppSelect" required>
                         {% for ca in comp_aparells %}
                           <option value="{{ ca.id }}" {% if assignment_comp_aparell and ca.id == assignment_comp_aparell.id %}selected{% endif %}>
@@ -957,7 +958,7 @@
                       </select>
                     </div>
                     <div class="col-12 col-md-6">
-                      <label class="form-label small text-muted mb-1">Fase</label>
+                      <label class="form-label small text-muted mb-1" for="assignmentPhaseSelect">Fase</label>
                       <select class="form-select form-select-sm" name="fase_id" id="assignmentPhaseSelect">
                         <option value="">Preliminar / sense fase</option>
                         {% for phase in phase_choices %}
@@ -966,8 +967,8 @@
                       </select>
                     </div>
                     <div class="col-12 col-md-8">
-                      <label class="form-label small text-muted mb-1">Etiqueta d'acces</label>
-                      <input class="form-control form-control-sm" name="assignment_label" placeholder="Ex: Final E1">
+                      <label class="form-label small text-muted mb-1" for="assignmentLabel">Etiqueta d'acces</label>
+                      <input class="form-control form-control-sm" id="assignmentLabel" name="assignment_label" placeholder="Ex: Final E1">
                     </div>
                   </div>
 
@@ -1034,13 +1035,19 @@
                             <td>
                               {{ f.role }}
                               {% if f.role.errors %}<div class="text-danger small mt-1">{{ f.role.errors }}</div>{% endif %}
+                              <div class="mt-1 d-none" data-supervisor-mode-control="1">
+                                <div class="text-muted small mb-1">Mode supervisor</div>
+                                {{ f.supervisor_mode }}
+                                {% if f.supervisor_mode.errors %}<div class="text-danger small mt-1">{{ f.supervisor_mode.errors }}</div>{% endif %}
+                              </div>
                             </td>
                             <td data-computed-column="1">
                               {{ f.display_computed_codes }}
                               {% if f.display_computed_codes.errors %}<div class="text-danger small mt-1">{{ f.display_computed_codes.errors }}</div>{% endif %}
                             </td>
-                            <td>
+                            <td data-judge-index-cell="1">
                               {{ f.judge_index }}
+                              <span class="text-muted small d-none" data-review-only-judge-label="1">No aplica</span>
                               {% if f.judge_index.errors %}<div class="text-danger small mt-1">{{ f.judge_index.errors }}</div>{% endif %}
                             </td>
                             <td>
@@ -1054,7 +1061,7 @@
                             <td class="text-end">
                               <div class="form-check">
                                 {{ f.DELETE }}
-                                <label class="form-check-label small text-muted">Eliminar</label>
+                                <label class="form-check-label small text-muted" for="{{ f.DELETE.id_for_label }}">Eliminar</label>
                               </div>
                             </td>
                           </tr>
@@ -1087,15 +1094,24 @@
                         {{ assignment_formset.empty_form.member_mode.as_hidden }}
                         {{ assignment_formset.empty_form.member_slots }}
                       {% endif %}
-                      <td>{{ assignment_formset.empty_form.role }}</td>
+                      <td>
+                        {{ assignment_formset.empty_form.role }}
+                        <div class="mt-1 d-none" data-supervisor-mode-control="1">
+                          <div class="text-muted small mb-1">Mode supervisor</div>
+                          {{ assignment_formset.empty_form.supervisor_mode }}
+                        </div>
+                      </td>
                       <td data-computed-column="1">{{ assignment_formset.empty_form.display_computed_codes }}</td>
-                      <td>{{ assignment_formset.empty_form.judge_index }}</td>
+                      <td data-judge-index-cell="1">
+                        {{ assignment_formset.empty_form.judge_index }}
+                        <span class="text-muted small d-none" data-review-only-judge-label="1">No aplica</span>
+                      </td>
                       <td>{{ assignment_formset.empty_form.item_start }}</td>
                       <td>{{ assignment_formset.empty_form.item_count }}</td>
                       <td class="text-end">
                         <div class="form-check">
                         {{ assignment_formset.empty_form.DELETE }}
-                          <label class="form-check-label small text-muted">Eliminar</label>
+                          <label class="form-check-label small text-muted" for="{{ assignment_formset.empty_form.DELETE.id_for_label }}">Eliminar</label>
                         </div>
                       </td>
                     </tr>
@@ -1141,8 +1157,8 @@
                 <input type="hidden" name="token_id" value="{{ selected_public_token.id }}">
                 <div class="d-flex flex-wrap align-items-end gap-2">
                   <div class="flex-grow-1" style="min-width:220px;">
-                    <label class="form-label small text-muted mb-1">Titol del QR</label>
-                    <input class="form-control form-control-sm" name="label" maxlength="120" value="{{ selected_public_token.label }}" placeholder="Sense etiqueta">
+                    <label class="form-label small text-muted mb-1" for="publicTokenLabel">Titol del QR</label>
+                    <input class="form-control form-control-sm" id="publicTokenLabel" name="label" maxlength="120" value="{{ selected_public_token.label }}" placeholder="Sense etiqueta">
                   </div>
                   <button class="btn btn-sm btn-outline-secondary" type="submit">Desar titol</button>
                 </div>
@@ -1400,6 +1416,7 @@
         const input = document.createElement("input");
         input.type = "checkbox";
         input.className = "d-none";
+        input.id = `${slotsInput.id || "permission-member-slots"}-option-${slot}`;
         input.value = String(slot);
         input.setAttribute("data-member-slot-check", "1");
         label.appendChild(input);
@@ -1429,6 +1446,8 @@
         const input = document.createElement("input");
         input.type = "text";
         input.className = "form-control form-control-sm";
+        input.id = `item-label-${cleanCode.replace(/[^a-zA-Z0-9_-]/g, "-")}-${idx + 1}`;
+        label.htmlFor = input.id;
         input.value = itemLabels[idx] || "";
         input.placeholder = `Item ${idx + 1}`;
         input.setAttribute("data-item-label-input", "1");
@@ -1464,7 +1483,7 @@
       dropdown.appendChild(summary);
       dropdown.appendChild(panel);
       panel.appendChild(select);
-      select.size = Math.min(14, Math.max(10, select.options.length || 10));
+      select.size = Math.min(20, Math.max(16, select.options.length || 16));
 
       const syncSummary = () => {
         const selected = Array.from(select.selectedOptions || []);
@@ -1473,7 +1492,7 @@
           : selected.length === 1
             ? selected[0].textContent
             : `${selected.length} càlculs seleccionats`;
-        select.size = Math.min(14, Math.max(10, select.options.length || 10));
+        select.size = Math.min(20, Math.max(16, select.options.length || 16));
       };
       select.addEventListener("change", syncSummary);
       select._permissionComputedDropdown = dropdown;
@@ -1488,10 +1507,15 @@
       refreshComputedChoices(row);
       const fieldSelect = row.querySelector('select[name$="-field_code"]');
       const roleSelect = row.querySelector('select[name$="-role"]');
+      const supervisorModeSelect = row.querySelector('select[name$="-supervisor_mode"]');
+      const supervisorModeControl = row.querySelector('[data-supervisor-mode-control="1"]');
+      const judgeIndexInput = row.querySelector('input[name$="-judge_index"]');
+      const judgeIndexCell = row.querySelector('[data-judge-index-cell="1"]');
+      const reviewOnlyJudgeLabel = row.querySelector('[data-review-only-judge-label="1"]');
       const computedSelect = row.querySelector('select[name$="-display_computed_codes"]');
       const computedDropdown = enhanceComputedSelect(computedSelect);
-      const scopeSelect = row.querySelector('select[name$="-scope"]');
-      const modeSelect = row.querySelector('select[name$="-member_mode"]');
+      const scopeSelect = row.querySelector('[name$="-scope"]');
+      const modeSelect = row.querySelector('[name$="-member_mode"]');
       const slotsInput = row.querySelector('input[name$="-member_slots"]');
       const targetWrap = row.querySelector('[data-member-target="1"]');
       const itemLabelsControls = row.querySelector('[data-item-labels-controls="1"]');
@@ -1540,7 +1564,7 @@
         const scope = String((meta && meta.scope) || (app.team_context ? "member" : "shared")).toLowerCase();
         const isMember = !!app.team_context && scope === "member";
         scopeSelect.value = isMember ? "member" : "shared";
-        Array.from(scopeSelect.options).forEach((option) => {
+        Array.from(scopeSelect.options || []).forEach((option) => {
           option.disabled = option.value !== scopeSelect.value;
         });
         if (targetWrap) targetWrap.classList.toggle("d-none", !isMember);
@@ -1555,6 +1579,16 @@
         if (itemLabelsControls) itemLabelsControls.classList.toggle("d-none", !canConfigureItems);
         if (itemLabelsSummaryEl) itemLabelsSummaryEl.textContent = canConfigureItems ? itemLabelsSummary(meta) : "";
         const isSupervisor = !!roleSelect && roleSelect.value === "supervisor";
+        const isReviewOnly = isSupervisor && supervisorModeSelect?.value === "review_only";
+        supervisorModeControl?.classList.toggle("d-none", !isSupervisor);
+        if(supervisorModeSelect) supervisorModeSelect.disabled = !isSupervisor;
+        judgeIndexCell?.classList.toggle("text-muted", isReviewOnly);
+        judgeIndexInput?.classList.toggle("d-none", isReviewOnly);
+        reviewOnlyJudgeLabel?.classList.toggle("d-none", !isReviewOnly);
+        if(judgeIndexInput){
+          judgeIndexInput.readOnly = isReviewOnly;
+          if(isReviewOnly) judgeIndexInput.value = "1";
+        }
         if (computedSelect) {
           computedSelect.disabled = !isSupervisor;
           computedSelect.closest('[data-computed-column="1"]')?.classList.toggle("text-muted", !isSupervisor);
@@ -1566,6 +1600,7 @@
 
       fieldSelect.addEventListener("change", refreshVisibility);
       roleSelect?.addEventListener("change", refreshVisibility);
+      supervisorModeSelect?.addEventListener("change", refreshVisibility);
       modeSelect.addEventListener("change", syncToInput);
       if (itemLabelsTrigger) itemLabelsTrigger.addEventListener("click", () => openItemLabelsModal(fieldSelect.value));
       refreshVisibility();

@@ -369,7 +369,7 @@ def judge_portal(request, token, assignment_id=None):
     permissions = _normalize_permissions(selected_assignment.permissions)
     for permission in permissions:
         runtime_code = str(permission.get("runtime_field_code") or permission.get("field_code") or "").strip()
-        permission["crash_supervisor_controlled"] = bool(
+        permission["requires_supervision"] = bool(
             runtime_code
             and field_requires_supervision(
                 competicio=competicio,
@@ -378,6 +378,17 @@ def judge_portal(request, token, assignment_id=None):
                 runtime_field_code=runtime_code,
             )
         )
+        permission["crash_supervisor_controlled"] = permission["requires_supervision"]
+    judge_has_supervision_permissions = any(permission_is_supervisor(item) for item in permissions)
+    standard_permissions = [item for item in permissions if not permission_is_supervisor(item)]
+    standard_supervised = [item for item in standard_permissions if item.get("requires_supervision")]
+    standard_unsupervised = [item for item in standard_permissions if not item.get("requires_supervision")]
+    judge_save_button_visible = bool(judge_has_supervision_permissions or standard_unsupervised)
+    judge_save_non_supervised_only = bool(
+        not judge_has_supervision_permissions
+        and standard_supervised
+        and standard_unsupervised
+    )
     assignment_subject_scope_summary = subject_scope_summary(
         selected_assignment.subject_scope,
         competicio=competicio,
@@ -852,7 +863,9 @@ def judge_portal(request, token, assignment_id=None):
         "draft_updates_url": draft_updates_url,
         "supervision_pending_url": supervision_pending_url,
         "supervision_approve_url": supervision_approve_url,
-        "judge_has_supervision_permissions": any(permission_is_supervisor(item) for item in permissions),
+        "judge_has_supervision_permissions": judge_has_supervision_permissions,
+        "judge_save_button_visible": judge_save_button_visible,
+        "judge_save_non_supervised_only": judge_save_non_supervised_only,
         "updates_cursor_init": timezone.now().isoformat(),
         "video_capture_enabled": video_capture_enabled,
         "video_status_url": video_status_url,

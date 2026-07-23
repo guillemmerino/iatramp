@@ -28,7 +28,14 @@
       return Object.keys(snapshot).length ? snapshot : null;
     }
     if(!draft || typeof draft !== "object") return null;
-    const keys = Object.keys(draft);
+    const keys = Object.keys(draft).filter((code) => {
+      if(!JUDGE_SAVE_NON_SUPERVISED_ONLY) return true;
+      const baseCode = String(code).replace(/^__crash__/, "");
+      return resolvedPermsForIns(insId).some((perm) => {
+        const runtimeCode = String(perm.runtime_field_code || perm.field_code || "");
+        return runtimeCode === baseCode && !perm.requires_supervision;
+      });
+    });
     if(!keys.length) return null;
     const patch = {};
     keys.forEach((code) => {
@@ -586,7 +593,14 @@
         updated_at: data.updated_at || null,
       });
 
-      clearDraft(insId, exercici);
+      if(JUDGE_SAVE_NON_SUPERVISED_ONLY){
+        const currentDraft = DRAFTS[entryKey(insId, exercici)];
+        Object.keys(patch || {}).forEach((code) => {
+          if(currentDraft && typeof currentDraft === "object") delete currentDraft[code];
+        });
+      } else {
+        clearDraft(insId, exercici);
+      }
       clearDirty(insId, exercici);
       renderEditor(insId, exercici, { force: true });
       refreshInsNavStatuses();
@@ -652,7 +666,16 @@
     refreshInsNavStatuses();
     refreshExerciseChipStates(insId);
 
-    if((hasDirty(insId, exercici) || isEditingEntry(insId, exercici)) && !incomingHasCrash){
+    if(hasDirty(insId, exercici) || isEditingEntry(insId, exercici)){
+      if(incomingHasCrash){
+        Object.keys(incomingInputs)
+          .filter((code) => String(code).startsWith("__crash__"))
+          .forEach((code) => applyRemoteCrashWithoutRerender(
+            insId,
+            exercici,
+            String(code).replace(/^__crash__/, "")
+          ));
+      }
       setStatus(insId, exercici, "info", "Canvi remot rebut (pendent de desar)");
       return;
     }

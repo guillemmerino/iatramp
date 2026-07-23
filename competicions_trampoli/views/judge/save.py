@@ -14,6 +14,7 @@ from ...services.judging.supervision import (
     approve_pending_submissions_for_published_fields,
     create_or_update_pending_submission,
     field_requires_supervision,
+    permission_is_review_only_supervisor,
     token_is_supervisor_for_field,
 )
 from ...services.scoring.schema_resolution import resolve_scoring_schema_for_comp_aparell
@@ -201,13 +202,20 @@ def judge_save_partial(request, token):
                 ),
                 {},
             )
-            supervisor_index = max(1, int(supervisor_perm.get("judge_index") or 1)) - 1
             raw_crash = inputs_patch.get(patch_code)
-            crash_at = (
-                raw_crash[supervisor_index]
-                if isinstance(raw_crash, list) and len(raw_crash) > supervisor_index
-                else raw_crash
-            )
+            if permission_is_review_only_supervisor(supervisor_perm):
+                crash_at = (
+                    next((item for item in raw_crash if item not in (None, 0, "0")), 0)
+                    if isinstance(raw_crash, list)
+                    else raw_crash
+                )
+            else:
+                supervisor_index = max(1, int(supervisor_perm.get("judge_index") or 1)) - 1
+                crash_at = (
+                    raw_crash[supervisor_index]
+                    if isinstance(raw_crash, list) and len(raw_crash) > supervisor_index
+                    else raw_crash
+                )
             inputs_patch[patch_code] = [crash_at] * n_judges
 
     sanitized = _sanitize_patch_by_permissions(schema, resolved_permissions, inputs_patch)

@@ -28,7 +28,11 @@ from ...services.judging.subject_scope import (
     subject_scope_options_for_competicio,
     subject_scope_summary,
 )
-from ...services.judging.supervision import validate_single_supervisor_per_field
+from ...services.judging.supervision import (
+    SUPERVISOR_MODE_REVIEW_ONLY,
+    normalize_supervisor_mode,
+    validate_single_supervisor_per_field,
+)
 from ._shared import _judge_item_labels_map_for_comp_aparell
 
 MAX_TOKEN_PERMISSIONS = 15
@@ -128,14 +132,21 @@ def _permission_summary_rows(perms):
         role = str(perm.get("role") or "standard").strip().lower() or "standard"
         if role not in PERMISSION_ROLES:
             role = "standard"
+        supervisor_mode = normalize_supervisor_mode(perm.get("supervisor_mode"))
         rows.append({
             "label": build_permission_label(perm),
             "judge_index": int(perm.get("judge_index") or 1),
             "item_start": int(perm.get("item_start") or 1),
             "item_count": (None if item_count in (None, "", "null") else int(item_count)),
             "role": role,
-            "role_label": "Supervisor" if role == "supervisor" else "Standard",
+            "role_label": (
+                "Supervisor revisor"
+                if role == "supervisor" and supervisor_mode == SUPERVISOR_MODE_REVIEW_ONLY
+                else ("Supervisor puntuador" if role == "supervisor" else "Standard")
+            ),
             "is_supervisor": role == "supervisor",
+            "is_review_only": role == "supervisor" and supervisor_mode == SUPERVISOR_MODE_REVIEW_ONLY,
+            "supervisor_mode": supervisor_mode if role == "supervisor" else "",
             "display_computed_codes": list(perm.get("display_computed_codes") or []),
         })
     return rows
@@ -268,6 +279,7 @@ def _validate_permission_row(schema_by_code: dict, row: dict, *, team_context_mo
     role = str(row.get("role") or "standard").strip().lower() or "standard"
     if role not in PERMISSION_ROLES:
         raise ValueError(f"{code}: rol invalid.")
+    supervisor_mode = normalize_supervisor_mode(row.get("supervisor_mode"))
     requested_scope = str(row.get("scope") or "shared").strip().lower() or "shared"
     if requested_scope not in {"shared", "member"}:
         raise ValueError(f"{code}: scope invalid.")
@@ -334,6 +346,9 @@ def _validate_permission_row(schema_by_code: dict, row: dict, *, team_context_mo
         "role": role,
     }
     if role == "supervisor":
+        result["supervisor_mode"] = supervisor_mode
+        if supervisor_mode == SUPERVISOR_MODE_REVIEW_ONLY:
+            result.pop("judge_index", None)
         result["display_computed_codes"] = [
             str(code) for code in (row.get("display_computed_codes") or []) if str(code).strip()
         ]

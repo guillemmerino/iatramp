@@ -17,7 +17,7 @@
 
   <div class="mt-2" id="editor-{{ ins.id }}" data-exercise-host="1" data-ins-id="{{ ins.id }}">
     {% for ex in exercicis %}
-    {% include "judge/portal/modes/_exercise_panel.html" with ins=ins ex=ex exercici=exercici video_capture_enabled=video_capture_enabled judge_kiosk=judge_kiosk only %}
+    {% include "judge/portal/modes/_exercise_panel.html" with ins=ins ex=ex exercici=exercici video_capture_enabled=video_capture_enabled judge_kiosk=judge_kiosk judge_save_button_visible=judge_save_button_visible judge_save_non_supervised_only=judge_save_non_supervised_only only %}
     {% endfor %}
   </div>
 </div>
@@ -47,7 +47,7 @@
 
   <div class="mt-2" id="editor-{{ ins.id }}" data-exercise-host="1" data-ins-id="{{ ins.id }}">
     {% for ex in exercicis %}
-    {% include "judge/portal/modes/_exercise_panel.html" with ins=ins ex=ex exercici=exercici video_capture_enabled=video_capture_enabled judge_kiosk=judge_kiosk only %}
+    {% include "judge/portal/modes/_exercise_panel.html" with ins=ins ex=ex exercici=exercici video_capture_enabled=video_capture_enabled judge_kiosk=judge_kiosk judge_save_button_visible=judge_save_button_visible judge_save_non_supervised_only=judge_save_non_supervised_only only %}
     {% endfor %}
   </div>
 </div>

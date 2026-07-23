@@ -3,7 +3,11 @@ from ...services.scoring.team_scoring import (
     normalize_permission_target,
     resolve_permission_runtime_entries,
 )
-from ...services.judging.supervision import normalize_judge_role
+from ...services.judging.supervision import (
+    normalize_judge_role,
+    normalize_supervisor_mode,
+    permission_is_review_only_supervisor,
+)
 from ...services.scoring.judge_presence import merge_judge_patch_into_canonical, presence_key
 
 
@@ -57,6 +61,7 @@ def _sanitize_patch_by_permissions(schema: dict, permissions: list, patch: dict)
 
         ftype = field.get("type") or "number"
         perms = perms_by_code[base_code]
+        review_only_supervisor = any(permission_is_review_only_supervisor(perm) for perm in perms)
 
         if is_crash_key:
             crash_cfg = field.get("crash") if isinstance(field.get("crash"), dict) else {}
@@ -72,6 +77,8 @@ def _sanitize_patch_by_permissions(schema: dict, permissions: list, patch: dict)
                     value = incoming_val
                 sets.append((judge_index - 1, value))
             clean[code] = {"__set_list__": sets}
+            if review_only_supervisor:
+                clean[code]["__preserve_presence__"] = True
             continue
 
         if ftype == "number":
@@ -86,6 +93,8 @@ def _sanitize_patch_by_permissions(schema: dict, permissions: list, patch: dict)
                     value = incoming_val[judge_index - 1] if len(incoming_val) >= judge_index else None
                 else:
                     value = incoming_val
+                if review_only_supervisor and value is None:
+                    continue
                 sets.append((judge_index - 1, value))
             clean[base_code] = {"__set_list__": sets}
             continue
@@ -151,6 +160,8 @@ def _normalize_permissions(perms):
                 str(code) for code in (raw_perm.get("display_computed_codes") or []) if str(code).strip()
             ],
         }
+        if row["role"] == "supervisor":
+            row["supervisor_mode"] = normalize_supervisor_mode(raw_perm.get("supervisor_mode"))
         if scope == "member":
             row["member_mode"] = str(raw_perm.get("member_mode") or "all")
             if raw_perm.get("member_slots") not in (None, ""):

@@ -1,4 +1,14 @@
   // init
+  document.addEventListener("wheel", (evt) => {
+    const input = evt.target;
+    if(
+      !(input instanceof HTMLInputElement)
+      || input.type !== "number"
+      || document.activeElement !== input
+    ) return;
+    evt.preventDefault();
+  }, { passive:false });
+
   buildPermText();
   initPortalViewModeControl();
   initGroupTabs();
