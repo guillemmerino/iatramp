@@ -145,9 +145,8 @@
     return !!(set && set.size);
   }
   function isEditingEntry(insId, exercici){
-    const wrap = document.getElementById(`editor-inner-${insId}-${exercici}`);
     const ae = document.activeElement;
-    return !!(wrap && ae && wrap.contains(ae));
+    return !!(ae && renderedEditorWrapsForEntry(insId, exercici).some((wrap) => wrap.contains(ae)));
   }
   function scoreInputRootFor(input, insId, exercici){
     const scopedRoot = input && input.closest ? input.closest('[data-score-input-nav-root="1"]') : null;

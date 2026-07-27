@@ -165,6 +165,23 @@ def merge_judge_patch_into_canonical(current_inputs: dict, sanitized_patch: dict
 
     for code, payload in (sanitized_patch or {}).items():
         code = str(code)
+        if code.startswith("__presence__"):
+            base_code = code[len("__presence__") :]
+            field = by_code.get(base_code)
+            if not field or not is_strict_presence_field(field):
+                continue
+            current = canonicalize_judge_field(out, field)
+            out.update(current)
+            n_judges = _judge_count(field)
+            presence = _normalize_presence(out.get(code), n_judges)
+            if isinstance(payload, dict) and "__set_presence__" in payload:
+                for idx, value in payload["__set_presence__"]:
+                    if 0 <= idx < n_judges:
+                        presence[idx] = bool(value)
+            elif isinstance(payload, list):
+                presence = _normalize_presence(payload, n_judges)
+            out[code] = presence
+            continue
         if code.startswith("__crash__"):
             base_code = code[len("__crash__") :]
             field = by_code.get(base_code)

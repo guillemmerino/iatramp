@@ -2,9 +2,20 @@
     return `editor-inner-${String(insId)}-${exerciseKey(exercici)}`;
   }
 
+  function renderedEditorWrapsForEntry(insId, exercici){
+    const wantedInsId = String(insId);
+    const wantedExercise = exerciseKey(exercici);
+    const wraps = Array.from(document.querySelectorAll('[data-editor-rendered="1"]')).filter((wrap) => (
+      String(wrap.dataset.renderedInsId || "") === wantedInsId
+      && String(wrap.dataset.renderedExercise || "") === wantedExercise
+    ));
+    const exact = document.getElementById(editorInnerId(insId, exercici));
+    if(exact && !wraps.includes(exact)) wraps.unshift(exact);
+    return wraps;
+  }
+
   function isEditorRendered(insId, exercici){
-    const wrap = document.getElementById(editorInnerId(insId, exercici));
-    return !!(wrap && wrap.dataset.editorRendered === "1");
+    return renderedEditorWrapsForEntry(insId, exercici).some((wrap) => wrap.dataset.editorRendered === "1");
   }
 
   function renderAllEditors(opts = {}){
@@ -130,6 +141,7 @@
       const disable = (cut > 0 && idx1 >= cut);
       const inp = row.querySelector('input[data-kind="matrix"]');
       if(inp) inp.disabled = disable;
+      row.classList.toggle("is-crash-disabled", disable);
       const btn = row.querySelector('button[data-crash-btn="1"]');
       if(btn) btn.style.opacity = disable ? "0.35" : "1";
     });
@@ -241,29 +253,51 @@
   }
 
   function applyRemoteCrashWithoutRerender(insId, exercici, runtimeCode){
-    const wrap = document.getElementById(editorInnerId(insId, exercici));
-    if(!wrap || wrap.dataset.editorRendered !== "1") return false;
+    const wraps = renderedEditorWrapsForEntry(insId, exercici)
+      .filter((wrap) => wrap.dataset.editorRendered === "1");
+    if(!wraps.length) return false;
     const cleanCode = String(runtimeCode || "");
     const crashValues = effectiveInput(insId, exercici, `__crash__${cleanCode}`);
     if(!Array.isArray(crashValues)) return false;
     let matched = false;
-    wrap.querySelectorAll('[data-item-strip="1"][data-runtime-field-code]').forEach((group) => {
-      if(String(group.dataset.runtimeFieldCode || "") !== cleanCode) return;
-      matched = true;
-      const judgeIndex0 = Math.max(0, Number(group.dataset.judgeIndex || 1) - 1);
-      const crashAt = Number(crashValues[judgeIndex0] || 0);
-      const active = document.activeElement;
-      applyCrashDisableInMatrix(group, crashAt);
-      const status = group.parentElement && group.parentElement.querySelector('[data-crash-status="1"]');
-      if(status){
-        const fieldCode = String(group.dataset.fieldCode || cleanCode);
-        status.textContent = crashAt > 0
-          ? `Crash: ${getItemDisplayLabel(fieldCode, crashAt)}`
-          : "Crash: encara no indicat pel supervisor";
-      }
-      if(active && group.contains(active) && active.disabled && typeof active.blur === "function"){
-        active.blur();
-      }
+    wraps.forEach((wrap) => {
+      wrap.querySelectorAll('[data-item-strip="1"][data-runtime-field-code]').forEach((group) => {
+        if(String(group.dataset.runtimeFieldCode || "") !== cleanCode) return;
+        matched = true;
+        const judgeIndex0 = Math.max(0, Number(group.dataset.judgeIndex || 1) - 1);
+        const crashAt = Number(crashValues[judgeIndex0] || 0);
+        const active = document.activeElement;
+        applyCrashDisableInMatrix(group, crashAt);
+        const status = group.nextElementSibling && group.nextElementSibling.matches('[data-crash-status="1"]')
+          ? group.nextElementSibling
+          : null;
+        if(status){
+          const fieldCode = String(group.dataset.fieldCode || cleanCode);
+          status.textContent = crashAt > 0
+            ? `Crash: ${getItemDisplayLabel(fieldCode, crashAt)}`
+            : "Crash: encara no indicat pel supervisor";
+        }
+        if(active && group.contains(active) && active.disabled && typeof active.blur === "function"){
+          active.blur();
+        }
+      });
+      wrap.querySelectorAll('[data-supervisor-matrix="1"][data-runtime-field-code]').forEach((table) => {
+        if(String(table.dataset.runtimeFieldCode || "") !== cleanCode) return;
+        matched = true;
+        const uniqueCrash = Number(crashValues.find((value) => Number(value || 0) > 0) || 0);
+        table.querySelectorAll('[data-supervisor-crash-button="1"]').forEach((button) => {
+          button.classList.toggle("is-active", Number(button.dataset.itemIndex || 0) === uniqueCrash);
+        });
+        table.querySelectorAll('[data-supervisor-judge-row="1"]').forEach((row) => {
+          const judgeIndex0 = Math.max(0, Number(row.dataset.judgeIndex || 1) - 1);
+          const crashAt = Number(crashValues[judgeIndex0] || 0);
+          const active = document.activeElement;
+          applyCrashDisableInSupervisorRow(row, crashAt);
+          if(active && row.contains(active) && active.disabled && typeof active.blur === "function"){
+            active.blur();
+          }
+        });
+      });
     });
     return matched;
   }
@@ -280,7 +314,9 @@
     row.querySelectorAll('[data-supervisor-matrix-cell="1"]').forEach((cell) => {
       const itemIndex = Number(cell.dataset.itemIndex || 0);
       const input = cell.querySelector('input[data-kind="matrix"]');
-      if(input) input.disabled = cut > 0 && itemIndex >= cut;
+      const disable = cut > 0 && itemIndex >= cut;
+      if(input) input.disabled = disable;
+      cell.classList.toggle("is-crash-disabled", disable);
     });
   }
 
@@ -338,6 +374,7 @@
     const table = document.createElement("table");
     table.className = "judge-supervisor-matrix";
     table.dataset.supervisorMatrix = "1";
+    table.dataset.runtimeFieldCode = code;
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
     const judgeHeader = document.createElement("th");
@@ -400,12 +437,31 @@
       const rowHead = document.createElement("th");
       rowHead.scope = "row";
       rowHead.className = "judge-supervisor-row-head";
-      rowHead.textContent = `J${judgeIndex}`;
+      const judgeLabel = document.createElement(JUDGE_FLOW_IS_CONTROLLER && FLOW_PRESENCE_URL ? "button" : "span");
+      judgeLabel.className = "judge-supervisor-presence-toggle";
+      judgeLabel.textContent = `J${judgeIndex}`;
+      judgeLabel.dataset.presenceFieldCode = code;
+      judgeLabel.dataset.presenceJudgeIndex = String(judgeIndex);
+      if(judgeLabel.tagName === "BUTTON"){
+        judgeLabel.type = "button";
+        judgeLabel.addEventListener("click", () => {
+          if(typeof toggleGuidedJudgePresence === "function"){
+            toggleGuidedJudgePresence(code, judgeIndex, judgeLabel);
+          }
+        });
+      }
+      rowHead.appendChild(judgeLabel);
       if(perm.is_supervisor_row){
         const ownLabel = document.createElement("span");
         ownLabel.className = "judge-supervisor-own-label";
-        ownLabel.textContent = "Supervisor";
+        ownLabel.textContent = "Sup.";
+        ownLabel.title = "Supervisor";
+        ownLabel.setAttribute("aria-label", "Supervisor");
+        rowHead.setAttribute("aria-label", `J${judgeIndex}, Supervisor`);
         rowHead.appendChild(ownLabel);
+      }
+      if(typeof refreshGuidedPresenceButton === "function"){
+        refreshGuidedPresenceButton(judgeLabel);
       }
       row.appendChild(rowHead);
 
@@ -479,9 +535,11 @@
       const meta = computedByCode.get(code) || {};
       const card = document.createElement("div");
       card.className = "judge-supervisor-computed-card";
+      card.dataset.computedCode = code;
       const label = document.createElement("span");
       label.textContent = meta.label || code;
       const value = document.createElement("strong");
+      value.dataset.computedValue = code;
       const rawValue = outputs[code];
       value.textContent = rawValue === null || rawValue === undefined || rawValue === ""
         ? "—"
@@ -494,6 +552,21 @@
     });
     panel.appendChild(grid);
     parent.appendChild(panel);
+  }
+
+  function refreshSupervisorComputedFields(insId, exercici, outputs){
+    const nextOutputs = outputs && typeof outputs === "object" ? outputs : {};
+    renderedEditorWrapsForEntry(insId, exercici).forEach((wrap) => {
+      wrap.querySelectorAll("[data-computed-value]").forEach((value) => {
+        const code = String(value.dataset.computedValue || "");
+        const rawValue = nextOutputs[code];
+        value.textContent = rawValue === null || rawValue === undefined || rawValue === ""
+          ? "—"
+          : Number.isFinite(Number(rawValue))
+            ? Number(rawValue).toLocaleString("ca-ES", {maximumFractionDigits: 3})
+            : String(rawValue);
+      });
+    });
   }
 
   function renderPermissionBlock(parent, insId, exercici, perm){
@@ -570,6 +643,8 @@
     if(!wrap) return;
     if(wrap.dataset.editorRendered === "1" && !opts.force) return;
     wrap.dataset.scoreInputNavRoot = "1";
+    wrap.dataset.renderedInsId = String(insId);
+    wrap.dataset.renderedExercise = exerciseKey(exercici);
     wrap.classList.add("judge-fields-layout");
     wrap.innerHTML = "";
     const resolvedPerms = resolvedPermsForIns(insId);
@@ -595,6 +670,7 @@
   }
 
   function renderEditor(insId, exercici, opts = {}){
-    const wrap = document.getElementById(editorInnerId(insId, exercici));
-    renderEditorInto(wrap, insId, exercici, opts);
+    renderedEditorWrapsForEntry(insId, exercici).forEach((wrap) => {
+      renderEditorInto(wrap, insId, exercici, opts);
+    });
   }

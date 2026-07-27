@@ -15,7 +15,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid mt-4 judge-portal-page">
+<div class="container-fluid mt-4 judge-portal-page{% if judge_flow_enabled %} judge-portal-page--guided{% endif %}">
   {% include "judge/portal/_styles.html" %}
 
   <div class="card-surface">

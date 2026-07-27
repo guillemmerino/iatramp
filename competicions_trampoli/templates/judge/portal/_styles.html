@@ -72,6 +72,10 @@
       gap:.14rem;
       scroll-snap-align:start;
     }
+    .judge-item-cell.is-crash-disabled{
+      border-radius:.25rem;
+      background:#e5e7eb;
+    }
     .judge-item-label{
       min-height:1.55rem;
       color:#475569;
@@ -329,6 +333,10 @@
     }
     .judge-supervisor-matrix .is-supervisor-row th,
     .judge-supervisor-matrix .is-supervisor-row td{ background:#fffbeb; }
+    .judge-supervisor-matrix td.is-crash-disabled,
+    .judge-supervisor-matrix .is-supervisor-row td.is-crash-disabled{
+      background:#e5e7eb;
+    }
     .judge-supervisor-own-label{
       display:block;
       margin-top:.08rem;
@@ -337,6 +345,44 @@
       font-weight:800;
       line-height:1;
     }
+    .judge-supervisor-presence-toggle{
+      position:relative;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:100%;
+      max-width:3rem;
+      min-width:0;
+      min-height:1.35rem;
+      margin:0 auto;
+      padding:.04rem .18rem;
+      overflow:hidden;
+      border:1px solid #cbd5e1;
+      border-radius:999px;
+      background:#f1f5f9;
+      color:#64748b;
+      font:inherit;
+      font-weight:900;
+      line-height:1;
+      white-space:nowrap;
+      text-overflow:clip;
+    }
+    button.judge-supervisor-presence-toggle{cursor:pointer}
+    button.judge-supervisor-presence-toggle:focus-visible{outline:2px solid #2563eb;outline-offset:1px}
+    .judge-supervisor-presence-toggle.is-valid{border-color:#86efac;background:#dcfce7;color:#166534}
+    .judge-supervisor-presence-toggle.is-invalid{border-color:#cbd5e1;background:#e5e7eb;color:#64748b}
+    .judge-supervisor-presence-toggle.is-forced-invalid{border-color:#fca5a5;background:#fee2e2;color:#991b1b}
+    .judge-supervisor-presence-toggle.is-forced::after{
+      content:"";
+      position:absolute;
+      top:2px;
+      right:3px;
+      width:4px;
+      height:4px;
+      border-radius:50%;
+      background:currentColor;
+    }
+    .judge-supervisor-presence-toggle.is-loading{opacity:.55;pointer-events:none}
     .judge-save-scope-hint{
       margin-top:.12rem;
       color:#64748b;

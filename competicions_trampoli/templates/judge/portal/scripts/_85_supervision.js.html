@@ -138,9 +138,32 @@
   }
 
   function mergePendingPatchIntoDraft(insId, exercici, item){
-    if(pendingRowIsDirty(insId, exercici, item)) return;
     const draft = DRAFTS[entryKey(insId, exercici)];
     if(!draft || typeof draft !== "object") return;
+    if(pendingRowIsDirty(insId, exercici, item)){
+      const patch = pendingPatchSource(item);
+      const runtimeCode = String(item.runtime_field_code || item.field_code || "");
+      const recipientControlsCrash = resolvedPermsForIns(insId).some((perm) => (
+        String(perm.runtime_field_code || perm.field_code || "") === runtimeCode
+        && String(perm.role || "") === "supervisor"
+      ));
+      const remoteCrashPatch = {};
+      if(!recipientControlsCrash && String(item.role || "") === "supervisor"){
+        Object.entries(patch || {}).forEach(([code, value]) => {
+          if(String(code).startsWith("__crash__")) remoteCrashPatch[code] = value;
+        });
+      }
+      if(!Object.keys(remoteCrashPatch).length) return;
+      const mergedCrash = mergePendingPatchIntoInputs(draft, {
+        ...item,
+        inputs_patch: remoteCrashPatch,
+        normalized_inputs_patch: remoteCrashPatch,
+      });
+      Object.keys(mergedCrash || {}).forEach((code) => {
+        draft[code] = mergedCrash[code];
+      });
+      return;
+    }
     const mergedDraft = mergePendingPatchIntoInputs(draft, item);
     Object.keys(mergedDraft || {}).forEach((code) => {
       draft[code] = mergedDraft[code];
@@ -164,6 +187,9 @@
           changed = applyPendingSubmissionToEntry(item) || changed;
         });
         if(changed) refreshInsNavStatuses();
+        if(data.preview && typeof applyGuidedScoringPreview === "function"){
+          applyGuidedScoringPreview(data.preview);
+        }
         draftSince = data.next_since || draftSince;
         draftAfterId = String(data.next_after_id || "");
         if(data.has_more) delay = 0;

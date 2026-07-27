@@ -109,6 +109,7 @@ urlpatterns = [
     path("judge/<uuid:token>/api/drafts/updates/", views_judge.judge_draft_updates, name="judge_draft_updates"),
     path("judge/<uuid:token>/api/flow/state/", views_judge.judge_flow_state, name="judge_flow_state"),
     path("judge/<uuid:token>/api/flow/open/", views_judge.judge_flow_open, name="judge_flow_open"),
+    path("judge/<uuid:token>/api/flow/presence/", views_judge.judge_flow_presence, name="judge_flow_presence"),
     path("judge/<uuid:token>/api/flow/close/", views_judge.judge_flow_close, name="judge_flow_close"),
     path("judge/<uuid:token>/api/flow/finalize/", views_judge.judge_flow_finalize, name="judge_flow_finalize"),
     path("judge/<uuid:token>/api/flow/reopen/", views_judge.judge_flow_reopen, name="judge_flow_reopen"),

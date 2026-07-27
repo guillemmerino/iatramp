@@ -12,6 +12,12 @@ from ....models.judging import (
     JudgeScoringWindow,
 )
 from ....models.scoring import ScoreEntry, ScoreRevision, ScoringSchema
+from ....models.rotacions import (
+    RotacioAssignacio,
+    RotacioAssignacioGrup,
+    RotacioEstacio,
+    RotacioFranja,
+)
 
 
 class JudgeGuidedFlowTests(_BaseTrampoliDataMixin, TestCase):
@@ -95,6 +101,38 @@ class JudgeGuidedFlowTests(_BaseTrampoliDataMixin, TestCase):
             content_type="application/json",
         )
 
+    def _configure_two_judge_preview(self):
+        schema_obj = ScoringSchema.objects.get(aparell=self.aparell)
+        schema_obj.schema = {
+            "fields": [
+                {
+                    "label": "Execucio",
+                    "code": "E",
+                    "type": "matrix",
+                    "shape": "judge_x_item",
+                    "judges": {"count": 2},
+                    "items": {"count": 3},
+                    "decimals": 1,
+                },
+            ],
+            "computed": [
+                {"code": "ROW", "label": "Per jutge", "formula": "row_custom_compute('E', 'x', return_mode='by_judge')"},
+                {"code": "TOTAL", "label": "Total", "formula": "select_sum(ROW, select='all', agg='sum')"},
+            ],
+        }
+        schema_obj.save(update_fields=["schema"])
+        self.controller_assignment.permissions = [
+            {
+                "field_code": "E",
+                "judge_index": 1,
+                "item_start": 1,
+                "item_count": 3,
+                "role": "supervisor",
+                "display_computed_codes": ["TOTAL"],
+            }
+        ]
+        self.controller_assignment.save(update_fields=["permissions"])
+
     def test_controller_without_fields_sees_control_panel(self):
         response = self.client.get(reverse(
             "judge_portal_assignment",
@@ -105,8 +143,257 @@ class JudgeGuidedFlowTests(_BaseTrampoliDataMixin, TestCase):
         self.assertTrue(response.context["judge_flow_enabled"])
         self.assertTrue(response.context["judge_flow_is_controller"])
         self.assertContains(response, "Control de pista")
+        self.assertContains(response, "judge-portal-page--guided")
+        self.assertContains(response, 'id="guidedPlanSidebar"')
+        self.assertContains(response, 'id="guidedPendingSidebar"')
+        self.assertContains(response, 'id="guidedPlanToggle"')
+        self.assertContains(response, 'id="guidedPendingToggle"')
+        self.assertContains(response, 'id="guidedDrawerBackdrop"')
         self.assertContains(response, "Aquest controlador no te camps de puntuacio assignats")
         self.assertNotContains(response, "Mode competicio")
+
+    def test_guided_plan_uses_rotation_franja_and_configured_order(self):
+        second = self._create_inscripcio(self.competicio, "Segona gimnasta", ordre=2, grup=1)
+        franja = RotacioFranja.objects.create(
+            competicio=self.competicio,
+            hora_inici="09:00",
+            hora_fi="09:30",
+            ordre=1,
+            titol="Primera franja",
+        )
+        estacio = RotacioEstacio.objects.create(
+            competicio=self.competicio,
+            tipus="aparell",
+            comp_aparell=self.comp_aparell,
+            ordre=1,
+            actiu=True,
+        )
+        assignacio = RotacioAssignacio.objects.create(
+            competicio=self.competicio,
+            franja=franja,
+            estacio=estacio,
+        )
+        RotacioAssignacioGrup.objects.create(
+            assignacio=assignacio,
+            grup=self.inscripcio.grup_competicio,
+            ordre=1,
+        )
+        self.competicio.inscripcions_view = {
+            "rotacions_order_modes": {str(franja.id): "rotate"},
+        }
+        self.competicio.save(update_fields=["inscripcions_view"])
+
+        response = self.client.get(reverse(
+            "judge_portal_assignment",
+            kwargs={"token": self.controller_token.id, "assignment_id": self.controller_assignment.id},
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        plan = response.context["guided_plan_json"]
+        self.assertEqual(plan[0]["franja_id"], franja.id)
+        self.assertIn("Primera franja", plan[0]["label"])
+        self.assertEqual(
+            [item["subject_id"] for item in plan[0]["groups"][0]["subjects"]],
+            [second.id, self.inscripcio.id],
+        )
+
+    def test_queue_context_is_snapshotted_and_returned_in_history(self):
+        context = {
+            "section_key": "franja:7",
+            "section_label": "Franja matí",
+            "group_key": "1",
+            "group_label": "Grup 1",
+            "franja_id": 7,
+            "group_index": 0,
+            "subject_index": 0,
+            "queue_index": 3,
+        }
+        opened = self.client.post(
+            self._url("judge_flow_open", self.controller_token),
+            data=json.dumps({
+                "assignment_id": self.controller_assignment.id,
+                "subject_kind": "inscripcio",
+                "subject_id": self.inscripcio.id,
+                "exercici": 1,
+                "queue_context": context,
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(opened.status_code, 200, opened.content)
+        self.assertEqual(opened.json()["window"]["competition_context"], context)
+        self.assertEqual(opened.json()["history_windows"][0]["competition_context"], context)
+
+    def test_guided_supervisor_crash_reaches_standard_judge_live(self):
+        schema_obj = ScoringSchema.objects.get(aparell=self.aparell)
+        schema = dict(schema_obj.schema)
+        fields = [dict(item) for item in schema.get("fields", [])]
+        fields[0]["crash"] = {"enabled": True}
+        schema["fields"] = fields
+        schema_obj.schema = schema
+        schema_obj.save(update_fields=["schema"])
+        supervisor_permission = {
+            "field_code": "E",
+            "judge_index": 1,
+            "item_start": 1,
+            "item_count": 3,
+            "role": "supervisor",
+        }
+        self.controller_assignment.permissions = [supervisor_permission]
+        self.controller_assignment.save(update_fields=["permissions"])
+        opened = self._open()
+        self.assertEqual(opened.status_code, 200, opened.content)
+        window_id = opened.json()["window"]["id"]
+
+        crash = self.client.post(
+            self._url("judge_draft_update", self.controller_token),
+            data=json.dumps({
+                "assignment_id": self.controller_assignment.id,
+                "window_id": window_id,
+                "subject_kind": "inscripcio",
+                "subject_id": self.inscripcio.id,
+                "exercici": 1,
+                "inputs_patch": {"__crash__E": [2]},
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(crash.status_code, 200, crash.content)
+        self.assertEqual(len(crash.json()["drafts"]), 1, crash.json())
+
+        updates = self.client.get(
+            f"{self._url('judge_draft_updates', self.standard_token)}?assignment_id={self.standard_assignment.id}"
+        )
+        self.assertEqual(updates.status_code, 200, updates.content)
+        drafts = updates.json()["drafts"]
+        self.assertEqual(len(drafts), 1)
+        self.assertEqual(
+            drafts[0]["normalized_inputs_patch"]["__crash__E"]["__set_list__"],
+            [[0, 2]],
+        )
+
+    def test_draft_returns_live_computed_preview_and_automatic_presence(self):
+        self._configure_two_judge_preview()
+        opened = self._open()
+        self.assertEqual(opened.status_code, 200, opened.content)
+
+        draft = self.client.post(
+            self._url("judge_draft_update", self.standard_token),
+            data=json.dumps({
+                "assignment_id": self.standard_assignment.id,
+                "window_id": opened.json()["window"]["id"],
+                "subject_kind": "inscripcio",
+                "subject_id": self.inscripcio.id,
+                "exercici": 1,
+                "inputs_patch": {"E": [[1, 2, 3], [None, None, None]]},
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(draft.status_code, 200, draft.content)
+        self.assertNotIn("preview", draft.json())
+        state = self.client.get(
+            f"{self._url('judge_flow_state', self.controller_token)}?assignment_id={self.controller_assignment.id}"
+        )
+        self.assertEqual(state.status_code, 200, state.content)
+        preview = state.json()["preview"]
+        self.assertEqual(preview["automatic_presence"]["E"], [True, False])
+        self.assertEqual(preview["presence"]["E"], [True, False])
+        self.assertEqual(preview["outputs"]["TOTAL"], 6.0)
+
+    def test_controller_can_override_presence_and_finalization_uses_it(self):
+        self._configure_two_judge_preview()
+        opened = self._open()
+        window_id = opened.json()["window"]["id"]
+        initial_draft = self.client.post(
+            self._url("judge_draft_update", self.standard_token),
+            data=json.dumps({
+                "assignment_id": self.standard_assignment.id,
+                "window_id": window_id,
+                "subject_kind": "inscripcio",
+                "subject_id": self.inscripcio.id,
+                "exercici": 1,
+                "inputs_patch": {"E": [[1, 2, 3], [None, None, None]]},
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(initial_draft.status_code, 200, initial_draft.content)
+
+        forced_valid = self.client.post(
+            self._url("judge_flow_presence", self.controller_token),
+            data=json.dumps({
+                "assignment_id": self.controller_assignment.id,
+                "window_id": window_id,
+                "field_code": "E",
+                "judge_index": 2,
+                "state": True,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(forced_valid.status_code, 200, forced_valid.content)
+        self.assertEqual(forced_valid.json()["preview"]["presence"]["E"], [True, True], forced_valid.json())
+        self.assertEqual(forced_valid.json()["preview"]["presence_overrides"]["E"], [None, True])
+
+        restored_auto = self.client.post(
+            self._url("judge_flow_presence", self.controller_token),
+            data=json.dumps({
+                "assignment_id": self.controller_assignment.id,
+                "window_id": window_id,
+                "field_code": "E",
+                "judge_index": 2,
+                "state": None,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(restored_auto.status_code, 200, restored_auto.content)
+        self.assertEqual(restored_auto.json()["preview"]["presence"]["E"], [True, False])
+
+        forced_invalid = self.client.post(
+            self._url("judge_flow_presence", self.controller_token),
+            data=json.dumps({
+                "assignment_id": self.controller_assignment.id,
+                "window_id": window_id,
+                "field_code": "E",
+                "judge_index": 1,
+                "state": False,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(forced_invalid.status_code, 200, forced_invalid.content)
+        self.assertEqual(forced_invalid.json()["preview"]["presence"]["E"], [False, False])
+        self.assertEqual(forced_invalid.json()["preview"]["outputs"]["TOTAL"], 0.0)
+
+        forbidden = self.client.post(
+            self._url("judge_flow_presence", self.standard_token),
+            data=json.dumps({
+                "assignment_id": self.standard_assignment.id,
+                "window_id": window_id,
+                "field_code": "E",
+                "judge_index": 1,
+                "state": True,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(forbidden.status_code, 403, forbidden.content)
+
+        self.client.post(
+            self._url("judge_flow_close", self.controller_token),
+            data=json.dumps({"assignment_id": self.controller_assignment.id, "window_id": window_id}),
+            content_type="application/json",
+        )
+        finalized = self.client.post(
+            self._url("judge_flow_finalize", self.controller_token),
+            data=json.dumps({"assignment_id": self.controller_assignment.id, "window_id": window_id}),
+            content_type="application/json",
+        )
+        self.assertEqual(finalized.status_code, 200, finalized.content)
+        entry = ScoreEntry.objects.get(
+            competicio=self.competicio,
+            comp_aparell=self.comp_aparell,
+            inscripcio=self.inscripcio,
+            exercici=1,
+        )
+        self.assertEqual(entry.inputs["__presence__E"], [False, False])
+        self.assertEqual(float(entry.total), 0.0)
 
     def test_only_controller_can_open_and_follower_receives_active_subject(self):
         forbidden = self.client.post(

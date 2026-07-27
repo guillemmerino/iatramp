@@ -36,6 +36,9 @@ def _apply_sanitized_patch(current_inputs: dict, sanitized_patch: dict, schema: 
         if isinstance(field, dict) and field.get("code")
     }
     for code, payload in (sanitized_patch or {}).items():
+        if isinstance(code, str) and code.startswith("__presence__"):
+            # Ja s'ha aplicat de manera canònica a merge_judge_patch_into_canonical.
+            continue
         if isinstance(code, str) and code.startswith("__crash__"):
             base_code = code[len("__crash__"):]
             field = by_code.get(base_code, {})

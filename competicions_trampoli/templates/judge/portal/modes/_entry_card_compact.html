@@ -4,7 +4,7 @@
     <div class="judge-card-main">
       <div class="judge-entry-name">{{ ins.nom_i_cognoms|default:"Inscripció" }}</div>
       <div class="judge-meta">
-        Fora de programa · {{ bloc.label }} · Ordre {{ ins.rotation_order_display|default_if_none:ins.ordre_sortida }}{% if bloc.franja_label %} · {{ bloc.franja_label }}{% endif %}
+        Fora de programa · {{ bloc.label }} · Ordre {{ ins.rotation_order_display|default_if_none:ins.ordre_sortida }}{% if ins.rotation_base_order_display %} · Base {{ ins.rotation_base_order_display }}{% endif %}{% if bloc.franja_label %} · {{ bloc.franja_label }}{% endif %}
       </div>
       <div class="judge-exercise-chip-row">
         {% for ex in exercicis %}
@@ -27,7 +27,7 @@
     <div class="judge-card-main">
       <div class="judge-entry-name">{{ ins.nom_i_cognoms|default:"Inscripció" }}</div>
       <div class="judge-meta">
-        {{ bloc.label }} · Ordre {{ ins.rotation_order_display|default_if_none:ins.ordre_sortida }}{% if bloc.franja_label %} · {{ bloc.franja_label }}{% endif %}
+        {{ bloc.label }} · Ordre {{ ins.rotation_order_display|default_if_none:ins.ordre_sortida }}{% if ins.rotation_base_order_display %} · Base {{ ins.rotation_base_order_display }}{% endif %}{% if bloc.franja_label %} · {{ bloc.franja_label }}{% endif %}
       </div>
       {% if team_subject_mode and ins.members %}
       <div class="judge-meta">

@@ -1,83 +1,238 @@
 <div id="guidedFlowRoot" class="guided-flow-root" data-controller="{% if judge_flow_is_controller %}1{% else %}0{% endif %}">
   <style>
-    .guided-flow-root{max-width:980px;margin:0 auto;padding:.5rem 0 1rem}
+    .guided-flow-root{max-width:1520px;margin:0 auto;padding:.5rem 0 1rem}
+    .guided-flow-layout{display:grid;grid-template-columns:minmax(260px,330px) minmax(0,1fr) minmax(250px,310px);gap:1rem;align-items:start}
+    .guided-flow-layout>main{min-width:0}
+    .guided-flow-layout--judge{display:block;max-width:980px;margin:0 auto}
+    .guided-flow-sidebar{position:sticky;top:.75rem;max-height:calc(100vh - 1.5rem);overflow:auto;border:1px solid #bfdbfe;border-radius:16px;background:#f8fbff;padding:.85rem;box-shadow:0 10px 26px rgba(15,23,42,.07)}
+    .guided-flow-sidebar--pending{border-color:#fde68a;background:#fffdf5}
+    .guided-flow-sidebar-head{display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;margin-bottom:.75rem}
+    .guided-flow-progress-copy{font-size:.78rem;color:#64748b}
+    .guided-flow-plan{display:grid;gap:.65rem}
+    .guided-flow-section{overflow:hidden;border:1px solid #cbd5e1;border-radius:12px;background:#fff}
+    .guided-flow-section-title{padding:.62rem .72rem;background:#eaf2ff;color:#1e3a8a;font-size:.82rem;font-weight:850}
+    .guided-flow-group{border-top:1px solid #e2e8f0}
+    .guided-flow-group:first-child{border-top:0}
+    .guided-flow-group-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;width:100%;border:0;background:#f8fafc;padding:.58rem .7rem;text-align:left;color:#0f172a;font-weight:800}
+    .guided-flow-group-count{color:#64748b;font-size:.72rem;font-weight:750}
+    .guided-flow-roster{display:grid;padding:.25rem}
+    .guided-flow-roster-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.45rem;align-items:center;width:100%;border:0;border-radius:8px;background:transparent;padding:.42rem .48rem;text-align:left}
+    .guided-flow-roster-row:hover,.guided-flow-roster-row:focus{background:#eff6ff}
+    .guided-flow-roster-row.is-active{background:#dbeafe;box-shadow:inset 3px 0 #2563eb}
+    .guided-flow-roster-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.82rem;font-weight:750;color:#334155}
+    .guided-flow-exercise-states{display:flex;gap:.22rem}
+    .guided-flow-state{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;border-radius:999px;background:#f1f5f9;color:#64748b;font-size:.68rem;font-weight:850}
+    .guided-flow-state--open{background:#dbeafe;color:#1d4ed8}
+    .guided-flow-state--pending,.guided-flow-state--closing,.guided-flow-state--locked{background:#fef3c7;color:#92400e}
+    .guided-flow-state--finalized{background:#dcfce7;color:#166534}
+    .guided-flow-state--cancelled{background:#fee2e2;color:#991b1b}
     .guided-flow-panel{border:1px solid #dbe4f0;border-radius:16px;background:#fff;padding:clamp(1rem,3vw,1.6rem);box-shadow:0 12px 30px rgba(15,23,42,.08)}
+    .guided-flow-controller{margin-bottom:1rem;border:1px solid #bfdbfe;border-radius:14px;background:#eff6ff;padding:1rem}
+    .guided-flow-controller-grid{display:grid;grid-template-columns:minmax(0,1fr) 120px auto;gap:.7rem;align-items:end}
+    .guided-flow-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.8rem}
+    .guided-flow-status-list{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.8rem}
+    .guided-flow-status{border:1px solid #bbf7d0;border-radius:999px;background:#f0fdf4;color:#15803d;padding:.3rem .55rem;font-size:.78rem;font-weight:750}
     .guided-flow-waiting{text-align:center;padding:clamp(2.5rem,8vw,6rem) 1rem}
     .guided-flow-waiting-mark{display:flex;width:64px;height:64px;margin:0 auto 1rem;align-items:center;justify-content:center;border-radius:50%;background:#eff6ff;color:#2563eb;font-size:2rem}
     .guided-flow-title{margin:0;color:#0f172a;font-size:clamp(1.45rem,4vw,2.2rem);font-weight:850}
     .guided-flow-copy{margin:.55rem 0 0;color:#64748b}
     .guided-flow-current-head{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1rem}
     .guided-flow-badge{display:inline-flex;border-radius:999px;background:#dbeafe;color:#1d4ed8;padding:.35rem .65rem;font-size:.8rem;font-weight:800}
-    .guided-flow-controller{margin-bottom:1rem;border:1px solid #bfdbfe;border-radius:14px;background:#eff6ff;padding:1rem}
-    .guided-flow-controller-grid{display:grid;grid-template-columns:minmax(0,1fr) 110px auto;gap:.7rem;align-items:end}
-    .guided-flow-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.8rem}
-    .guided-flow-status-list{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.8rem}
-    .guided-flow-status{border:1px solid #bbf7d0;border-radius:999px;background:#f0fdf4;color:#15803d;padding:.3rem .55rem;font-size:.78rem;font-weight:750}
-    .guided-flow-pending{margin-top:1rem;padding-top:1rem;border-top:1px solid #bfdbfe}
-    .guided-flow-pending-list{display:grid;gap:.55rem;margin-top:.6rem}
-    .guided-flow-pending-item{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.65rem;border:1px solid #fde68a;border-radius:10px;background:#fffbeb}
-    .guided-flow-pending-copy{min-width:0}
-    .guided-flow-pending-name{font-weight:800;color:#78350f;overflow-wrap:anywhere}
-    .guided-flow-pending-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.35rem}
+    .guided-flow-next-copy{margin-top:.75rem;padding:.55rem .7rem;border-radius:10px;background:#f8fafc;color:#475569;font-size:.82rem}
+    .guided-flow-complete{margin-bottom:1rem;text-align:center;border-color:#86efac;background:#f0fdf4}
+    .guided-flow-pending{min-width:0}
+    .guided-flow-pending-list{display:grid;gap:.5rem;margin-top:.55rem}
+    .guided-flow-pending-item{padding:.58rem;border:1px solid #fde68a;border-radius:10px;background:#fffbeb}
+    .guided-flow-pending-name{font-size:.82rem;font-weight:800;color:#78350f;overflow-wrap:anywhere}
+    .guided-flow-pending-actions{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.45rem}
+    .guided-flow-mobile-nav,.guided-drawer-close,.guided-drawer-backdrop{display:none}
+    @media(max-width:1180px){
+      .guided-flow-root{max-width:980px}
+      .guided-flow-layout{display:block}
+      .guided-flow-mobile-nav{position:sticky;top:.35rem;z-index:1040;display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.65rem;padding:.4rem;border:1px solid #dbe4f0;border-radius:12px;background:rgba(255,255,255,.96);box-shadow:0 8px 22px rgba(15,23,42,.09);backdrop-filter:blur(8px)}
+      .guided-flow-mobile-nav .btn{display:flex;align-items:center;justify-content:center;gap:.4rem;min-width:0;flex:1}
+      .guided-flow-sidebar{position:fixed;z-index:1060;top:0;bottom:0;width:min(88vw,370px);max-height:none;border-radius:0;transition:transform .2s ease;overscroll-behavior:contain}
+      #guidedPlanSidebar{left:0;transform:translateX(-105%)}
+      #guidedPendingSidebar{right:0;transform:translateX(105%)}
+      #guidedPlanSidebar.is-open,#guidedPendingSidebar.is-open{transform:translateX(0)}
+      .guided-drawer-close{display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;width:34px;height:34px;border:0;border-radius:50%;background:#e2e8f0;color:#334155;font-size:1.25rem;line-height:1}
+      .guided-drawer-backdrop{position:fixed;z-index:1050;inset:0;display:block;border:0;background:rgba(15,23,42,.42);opacity:0;pointer-events:none;transition:opacity .2s ease}
+      .guided-drawer-backdrop.is-open{opacity:1;pointer-events:auto}
+      body.guided-drawer-open{overflow:hidden}
+    }
+    @media(min-width:577px) and (max-width:1180px){
+      .judge-portal-page--guided{margin-top:.35rem!important;padding-right:.55rem;padding-left:.55rem}
+      .judge-portal-page--guided .card-surface{padding:.55rem .65rem}
+      .judge-portal-page--guided .judge-portal-header{align-items:center!important;gap:.45rem;margin-bottom:.35rem!important}
+      .judge-portal-page--guided .judge-portal-title{gap:.35rem;margin-bottom:0!important;font-size:1.15rem;line-height:1.05}
+      .judge-portal-page--guided .judge-portal-apparatus{padding-left:.4rem}
+      .judge-portal-page--guided .judge-portal-mode{padding:.02rem .35rem;font-size:.66rem}
+      .judge-portal-page--guided .judge-portal-context{gap:.35rem;font-size:.72rem;line-height:1.15}
+      .judge-portal-page--guided .judge-portal-actions{gap:.3rem}
+      .judge-portal-page--guided .judge-portal-actions .btn,
+      .judge-portal-page--guided .judge-support-toggle{min-height:30px;padding:.18rem .45rem;font-size:.72rem}
+      .judge-portal-page--guided .judge-support-toggle{position:static;top:auto;left:auto;z-index:auto;width:auto;height:30px;flex:0 0 auto;border-radius:999px}
+      .guided-flow-root{padding:0 0 .35rem}
+      .guided-flow-mobile-nav{top:.2rem;margin-bottom:.4rem;padding:.25rem;min-height:36px}
+      .guided-flow-mobile-nav .btn{min-height:30px;padding:.12rem .45rem;font-size:.72rem}
+      .guided-flow-controller{display:grid;grid-template-columns:minmax(125px,.55fr) minmax(0,1.45fr);gap:.3rem .55rem;margin-bottom:.4rem;padding:.45rem .55rem}
+      .guided-flow-controller>.d-flex{min-width:0;font-size:.78rem}
+      .guided-flow-controller .guided-flow-actions{justify-content:flex-end;margin-top:0;gap:.3rem}
+      .guided-flow-controller .guided-flow-actions .btn{padding:.18rem .45rem;font-size:.7rem}
+      .guided-flow-controller .guided-flow-status-list{grid-column:1/-1;margin-top:0;gap:.25rem}
+      .guided-flow-controller .guided-flow-status{padding:.16rem .4rem;font-size:.67rem}
+      .guided-flow-panel{padding:.58rem .7rem;border-radius:12px}
+      .guided-flow-current-head{align-items:center;margin-bottom:.4rem}
+      .guided-flow-title{font-size:1.2rem;line-height:1.08}
+      .guided-flow-copy{margin-top:.18rem;font-size:.72rem;line-height:1.15}
+      .guided-flow-badge{padding:.2rem .48rem;font-size:.68rem}
+      .guided-flow-next-copy{margin-top:.35rem;padding:.3rem .45rem;font-size:.7rem}
+      #guidedSyncStatus{margin-top:.35rem!important;font-size:.68rem}
+      #guidedEditorHost .judge-fields-layout{gap:.25rem;font-size:.7rem}
+      #guidedEditorHost .judge-field-block{border-left-width:3px;border-radius:.4rem}
+      #guidedEditorHost .judge-field-head{gap:.2rem;padding:.2rem .3rem}
+      #guidedEditorHost .judge-field-title{font-size:.68rem;line-height:1.1}
+      #guidedEditorHost .judge-field-badge{padding:0 .24rem;font-size:.54rem}
+      #guidedEditorHost .judge-field-body{padding:.22rem .28rem}
+      #guidedEditorHost .judge-item-label{min-height:1.05rem;font-size:.55rem;line-height:1.05}
+      #guidedEditorHost .judge-items-strip{gap:.18rem;padding:0}
+      #guidedEditorHost .judge-item-cell{gap:.06rem}
+      #guidedEditorHost .judge-item-cell .input-salt,
+      #guidedEditorHost [data-matrix-row="1"] .input-salt{min-height:1.7rem;padding:.04rem .1rem;font-size:.68rem}
+      #guidedEditorHost .judge-crash-btn{min-height:1.35rem;font-size:.58rem}
+      #guidedEditorHost .judge-supervisor-matrix-wrap{padding:.1rem}
+      #guidedEditorHost .judge-supervisor-matrix{font-size:.62rem}
+      #guidedEditorHost .judge-supervisor-matrix th,
+      #guidedEditorHost .judge-supervisor-matrix td{padding:.05rem}
+      #guidedEditorHost .judge-supervisor-matrix .judge-supervisor-row-head{width:3.1rem;min-width:3.1rem}
+      #guidedEditorHost .judge-supervisor-own-label{white-space:normal;overflow-wrap:anywhere}
+      #guidedEditorHost .judge-supervisor-matrix-input{min-height:1.65rem;padding:.03rem .08rem;font-size:.66rem}
+      #guidedEditorHost .judge-supervisor-item-crash{width:1.15rem;min-height:1rem;margin-top:.04rem;font-size:.55rem}
+      #guidedEditorHost .judge-readonly-crash{margin-top:.18rem;padding:.08rem .38rem;font-size:.58rem}
+      #guidedEditorHost .judge-supervisor-computed{margin-top:.2rem;padding:.22rem .3rem}
+      #guidedEditorHost .judge-supervisor-computed-title{margin-bottom:.2rem;font-size:.61rem}
+      #guidedEditorHost .judge-supervisor-computed-grid{gap:.22rem}
+      #guidedEditorHost .judge-supervisor-computed-card{gap:.25rem;padding:.15rem .3rem}
+      #guidedEditorHost .judge-supervisor-computed-card span{font-size:.6rem}
+      #guidedEditorHost .judge-supervisor-computed-card strong{font-size:.76rem}
+    }
+    @media(min-width:577px) and (max-width:1180px) and (max-height:820px){
+      .judge-portal-page--guided .judge-portal-header{margin-bottom:.2rem!important}
+      .judge-portal-page--guided .judge-portal-context{gap:.25rem;font-size:.64rem}
+      .guided-flow-mobile-nav{margin-bottom:.25rem}
+      .guided-flow-controller{margin-bottom:.25rem;padding:.32rem .45rem}
+      .guided-flow-controller .guided-flow-status-list{gap:.18rem}
+      .guided-flow-panel{padding:.42rem .58rem}
+      .guided-flow-current-head{margin-bottom:.25rem}
+      #guidedSyncStatus{margin-top:.22rem!important}
+    }
     @media(max-width:680px){.guided-flow-controller-grid{grid-template-columns:1fr}.guided-flow-current-head{flex-direction:column}}
-    @media(max-width:520px){.guided-flow-pending-item{align-items:stretch;flex-direction:column}.guided-flow-pending-actions{justify-content:stretch}.guided-flow-pending-actions .btn{flex:1}}
   </style>
 
-  {% if judge_flow_is_controller %}
-  <section id="guidedControllerPanel" class="guided-flow-controller">
-    <div class="fw-bold mb-2">Control de pista</div>
-    <div class="guided-flow-controller-grid">
-      <div>
-        <label class="form-label small text-muted mb-1" for="guidedSubjectSelect">Gimnasta o equip</label>
-        <select id="guidedSubjectSelect" class="form-select form-select-sm"></select>
-      </div>
-      <div>
-        <label class="form-label small text-muted mb-1" for="guidedExerciseSelect">Exercici</label>
-        <select id="guidedExerciseSelect" class="form-select form-select-sm"></select>
-      </div>
-      <button id="guidedOpenButton" type="button" class="btn btn-sm btn-primary">Obrir puntuacio</button>
-    </div>
-    <div id="guidedControllerActions" class="guided-flow-actions d-none">
-      <button id="guidedClosePublishButton" type="button" class="btn btn-sm btn-success">Tancar i publicar</button>
-      <button id="guidedCloseButton" type="button" class="btn btn-sm btn-warning">Deixar pendent</button>
-      <button id="guidedCancelButton" type="button" class="btn btn-sm btn-outline-danger">Cancel·lar</button>
-    </div>
-    <div id="guidedJudgeStatuses" class="guided-flow-status-list"></div>
-    <div id="guidedControllerMessage" class="small mt-2"></div>
-    <div class="guided-flow-pending">
-      <div class="d-flex align-items-center justify-content-between gap-2">
-        <div class="fw-bold">Notes pendents</div>
-        <span id="guidedPendingCount" class="badge bg-warning text-dark">0</span>
-      </div>
-      <div id="guidedPendingList" class="guided-flow-pending-list"></div>
-      <div id="guidedPendingEmpty" class="small text-muted mt-2">No hi ha cap nota pendent.</div>
-    </div>
-  </section>
-  {% endif %}
-
-  <section id="guidedWaitingPanel" class="guided-flow-panel guided-flow-waiting">
-    <div class="guided-flow-waiting-mark" aria-hidden="true">&#9203;</div>
-    <h3 id="guidedWaitingTitle" class="guided-flow-title">Esperant el seguent gimnasta</h3>
-    <p id="guidedWaitingCopy" class="guided-flow-copy">
-      {% if judge_flow_has_controller %}La puntuacio s'obrira automaticament.{% else %}Encara no hi ha cap controlador assignat.{% endif %}
-    </p>
-  </section>
-
-  <section id="guidedCurrentPanel" class="guided-flow-panel d-none">
-    <div class="guided-flow-current-head">
-      <div>
-        <h3 id="guidedCurrentName" class="guided-flow-title"></h3>
-        <p id="guidedCurrentMeta" class="guided-flow-copy"></p>
-      </div>
-      <span id="guidedCurrentStatus" class="guided-flow-badge">Puntuacio oberta</span>
-    </div>
-    {% if permissions %}
-      <div id="guidedEditorHost" data-score-input-nav-root="1"></div>
-      <div id="guidedSyncStatus" class="small text-muted mt-3">Els canvis es desen automaticament.</div>
-    {% else %}
-      <div class="alert alert-info mb-0">
-        {% if judge_flow_is_controller %}Aquest controlador no te camps de puntuacio assignats.{% else %}Aquest acces no te camps de puntuacio assignats.{% endif %}
-      </div>
+  <div class="guided-flow-layout{% if not judge_flow_is_controller %} guided-flow-layout--judge{% endif %}">
+    {% if judge_flow_is_controller %}
+      <nav class="guided-flow-mobile-nav" aria-label="Panells del mode guiat">
+        <button id="guidedPlanToggle" type="button" class="btn btn-sm btn-outline-primary" aria-controls="guidedPlanSidebar" aria-expanded="false">
+          <span aria-hidden="true">&#9776;</span><span>Ordre</span>
+        </button>
+        <button id="guidedPendingToggle" type="button" class="btn btn-sm btn-outline-warning text-dark" aria-controls="guidedPendingSidebar" aria-expanded="false">
+          <span>Pendents</span><span id="guidedPendingToggleCount" class="badge bg-warning text-dark">0</span>
+        </button>
+      </nav>
+      <aside id="guidedPlanSidebar" class="guided-flow-sidebar" aria-label="Ordre de competicio">
+        <div class="guided-flow-sidebar-head">
+          <div>
+            <div class="fw-bold">Ordre de competició</div>
+            <div id="guidedProgressCopy" class="guided-flow-progress-copy">Preparant el programa...</div>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <span id="guidedCompletedCount" class="badge bg-primary">0/0</span>
+            <button id="guidedPlanClose" type="button" class="guided-drawer-close" aria-label="Tancar l'ordre de competició">&times;</button>
+          </div>
+        </div>
+        <div id="guidedPlanList" class="guided-flow-plan"></div>
+        <details class="mt-3">
+          <summary class="small fw-bold text-primary">Selecció manual</summary>
+          <div class="guided-flow-controller-grid mt-2">
+            <div>
+              <label class="form-label small text-muted mb-1" for="guidedSubjectSelect">Gimnasta o equip</label>
+              <select id="guidedSubjectSelect" class="form-select form-select-sm"></select>
+            </div>
+            <div>
+              <label class="form-label small text-muted mb-1" for="guidedExerciseSelect">Exercici</label>
+              <select id="guidedExerciseSelect" class="form-select form-select-sm"></select>
+            </div>
+            <button id="guidedOpenButton" type="button" class="btn btn-sm btn-outline-primary">Obrir</button>
+          </div>
+        </details>
+      </aside>
     {% endif %}
-  </section>
+
+    <main>
+      {% if judge_flow_is_controller %}
+        <section id="guidedControllerPanel" class="guided-flow-controller">
+          <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+            <div class="fw-bold">Control de pista</div>
+            <div id="guidedControllerMessage" class="small text-muted"></div>
+          </div>
+          <div id="guidedControllerActions" class="guided-flow-actions d-none">
+            <button id="guidedPreviousButton" type="button" class="btn btn-sm btn-outline-primary">Anterior</button>
+            <button id="guidedClosePublishButton" type="button" class="btn btn-sm btn-success">Publicar i següent</button>
+            <button id="guidedCloseButton" type="button" class="btn btn-sm btn-warning">Pendent i següent</button>
+            <button id="guidedCancelButton" type="button" class="btn btn-sm btn-outline-danger">Cancel·lar</button>
+          </div>
+          <div id="guidedJudgeStatuses" class="guided-flow-status-list"></div>
+        </section>
+        <section id="guidedGroupCompletePanel" class="guided-flow-panel guided-flow-complete d-none">
+          <h3 id="guidedGroupCompleteTitle" class="guided-flow-title">Grup completat</h3>
+          <p id="guidedGroupCompleteCopy" class="guided-flow-copy"></p>
+          <button id="guidedNextGroupButton" type="button" class="btn btn-success mt-3">Passar al grup següent</button>
+        </section>
+      {% endif %}
+
+      <section id="guidedWaitingPanel" class="guided-flow-panel guided-flow-waiting">
+        <div class="guided-flow-waiting-mark" aria-hidden="true">⏳</div>
+        <h3 id="guidedWaitingTitle" class="guided-flow-title">Esperant el següent gimnasta</h3>
+        <p id="guidedWaitingCopy" class="guided-flow-copy">
+          {% if judge_flow_has_controller %}La puntuació s'obrirà automàticament.{% else %}Encara no hi ha cap controlador assignat.{% endif %}
+        </p>
+      </section>
+
+      <section id="guidedCurrentPanel" class="guided-flow-panel d-none">
+        <div class="guided-flow-current-head">
+          <div>
+            <h3 id="guidedCurrentName" class="guided-flow-title"></h3>
+            <p id="guidedCurrentMeta" class="guided-flow-copy"></p>
+          </div>
+          <span id="guidedCurrentStatus" class="guided-flow-badge">Puntuació oberta</span>
+        </div>
+        {% if permissions %}
+          <div id="guidedEditorHost" data-score-input-nav-root="1"></div>
+          <div id="guidedSyncStatus" class="small text-muted mt-3">Els canvis es desen automàticament.</div>
+        {% else %}
+          <div class="alert alert-info mb-0">
+            {% if judge_flow_is_controller %}Aquest controlador no te camps de puntuacio assignats.{% else %}Aquest acces no te camps de puntuacio assignats.{% endif %}
+          </div>
+        {% endif %}
+        <div id="guidedNextCopy" class="guided-flow-next-copy d-none"></div>
+      </section>
+    </main>
+
+    {% if judge_flow_is_controller %}
+      <aside id="guidedPendingSidebar" class="guided-flow-sidebar guided-flow-sidebar--pending" aria-label="Notes pendents">
+        <div class="guided-flow-pending">
+          <div class="d-flex align-items-center justify-content-between gap-2">
+            <div class="fw-bold">Notes pendents</div>
+            <div class="d-flex align-items-center gap-2">
+              <span id="guidedPendingCount" class="badge bg-warning text-dark">0</span>
+              <button id="guidedPendingClose" type="button" class="guided-drawer-close" aria-label="Tancar les notes pendents">&times;</button>
+            </div>
+          </div>
+          <div id="guidedPendingList" class="guided-flow-pending-list"></div>
+          <div id="guidedPendingEmpty" class="small text-muted mt-2">No hi ha cap nota pendent.</div>
+        </div>
+      </aside>
+      <button id="guidedDrawerBackdrop" type="button" class="guided-drawer-backdrop" aria-label="Tancar els panells laterals" tabindex="-1"></button>
+    {% endif %}
+  </div>
 </div>

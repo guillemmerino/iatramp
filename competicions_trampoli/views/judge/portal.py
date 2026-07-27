@@ -28,7 +28,9 @@ from ...services.shared.competition_groups import (
 )
 from ...services.rotacions.rotacions_ordering import (
     ORDER_MODE_MAINTAIN,
+    ORDER_MODE_ROTATE,
     assignacio_grups,
+    assignacio_program_units,
     assignacio_series,
     build_rotation_unit_step_map,
     get_rotacions_order_modes,
@@ -428,7 +430,11 @@ def judge_portal(request, token, assignment_id=None):
             estacio__comp_aparell__isnull=False,
         )
         .select_related("franja", "estacio")
-        .prefetch_related("grup_links__grup", "serie_links__serie")
+        .prefetch_related(
+            "grup_links__grup",
+            "serie_links__serie",
+            "program_unit_links__program_unit__fase",
+        )
         .order_by("franja__ordre", "franja_id", "estacio__ordre", "id")
     )
     def subject_group_keys_for_assignacio(assignacio):
@@ -566,17 +572,56 @@ def judge_portal(request, token, assignment_id=None):
             })
 
     if phase is not None:
-        app_unit_keys = list(phase_unit_keys)
-        app_units_by_key = {
-            key: {
-                "key": key,
-                "member_keys": [key],
-                "first_franja_id": None,
-                "candidates_by_franja": {},
-            }
-            for key in app_unit_keys
+        phase_keys_by_unit_id = {
+            int(str(key).rsplit(":", 1)[-1]): key
+            for key in phase_unit_keys
         }
+        app_unit_keys = []
+        app_units_by_key = {}
         app_units_by_franja = {}
+        phase_rotate_counters = {}
+        for assignacio in assigns:
+            fid = int(getattr(assignacio, "franja_id", 0) or 0)
+            if not fid:
+                continue
+            for program_unit_id in assignacio_program_units(assignacio):
+                unit_key = phase_keys_by_unit_id.get(int(program_unit_id))
+                if unit_key is None:
+                    continue
+                spec = app_units_by_key.get(unit_key)
+                if spec is None:
+                    spec = {
+                        "key": unit_key,
+                        "member_keys": [unit_key],
+                        "first_franja_id": fid,
+                        "candidates_by_franja": {},
+                    }
+                    app_units_by_key[unit_key] = spec
+                    app_unit_keys.append(unit_key)
+                spec["candidates_by_franja"].setdefault(
+                    fid,
+                    {
+                        "member_keys": [unit_key],
+                        "assignacio_id": int(getattr(assignacio, "id", 0) or 0),
+                    },
+                )
+                app_units_by_franja[fid] = unique_ordered(
+                    list(app_units_by_franja.get(fid, [])) + [unit_key]
+                )
+                step = int(phase_rotate_counters.get(unit_key, 0))
+                rotation_step_map.setdefault((unit_key, fid), step)
+                if franja_modes.get(str(fid), ORDER_MODE_MAINTAIN) == ORDER_MODE_ROTATE:
+                    phase_rotate_counters[unit_key] = step + 1
+
+        for unit_key in phase_unit_keys:
+            if unit_key not in app_units_by_key:
+                app_units_by_key[unit_key] = {
+                    "key": unit_key,
+                    "member_keys": [unit_key],
+                    "first_franja_id": None,
+                    "candidates_by_franja": {},
+                }
+                app_unit_keys.append(unit_key)
         app_programmed_group_ids = list(phase_unit_keys)
 
     # El portal mostra totes les unitats programades de l'aparell. Una unitat
@@ -714,6 +759,55 @@ def judge_portal(request, token, assignment_id=None):
             programmed_group_blocks.append(block)
             subject_list.extend(block["list"])
 
+    guided_plan = []
+    guided_sections_by_key = {}
+
+    def append_guided_block(block, *, is_out_of_program=False):
+        fid = block.get("franja_id")
+        if is_out_of_program:
+            section_key = "out-of-program"
+            section_label = "Fora de programa"
+        elif fid:
+            section_key = f"franja:{fid}"
+            section_label = block.get("franja_label") or "Franja"
+        else:
+            section_key = "phase-program" if phase is not None else "unprogrammed"
+            section_label = "Programa de fase" if phase is not None else "Sense franja"
+        section = guided_sections_by_key.get(section_key)
+        if section is None:
+            section = {
+                "key": section_key,
+                "franja_id": fid,
+                "label": section_label,
+                "is_out_of_program": bool(is_out_of_program),
+                "groups": [],
+            }
+            guided_sections_by_key[section_key] = section
+            guided_plan.append(section)
+        section["groups"].append({
+            "key": str(block.get("key") or ""),
+            "label": block.get("label") or "Grup",
+            "franja_id": fid,
+            "franja_label": block.get("franja_label") or "",
+            "is_out_of_program": bool(is_out_of_program),
+            "subjects": [
+                {
+                    "id": _subject_dom_id(subject) or str(subject.get("subject_id") or ""),
+                    "subject_id": int(subject.get("subject_id") or subject.get("id") or 0),
+                    "subject_kind": subject.get("subject_kind") or ("team_unit" if team_subject_mode else "inscripcio"),
+                    "name": subject.get("nom_i_cognoms") or subject.get("name") or "",
+                    "order": subject.get("rotation_order_display") or subject.get("order") or "",
+                    "base_order": subject.get("rotation_base_order_display") or "",
+                }
+                for subject in block.get("list") or []
+            ],
+        })
+
+    for block in programmed_group_blocks:
+        append_guided_block(block)
+    for block in out_of_program_group_blocks:
+        append_guided_block(block, is_out_of_program=True)
+
     visible_group_keys = [block["key"] for block in programmed_group_blocks]
     visible_group_keys.extend(block["key"] for block in out_of_program_group_blocks)
     raw_group = request.GET.get("group")
@@ -828,6 +922,7 @@ def judge_portal(request, token, assignment_id=None):
     supervision_approve_url = scoped_api_url(reverse("judge_supervision_approve", kwargs={"token": str(tok.id)}))
     flow_state_url = scoped_api_url(reverse("judge_flow_state", kwargs={"token": str(tok.id)}))
     flow_open_url = scoped_api_url(reverse("judge_flow_open", kwargs={"token": str(tok.id)}))
+    flow_presence_url = scoped_api_url(reverse("judge_flow_presence", kwargs={"token": str(tok.id)}))
     flow_close_url = scoped_api_url(reverse("judge_flow_close", kwargs={"token": str(tok.id)}))
     flow_finalize_url = scoped_api_url(reverse("judge_flow_finalize", kwargs={"token": str(tok.id)}))
     flow_reopen_url = scoped_api_url(reverse("judge_flow_reopen", kwargs={"token": str(tok.id)}))
@@ -865,6 +960,7 @@ def judge_portal(request, token, assignment_id=None):
         "permissions": permissions,
         "inscripcions": subject_list,
         "subjects_payload_json": subject_list,
+        "guided_plan_json": guided_plan,
         "group_blocks": programmed_group_blocks,
         "out_of_program_group_blocks": out_of_program_group_blocks,
         "active_group_key": active_group_key,
@@ -886,6 +982,7 @@ def judge_portal(request, token, assignment_id=None):
         "judge_flow_has_controller": bool(judge_flow_lane and judge_flow_lane.controller_assignment_id),
         "flow_state_url": flow_state_url,
         "flow_open_url": flow_open_url,
+        "flow_presence_url": flow_presence_url,
         "flow_close_url": flow_close_url,
         "flow_finalize_url": flow_finalize_url,
         "flow_reopen_url": flow_reopen_url,

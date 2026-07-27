@@ -14,6 +14,7 @@ from ...services.judging.flow import (
     open_scoring_window,
     reopen_scoring_window,
     serialize_flow_state,
+    set_scoring_window_presence_override,
     start_closing_window,
 )
 from ...services.scoring.scoring_subjects import resolve_scoring_subject
@@ -110,6 +111,7 @@ def judge_flow_open(request, token):
             subject_kind=subject["subject_kind"],
             subject_id=subject["subject_id"],
             exercici=clamp_exercici_for_scope(scope, payload.get("exercici")),
+            competition_context=payload.get("queue_context"),
         )
     except (PermissionDenied, ValidationError) as exc:
         return _flow_error(exc)
@@ -168,3 +170,35 @@ def judge_flow_reopen(request, token):
 @require_POST
 def judge_flow_cancel(request, token):
     return _window_action(request, token, cancel_scoring_window)
+
+
+@require_POST
+def judge_flow_presence(request, token):
+    payload, error = _json_payload(request)
+    if error is not None:
+        return error
+    tok, scope, error = _token_and_scope(request, token, payload)
+    if error is not None:
+        return error
+    lane = lane_for_scope(scope)
+    if lane is None:
+        return JsonResponse({"ok": False, "error": "El mode guiat no esta actiu."}, status=409)
+    raw_state = payload.get("state")
+    state = raw_state if isinstance(raw_state, bool) else None if raw_state is None else "invalid"
+    try:
+        window = set_scoring_window_presence_override(
+            lane=lane,
+            assignment=scope.assignment,
+            window_id=int(payload.get("window_id") or 0),
+            field_code=payload.get("field_code"),
+            judge_index=payload.get("judge_index"),
+            state=state,
+        )
+    except (PermissionDenied, ValidationError, ScoringError, TypeError, ValueError) as exc:
+        return _flow_error(exc)
+    tok.touch()
+    return JsonResponse({
+        "ok": True,
+        "window_id": window.id,
+        **serialize_flow_state(lane=lane_for_scope(scope), assignment=scope.assignment),
+    })

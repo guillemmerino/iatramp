@@ -23,6 +23,7 @@
   const ITEM_LABELS_BY_FIELD = JSON.parse(document.getElementById("judge-item-labels-data").textContent || "{}");
   const PERMS  = JSON.parse(document.getElementById("perms-data").textContent || "[]");
   const SUBJECTS = JSON.parse(document.getElementById("subjects-data").textContent || "[]");
+  const GUIDED_PLAN = JSON.parse(document.getElementById("guided-plan-data").textContent || "[]");
   const SCORES = JSON.parse(document.getElementById("scores-data").textContent || "{}");
   const UPDATES_CURSOR_INIT = JSON.parse(document.getElementById("updates-cursor-init").textContent || "null");
 
@@ -36,6 +37,7 @@
   const JUDGE_FLOW_IS_CONTROLLER = {{ judge_flow_is_controller|yesno:"true,false" }};
   const FLOW_STATE_URL = "{{ flow_state_url }}";
   const FLOW_OPEN_URL = "{{ flow_open_url }}";
+  const FLOW_PRESENCE_URL = "{{ flow_presence_url }}";
   const FLOW_CLOSE_URL = "{{ flow_close_url }}";
   const FLOW_FINALIZE_URL = "{{ flow_finalize_url }}";
   const FLOW_REOPEN_URL = "{{ flow_reopen_url }}";

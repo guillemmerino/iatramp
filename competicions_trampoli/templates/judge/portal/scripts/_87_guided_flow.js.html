@@ -1,6 +1,55 @@
   let guidedFlowPollTimer = null;
   let guidedRenderedWindowKey = "";
-  let guidedFinalizeTimer = null;
+  let guidedBusy = false;
+  let guidedActionLock = false;
+  let guidedLastItem = null;
+  let guidedGroupCompletedKey = "";
+  let guidedDrawerReturnFocus = null;
+  let GUIDED_FLOW_PREVIEW = null;
+
+  const GUIDED_DRAWER_MEDIA = window.matchMedia("(max-width: 1180px)");
+
+  const GUIDED_QUEUE = [];
+  const GUIDED_GROUPS = [];
+  const GUIDED_QUEUE_BY_INDEX = new Map();
+
+  (Array.isArray(GUIDED_PLAN) ? GUIDED_PLAN : []).forEach((section, sectionIndex) => {
+    (Array.isArray(section.groups) ? section.groups : []).forEach((group, groupIndexInSection) => {
+      const groupIndex = GUIDED_GROUPS.length;
+      const groupItem = {
+        ...group,
+        section,
+        sectionIndex,
+        groupIndex,
+        queue: [],
+      };
+      GUIDED_GROUPS.push(groupItem);
+      EXERCISES.forEach((exercise) => {
+        (Array.isArray(group.subjects) ? group.subjects : []).forEach((subject, subjectIndex) => {
+          const item = {
+            queueIndex: GUIDED_QUEUE.length,
+            sectionIndex,
+            groupIndex,
+            groupIndexInSection,
+            subjectIndex,
+            sectionKey: String(section.key || ""),
+            sectionLabel: String(section.label || "Franja"),
+            groupKey: String(group.key || ""),
+            groupLabel: String(group.label || "Grup"),
+            franjaId: group.franja_id == null ? null : Number(group.franja_id),
+            subject,
+            subjectId: Number(subject.subject_id || subject.id || 0),
+            subjectKind: String(subject.subject_kind || (TEAM_SUBJECT_MODE ? "team_unit" : "inscripcio")),
+            domId: String(subject.id || subject.subject_id || ""),
+            exercici: Number(exercise),
+          };
+          GUIDED_QUEUE.push(item);
+          groupItem.queue.push(item);
+          GUIDED_QUEUE_BY_INDEX.set(item.queueIndex, item);
+        });
+      });
+    });
+  });
 
   function guidedFlowElements(){
     return {
@@ -12,10 +61,12 @@
       currentName: document.getElementById("guidedCurrentName"),
       currentMeta: document.getElementById("guidedCurrentMeta"),
       currentStatus: document.getElementById("guidedCurrentStatus"),
+      nextCopy: document.getElementById("guidedNextCopy"),
       editor: document.getElementById("guidedEditorHost"),
       subject: document.getElementById("guidedSubjectSelect"),
       exercise: document.getElementById("guidedExerciseSelect"),
       open: document.getElementById("guidedOpenButton"),
+      previous: document.getElementById("guidedPreviousButton"),
       actions: document.getElementById("guidedControllerActions"),
       close: document.getElementById("guidedCloseButton"),
       closePublish: document.getElementById("guidedClosePublishButton"),
@@ -25,7 +76,141 @@
       pendingList: document.getElementById("guidedPendingList"),
       pendingCount: document.getElementById("guidedPendingCount"),
       pendingEmpty: document.getElementById("guidedPendingEmpty"),
+      planList: document.getElementById("guidedPlanList"),
+      progressCopy: document.getElementById("guidedProgressCopy"),
+      completedCount: document.getElementById("guidedCompletedCount"),
+      groupComplete: document.getElementById("guidedGroupCompletePanel"),
+      groupCompleteTitle: document.getElementById("guidedGroupCompleteTitle"),
+      groupCompleteCopy: document.getElementById("guidedGroupCompleteCopy"),
+      nextGroup: document.getElementById("guidedNextGroupButton"),
+      planSidebar: document.getElementById("guidedPlanSidebar"),
+      pendingSidebar: document.getElementById("guidedPendingSidebar"),
+      planToggle: document.getElementById("guidedPlanToggle"),
+      pendingToggle: document.getElementById("guidedPendingToggle"),
+      pendingToggleCount: document.getElementById("guidedPendingToggleCount"),
+      planClose: document.getElementById("guidedPlanClose"),
+      pendingClose: document.getElementById("guidedPendingClose"),
+      drawerBackdrop: document.getElementById("guidedDrawerBackdrop"),
     };
+  }
+
+  function closeGuidedDrawers({ restoreFocus = false } = {}){
+    const els = guidedFlowElements();
+    [els.planSidebar, els.pendingSidebar].forEach((sidebar) => {
+      if(!sidebar) return;
+      sidebar.classList.remove("is-open");
+      if(GUIDED_DRAWER_MEDIA.matches) sidebar.setAttribute("aria-hidden", "true");
+      else sidebar.removeAttribute("aria-hidden");
+    });
+    [els.planToggle, els.pendingToggle].forEach((toggle) => {
+      if(toggle) toggle.setAttribute("aria-expanded", "false");
+    });
+    if(els.drawerBackdrop) els.drawerBackdrop.classList.remove("is-open");
+    document.body.classList.remove("guided-drawer-open");
+    if(restoreFocus && guidedDrawerReturnFocus && typeof guidedDrawerReturnFocus.focus === "function"){
+      guidedDrawerReturnFocus.focus();
+    }
+    guidedDrawerReturnFocus = null;
+  }
+
+  function openGuidedDrawer(kind){
+    if(!GUIDED_DRAWER_MEDIA.matches) return;
+    const els = guidedFlowElements();
+    const sidebar = kind === "pending" ? els.pendingSidebar : els.planSidebar;
+    const toggle = kind === "pending" ? els.pendingToggle : els.planToggle;
+    const closeButton = kind === "pending" ? els.pendingClose : els.planClose;
+    if(!sidebar || !toggle) return;
+    closeGuidedDrawers();
+    guidedDrawerReturnFocus = toggle;
+    sidebar.classList.add("is-open");
+    sidebar.removeAttribute("aria-hidden");
+    toggle.setAttribute("aria-expanded", "true");
+    if(els.drawerBackdrop) els.drawerBackdrop.classList.add("is-open");
+    document.body.classList.add("guided-drawer-open");
+    if(closeButton && typeof closeButton.focus === "function") closeButton.focus();
+  }
+
+  function syncGuidedDrawerMode(){
+    closeGuidedDrawers();
+  }
+
+  function guidedPresenceMeta(fieldCode, judgeIndex){
+    const preview = GUIDED_FLOW_PREVIEW && typeof GUIDED_FLOW_PREVIEW === "object" ? GUIDED_FLOW_PREVIEW : {};
+    const code = String(fieldCode || "");
+    const idx0 = Math.max(0, Number(judgeIndex || 1) - 1);
+    const automatic = preview.automatic_presence && Array.isArray(preview.automatic_presence[code])
+      ? !!preview.automatic_presence[code][idx0]
+      : false;
+    const effective = preview.presence && Array.isArray(preview.presence[code])
+      ? !!preview.presence[code][idx0]
+      : automatic;
+    const rawOverride = preview.presence_overrides && Array.isArray(preview.presence_overrides[code])
+      ? preview.presence_overrides[code][idx0]
+      : null;
+    const override = typeof rawOverride === "boolean" ? rawOverride : null;
+    return { automatic, effective, override };
+  }
+
+  function refreshGuidedPresenceButton(button){
+    if(!button) return;
+    const code = String(button.dataset.presenceFieldCode || "");
+    const judgeIndex = Math.max(1, Number(button.dataset.presenceJudgeIndex || 1));
+    const meta = guidedPresenceMeta(code, judgeIndex);
+    const forced = typeof meta.override === "boolean";
+    button.classList.toggle("is-valid", meta.effective);
+    button.classList.toggle("is-invalid", !meta.effective && !forced);
+    button.classList.toggle("is-forced", forced);
+    button.classList.toggle("is-forced-invalid", forced && !meta.effective);
+    const stateLabel = meta.effective ? "compta" : "no compta";
+    const modeLabel = forced ? "decisió manual" : (meta.automatic ? "nota rebuda" : "sense notes");
+    const emptyWarning = forced && meta.effective && !meta.automatic ? "; la fila buida compta com a zero" : "";
+    const label = `J${judgeIndex}: ${stateLabel} (${modeLabel}${emptyWarning})`;
+    button.title = label;
+    button.setAttribute("aria-label", `${label}. Prem per ${forced ? "tornar al mode automàtic" : (meta.effective ? "invalidar" : "validar")}.`);
+  }
+
+  function refreshAllGuidedPresenceButtons(){
+    document.querySelectorAll("[data-presence-field-code][data-presence-judge-index]").forEach(refreshGuidedPresenceButton);
+  }
+
+  function applyGuidedScoringPreview(preview, windowState = null){
+    if(!preview || typeof preview !== "object") return;
+    GUIDED_FLOW_PREVIEW = preview;
+    const active = windowState || (GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window);
+    if(active && active.subject_id != null && active.exercici != null){
+      const insId = resolveInsDomId(active.subject_id);
+      const entry = getEntry(insId, active.exercici);
+      setEntry(insId, active.exercici, {
+        ...entry,
+        inputs: preview.inputs && typeof preview.inputs === "object" ? preview.inputs : entry.inputs,
+        outputs: preview.outputs && typeof preview.outputs === "object" ? preview.outputs : entry.outputs,
+        total: Number.isFinite(Number(preview.total)) ? Number(preview.total) : entry.total,
+      });
+      refreshSupervisorComputedFields(insId, active.exercici, preview.outputs || {});
+    }
+    refreshAllGuidedPresenceButtons();
+  }
+
+  async function toggleGuidedJudgePresence(fieldCode, judgeIndex, button){
+    const windowState = GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window;
+    if(!JUDGE_FLOW_IS_CONTROLLER || !FLOW_PRESENCE_URL || !windowState || windowState.status !== "open") return;
+    const meta = guidedPresenceMeta(fieldCode, judgeIndex);
+    const nextState = typeof meta.override === "boolean" ? null : !meta.effective;
+    if(nextState === true && !meta.automatic){
+      const accepted = window.confirm(`J${judgeIndex} encara no té notes. Si el valides, la fila buida comptarà com a zero. Vols continuar?`);
+      if(!accepted) return;
+    }
+    if(button) button.classList.add("is-loading");
+    try{
+      await guidedFlowRequest(FLOW_PRESENCE_URL, {
+        window_id: windowState.id,
+        field_code: String(fieldCode || ""),
+        judge_index: Number(judgeIndex),
+        state: nextState,
+      });
+    } finally {
+      if(button) button.classList.remove("is-loading");
+    }
   }
 
   function guidedSubjectName(subject){
@@ -33,6 +218,70 @@
       (subject && (subject.nom_i_cognoms || subject.name || subject.nom || subject.label))
       || `Participant ${(subject && subject.subject_id) || ""}`
     ).trim();
+  }
+
+  function guidedItemKey(subjectKind, subjectId, exercici){
+    return `${String(subjectKind || "inscripcio")}:${Number(subjectId || 0)}:${Number(exercici || 1)}`;
+  }
+
+  function guidedHistoryMaps(state){
+    const byQueueIndex = new Map();
+    const bySubject = new Map();
+    (Array.isArray(state && state.history_windows) ? state.history_windows : []).forEach((item) => {
+      const context = item && item.competition_context && typeof item.competition_context === "object"
+        ? item.competition_context
+        : {};
+      if(context.queue_index != null) byQueueIndex.set(Number(context.queue_index), item);
+      bySubject.set(guidedItemKey(item.subject_kind, item.subject_id, item.exercici), item);
+    });
+    const active = state && state.window;
+    if(active){
+      const context = active.competition_context || {};
+      if(context.queue_index != null) byQueueIndex.set(Number(context.queue_index), active);
+      bySubject.set(guidedItemKey(active.subject_kind, active.subject_id, active.exercici), active);
+    }
+    return { byQueueIndex, bySubject };
+  }
+
+  function guidedWindowForItem(item, maps = null){
+    const resolved = maps || guidedHistoryMaps(GUIDED_FLOW_STATE || {});
+    return resolved.byQueueIndex.get(Number(item.queueIndex))
+      || resolved.bySubject.get(guidedItemKey(item.subjectKind, item.subjectId, item.exercici))
+      || null;
+  }
+
+  function guidedItemForWindow(windowState){
+    if(!windowState) return null;
+    const context = windowState.competition_context || {};
+    if(context.queue_index != null && GUIDED_QUEUE_BY_INDEX.has(Number(context.queue_index))){
+      return GUIDED_QUEUE_BY_INDEX.get(Number(context.queue_index));
+    }
+    return GUIDED_QUEUE.find((item) => (
+      item.subjectKind === String(windowState.subject_kind || "inscripcio")
+      && item.subjectId === Number(windowState.subject_id)
+      && item.exercici === Number(windowState.exercici)
+    )) || null;
+  }
+
+  function guidedStatusLabel(status){
+    return ({
+      open: "Actiu",
+      closing: "Pendent",
+      locked: "Pendent",
+      finalized: "Fet",
+      cancelled: "Cancel·lat",
+    })[String(status || "")] || "No iniciat";
+  }
+
+  function guidedStatusSymbol(status, exercise){
+    const prefix = `E${Number(exercise)}`;
+    return ({
+      open: `${prefix} ●`,
+      closing: `${prefix} !`,
+      locked: `${prefix} !`,
+      finalized: `${prefix} ✓`,
+      cancelled: `${prefix} ×`,
+    })[String(status || "")] || `${prefix} —`;
   }
 
   function populateGuidedFlowSelectors(){
@@ -61,7 +310,89 @@
     const el = guidedFlowElements().message;
     if(!el) return;
     el.textContent = text || "";
-    el.className = `small mt-2 ${kind === "error" ? "text-danger" : (kind === "ok" ? "text-success" : "text-muted")}`;
+    el.className = `small ${kind === "error" ? "text-danger" : (kind === "ok" ? "text-success" : "text-muted")}`;
+  }
+
+  function renderGuidedPlan(state){
+    const els = guidedFlowElements();
+    if(!els.planList) return;
+    const maps = guidedHistoryMaps(state || {});
+    const activeItem = guidedItemForWindow(state && state.window);
+    let completed = 0;
+    let total = 0;
+    els.planList.innerHTML = "";
+
+    (Array.isArray(GUIDED_PLAN) ? GUIDED_PLAN : []).forEach((section) => {
+      const sectionEl = document.createElement("section");
+      sectionEl.className = "guided-flow-section";
+      const title = document.createElement("div");
+      title.className = "guided-flow-section-title";
+      title.textContent = section.label || "Franja";
+      sectionEl.appendChild(title);
+
+      (Array.isArray(section.groups) ? section.groups : []).forEach((group) => {
+        const groupState = GUIDED_GROUPS.find((item) => (
+          String(item.section && item.section.key || "") === String(section.key || "")
+          && String(item.key || "") === String(group.key || "")
+        ));
+        const groupEl = document.createElement("div");
+        groupEl.className = "guided-flow-group";
+        const groupHead = document.createElement("button");
+        groupHead.type = "button";
+        groupHead.className = "guided-flow-group-head";
+        const groupItems = groupState ? groupState.queue : [];
+        const groupDone = groupItems.filter((item) => String((guidedWindowForItem(item, maps) || {}).status || "") === "finalized").length;
+        groupHead.innerHTML = `<span></span><span class="guided-flow-group-count">${groupDone}/${groupItems.length}</span>`;
+        groupHead.firstElementChild.textContent = group.label || "Grup";
+        groupHead.addEventListener("click", () => {
+          const firstPending = groupItems.find((item) => String((guidedWindowForItem(item, maps) || {}).status || "") !== "finalized") || groupItems[0];
+          if(firstPending) openGuidedQueueItem(firstPending);
+          closeGuidedDrawers();
+        });
+        groupEl.appendChild(groupHead);
+
+        const roster = document.createElement("div");
+        roster.className = "guided-flow-roster";
+        (Array.isArray(group.subjects) ? group.subjects : []).forEach((subject) => {
+          const row = document.createElement("button");
+          row.type = "button";
+          row.className = "guided-flow-roster-row";
+          const subjectItems = groupItems.filter((item) => item.subjectId === Number(subject.subject_id || subject.id || 0));
+          if(activeItem && subjectItems.some((item) => item.queueIndex === activeItem.queueIndex)) row.classList.add("is-active");
+          const name = document.createElement("span");
+          name.className = "guided-flow-roster-name";
+          name.textContent = `${subject.order ? `${subject.order}. ` : ""}${guidedSubjectName(subject)}`;
+          const states = document.createElement("span");
+          states.className = "guided-flow-exercise-states";
+          subjectItems.forEach((item) => {
+            const windowItem = guidedWindowForItem(item, maps);
+            const status = String((windowItem && windowItem.status) || "");
+            const chip = document.createElement("span");
+            chip.className = `guided-flow-state${status ? ` guided-flow-state--${status}` : ""}`;
+            chip.textContent = guidedStatusSymbol(status, item.exercici);
+            chip.title = `Exercici ${item.exercici}: ${guidedStatusLabel(status)}`;
+            states.appendChild(chip);
+            total += 1;
+            if(status === "finalized") completed += 1;
+          });
+          row.append(name, states);
+          row.addEventListener("click", () => {
+            const firstPending = subjectItems.find((item) => String((guidedWindowForItem(item, maps) || {}).status || "") !== "finalized") || subjectItems[0];
+            if(firstPending) openGuidedQueueItem(firstPending);
+            closeGuidedDrawers();
+          });
+          roster.appendChild(row);
+        });
+        groupEl.appendChild(roster);
+        sectionEl.appendChild(groupEl);
+      });
+      els.planList.appendChild(sectionEl);
+    });
+
+    if(els.completedCount) els.completedCount.textContent = `${completed}/${total}`;
+    if(els.progressCopy){
+      els.progressCopy.textContent = total ? `${completed} actuacions finalitzades de ${total}` : "No hi ha actuacions programades";
+    }
   }
 
   function renderGuidedJudgeStatuses(items){
@@ -80,21 +411,19 @@
     const els = guidedFlowElements();
     const pending = Array.isArray(items) ? items : [];
     if(els.pendingCount) els.pendingCount.textContent = String(pending.length);
+    if(els.pendingToggleCount) els.pendingToggleCount.textContent = String(pending.length);
     if(els.pendingEmpty) els.pendingEmpty.classList.toggle("d-none", pending.length > 0);
     if(!els.pendingList) return;
     els.pendingList.innerHTML = "";
     pending.forEach((item) => {
       const row = document.createElement("div");
       row.className = "guided-flow-pending-item";
-      const copy = document.createElement("div");
-      copy.className = "guided-flow-pending-copy";
       const name = document.createElement("div");
       name.className = "guided-flow-pending-name";
       name.textContent = item.subject_label || `Participant ${item.subject_id}`;
       const meta = document.createElement("div");
       meta.className = "small text-muted";
       meta.textContent = `Exercici ${item.exercici} · ${item.draft_count || 0} camps sincronitzats`;
-      copy.append(name, meta);
       const actions = document.createElement("div");
       actions.className = "guided-flow-pending-actions";
       const publish = document.createElement("button");
@@ -114,9 +443,48 @@
       discard.textContent = "Descartar";
       discard.addEventListener("click", () => cancelGuidedFlow(item.id));
       actions.append(publish, reopen, discard);
-      row.append(copy, actions);
+      row.append(name, meta, actions);
       els.pendingList.appendChild(row);
     });
+  }
+
+  function guidedNextItemInGroup(item){
+    if(!item) return null;
+    const group = GUIDED_GROUPS[item.groupIndex];
+    if(!group) return null;
+    const index = group.queue.findIndex((candidate) => candidate.queueIndex === item.queueIndex);
+    return index >= 0 ? (group.queue[index + 1] || null) : null;
+  }
+
+  function guidedPreviousItem(item){
+    if(!item) return null;
+    return GUIDED_QUEUE[Math.max(0, item.queueIndex - 1)] || null;
+  }
+
+  function showGuidedGroupComplete(item){
+    const els = guidedFlowElements();
+    const group = item ? GUIDED_GROUPS[item.groupIndex] : null;
+    const nextGroup = group ? GUIDED_GROUPS[group.groupIndex + 1] : null;
+    guidedGroupCompletedKey = group ? String(group.key || "") : "";
+    if(!els.groupComplete) return;
+    els.groupComplete.classList.remove("d-none");
+    if(els.groupCompleteTitle) els.groupCompleteTitle.textContent = `${group ? group.label : "Grup"} completat`;
+    if(els.groupCompleteCopy){
+      els.groupCompleteCopy.textContent = nextGroup
+        ? `El següent és ${nextGroup.label}, a ${nextGroup.section.label || "la franja següent"}.`
+        : "S'ha completat l'últim grup programat.";
+    }
+    if(els.nextGroup){
+      els.nextGroup.classList.toggle("d-none", !nextGroup);
+      els.nextGroup.disabled = !nextGroup;
+      els.nextGroup.dataset.nextGroupIndex = nextGroup ? String(nextGroup.groupIndex) : "";
+    }
+  }
+
+  function hideGuidedGroupComplete(){
+    const panel = guidedFlowElements().groupComplete;
+    if(panel) panel.classList.add("d-none");
+    guidedGroupCompletedKey = "";
   }
 
   function renderGuidedFlowState(state){
@@ -125,41 +493,63 @@
     if(!els.root) return;
     const windowState = state && state.window;
     const isOpen = !!windowState && windowState.status === "open";
+    const currentItem = guidedItemForWindow(windowState);
+    if(currentItem) guidedLastItem = currentItem;
+    if(windowState && state && state.preview) applyGuidedScoringPreview(state.preview, windowState);
+    if(!windowState) GUIDED_FLOW_PREVIEW = null;
 
-    if(els.open) els.open.disabled = !!windowState || !state.has_controller;
+    if(els.open) els.open.disabled = guidedBusy || guidedActionLock || !!windowState || !state.has_controller;
     if(els.actions) els.actions.classList.toggle("d-none", !windowState);
-    if(els.close) els.close.classList.toggle("d-none", !isOpen);
-    if(els.closePublish) els.closePublish.classList.toggle("d-none", !isOpen);
-    if(els.subject) els.subject.disabled = !!windowState;
-    if(els.exercise) els.exercise.disabled = !!windowState;
+    if(els.close) els.close.disabled = guidedBusy || guidedActionLock || !isOpen;
+    if(els.closePublish) els.closePublish.disabled = guidedBusy || guidedActionLock || !isOpen;
+    if(els.cancel) els.cancel.disabled = guidedBusy || guidedActionLock || !windowState;
+    if(els.previous){
+      els.previous.disabled = guidedBusy || guidedActionLock || !!windowState || !guidedPreviousItem(guidedLastItem);
+      els.previous.classList.toggle("d-none", !!windowState);
+    }
+    if(els.subject) els.subject.disabled = guidedBusy || guidedActionLock || !!windowState;
+    if(els.exercise) els.exercise.disabled = guidedBusy || guidedActionLock || !!windowState;
     renderGuidedJudgeStatuses(windowState ? windowState.judge_statuses : []);
     renderGuidedPendingWindows(state ? state.pending_windows : []);
+    renderGuidedPlan(state);
 
     if(!windowState || windowState.is_assigned === false){
       if(els.waiting) els.waiting.classList.remove("d-none");
       if(els.current) els.current.classList.add("d-none");
       if(els.waitingTitle){
         els.waitingTitle.textContent = windowState && windowState.is_assigned === false
-          ? "Actuacio no assignada a aquest jutge"
-          : "Esperant el seguent gimnasta";
+          ? "Actuació no assignada a aquest jutge"
+          : (JUDGE_FLOW_IS_CONTROLLER ? "Preparat per al següent gimnasta" : "Esperant el següent gimnasta");
       }
       if(els.waitingCopy){
         els.waitingCopy.textContent = windowState && windowState.is_assigned === false
-          ? "Continua esperant; el teu torn s'obrira automaticament."
+          ? "Continua esperant; el teu torn s'obrirà automàticament."
+          : JUDGE_FLOW_IS_CONTROLLER
+          ? "Selecciona una actuació del llistat per començar."
           : state.has_controller
-          ? "La puntuacio s'obrira automaticament."
+          ? "La puntuació s'obrirà automàticament."
           : "Encara no hi ha cap controlador assignat.";
       }
       guidedRenderedWindowKey = "";
       return;
     }
 
+    hideGuidedGroupComplete();
     if(els.waiting) els.waiting.classList.add("d-none");
     if(els.current) els.current.classList.remove("d-none");
     if(els.currentName) els.currentName.textContent = windowState.subject_label || `Participant ${windowState.subject_id}`;
-    if(els.currentMeta) els.currentMeta.textContent = `Exercici ${windowState.exercici}`;
-    if(els.currentStatus){
-      els.currentStatus.textContent = "Puntuacio oberta";
+    if(els.currentMeta){
+      const contextParts = currentItem ? [currentItem.sectionLabel, currentItem.groupLabel] : [];
+      contextParts.push(`Exercici ${windowState.exercici}`);
+      els.currentMeta.textContent = contextParts.filter(Boolean).join(" · ");
+    }
+    if(els.currentStatus) els.currentStatus.textContent = guidedStatusLabel(windowState.status);
+    const nextItem = guidedNextItemInGroup(currentItem);
+    if(els.nextCopy){
+      els.nextCopy.classList.remove("d-none");
+      els.nextCopy.textContent = nextItem
+        ? `Següent: ${guidedSubjectName(nextItem.subject)} · Exercici ${nextItem.exercici}`
+        : "Aquesta és l'última actuació del grup.";
     }
 
     if(els.editor){
@@ -170,9 +560,6 @@
         renderEditorInto(els.editor, domId, windowState.exercici, { force: true, guidedFlow: true });
         guidedRenderedWindowKey = renderKey;
       }
-      els.editor.querySelectorAll("input,button,select,textarea").forEach((control) => {
-        control.disabled = !isOpen;
-      });
     }
   }
 
@@ -183,13 +570,15 @@
       const data = await response.json().catch(() => ({}));
       if(response.ok && data.ok) renderGuidedFlowState(data);
     } catch(_error){
-      setGuidedControllerMessage("Sense connexio; reintentant...", "error");
+      setGuidedControllerMessage("Sense connexió; reintentant...", "error");
     } finally {
       guidedFlowPollTimer = window.setTimeout(pollGuidedFlowState, 800);
     }
   }
 
   async function guidedFlowRequest(url, payload){
+    if(guidedBusy) return null;
+    guidedBusy = true;
     setGuidedControllerMessage("Processant...");
     const body = { ...(payload || {}) };
     if(JUDGE_ASSIGNMENT_ID) body.assignment_id = Number(JUDGE_ASSIGNMENT_ID);
@@ -201,67 +590,172 @@
       });
       const data = await response.json().catch(() => ({}));
       if(!response.ok || !data.ok){
-        setGuidedControllerMessage(data.error || "No s'ha pogut completar l'accio.", "error");
+        setGuidedControllerMessage(data.error || "No s'ha pogut completar l'acció.", "error");
         return null;
       }
       renderGuidedFlowState(data);
-      setGuidedControllerMessage("Accio completada.", "ok");
+      setGuidedControllerMessage("Acció completada.", "ok");
       return data;
     } catch(_error){
-      setGuidedControllerMessage("Error de connexio.", "error");
+      setGuidedControllerMessage("Error de connexió.", "error");
       return null;
+    } finally {
+      guidedBusy = false;
     }
+  }
+
+  function guidedQueueContext(item){
+    return {
+      section_key: item.sectionKey,
+      section_label: item.sectionLabel,
+      group_key: item.groupKey,
+      group_label: item.groupLabel,
+      franja_id: item.franjaId,
+      group_index: item.groupIndex,
+      subject_index: item.subjectIndex,
+      queue_index: item.queueIndex,
+    };
+  }
+
+  async function openGuidedQueueItem(item, opts = {}){
+    if(!item || guidedBusy || (guidedActionLock && !opts.internal) || (GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window)) return null;
+    hideGuidedGroupComplete();
+    guidedLastItem = item;
+    const els = guidedFlowElements();
+    if(els.subject) els.subject.value = String(item.domId || item.subjectId);
+    if(els.exercise) els.exercise.value = String(item.exercici);
+    return guidedFlowRequest(FLOW_OPEN_URL, {
+      subject_kind: item.subjectKind,
+      subject_id: item.subjectId,
+      exercici: item.exercici,
+      queue_context: guidedQueueContext(item),
+    });
   }
 
   async function openGuidedFlow(){
     const els = guidedFlowElements();
     const subject = subjectForId(els.subject ? els.subject.value : "");
-    await guidedFlowRequest(FLOW_OPEN_URL, {
+    const subjectId = Number(subject.subject_id || (els.subject && els.subject.value));
+    const exercici = Number((els.exercise && els.exercise.value) || 1);
+    const item = GUIDED_QUEUE.find((candidate) => candidate.subjectId === subjectId && candidate.exercici === exercici);
+    if(item) return openGuidedQueueItem(item);
+    return guidedFlowRequest(FLOW_OPEN_URL, {
       subject_kind: subject.subject_kind || (TEAM_SUBJECT_MODE ? "team_unit" : "inscripcio"),
-      subject_id: Number(subject.subject_id || (els.subject && els.subject.value)),
-      exercici: Number((els.exercise && els.exercise.value) || 1),
+      subject_id: subjectId,
+      exercici,
     });
+  }
+
+  async function waitForGuidedDraftSync(windowState){
+    if(!windowState) return;
+    const domId = resolveInsDomId(windowState.subject_id);
+    if(typeof settleLiveDraftSync === "function") await settleLiveDraftSync(domId, windowState.exercici);
+  }
+
+  async function advanceAfterGuidedItem(item){
+    const next = guidedNextItemInGroup(item);
+    if(next){
+      await openGuidedQueueItem(next, { internal: true });
+      return;
+    }
+    showGuidedGroupComplete(item);
   }
 
   async function closeGuidedFlow(){
     const windowState = GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window;
     if(!windowState) return;
-    const data = await guidedFlowRequest(FLOW_CLOSE_URL, { window_id: windowState.id });
-    if(data) setGuidedControllerMessage("Nota desada com a pendent.", "ok");
+    const item = guidedItemForWindow(windowState) || guidedLastItem;
+    guidedActionLock = true;
+    try{
+      await waitForGuidedDraftSync(windowState);
+      const data = await guidedFlowRequest(FLOW_CLOSE_URL, { window_id: windowState.id });
+      if(data){
+        setGuidedControllerMessage("Nota desada com a pendent.", "ok");
+        await advanceAfterGuidedItem(item);
+      }
+    } finally {
+      guidedActionLock = false;
+      if(GUIDED_FLOW_STATE) renderGuidedFlowState(GUIDED_FLOW_STATE);
+    }
   }
 
   async function closeAndPublishGuidedFlow(){
     const windowState = GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window;
     if(!windowState) return;
-    const windowId = windowState.id;
-    const data = await guidedFlowRequest(FLOW_CLOSE_URL, { window_id: windowId });
-    if(!data) return;
-    if(guidedFinalizeTimer) window.clearTimeout(guidedFinalizeTimer);
-    guidedFinalizeTimer = window.setTimeout(() => finalizeGuidedFlow(windowId), 1200);
+    const item = guidedItemForWindow(windowState) || guidedLastItem;
+    guidedActionLock = true;
+    try{
+      await waitForGuidedDraftSync(windowState);
+      const closed = await guidedFlowRequest(FLOW_CLOSE_URL, { window_id: windowState.id });
+      if(!closed) return;
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+      const finalized = await finalizeGuidedFlow(windowState.id);
+      if(finalized) await advanceAfterGuidedItem(item);
+    } finally {
+      guidedActionLock = false;
+      if(GUIDED_FLOW_STATE) renderGuidedFlowState(GUIDED_FLOW_STATE);
+    }
   }
 
   async function finalizeGuidedFlow(windowId){
-    if(windowId) await guidedFlowRequest(FLOW_FINALIZE_URL, { window_id: windowId });
+    return windowId ? guidedFlowRequest(FLOW_FINALIZE_URL, { window_id: windowId }) : null;
   }
 
   async function reopenGuidedFlow(windowId){
-    if(windowId) await guidedFlowRequest(FLOW_REOPEN_URL, { window_id: windowId });
+    return windowId ? guidedFlowRequest(FLOW_REOPEN_URL, { window_id: windowId }) : null;
   }
 
   async function cancelGuidedFlow(windowId = null){
     const current = GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window;
     const targetId = windowId || (current && current.id);
-    if(!targetId || !window.confirm("Vols cancel·lar aquesta puntuacio i descartar els esborranys?")) return;
-    await guidedFlowRequest(FLOW_CANCEL_URL, { window_id: targetId });
+    if(!targetId || !window.confirm("Vols cancel·lar aquesta puntuació i descartar els esborranys?")) return null;
+    return guidedFlowRequest(FLOW_CANCEL_URL, { window_id: targetId });
   }
 
   function initGuidedFlow(){
     if(!JUDGE_FLOW_ENABLED) return;
     populateGuidedFlowSelectors();
     const els = guidedFlowElements();
-    if(els.open) els.open.addEventListener("click", openGuidedFlow);
+    if(els.open) els.open.addEventListener("click", () => {
+      openGuidedFlow();
+      closeGuidedDrawers();
+    });
     if(els.close) els.close.addEventListener("click", closeGuidedFlow);
     if(els.closePublish) els.closePublish.addEventListener("click", closeAndPublishGuidedFlow);
     if(els.cancel) els.cancel.addEventListener("click", () => cancelGuidedFlow());
+    if(els.previous){
+      els.previous.addEventListener("click", () => {
+        const previous = guidedPreviousItem(guidedLastItem);
+        if(previous) openGuidedQueueItem(previous);
+      });
+    }
+    if(els.nextGroup){
+      els.nextGroup.addEventListener("click", () => {
+        const group = GUIDED_GROUPS[Number(els.nextGroup.dataset.nextGroupIndex || -1)];
+        if(group && group.queue.length) openGuidedQueueItem(group.queue[0]);
+      });
+    }
+    if(els.planToggle) els.planToggle.addEventListener("click", () => openGuidedDrawer("plan"));
+    if(els.pendingToggle) els.pendingToggle.addEventListener("click", () => openGuidedDrawer("pending"));
+    if(els.planClose) els.planClose.addEventListener("click", () => closeGuidedDrawers({ restoreFocus: true }));
+    if(els.pendingClose) els.pendingClose.addEventListener("click", () => closeGuidedDrawers({ restoreFocus: true }));
+    if(els.drawerBackdrop) els.drawerBackdrop.addEventListener("click", () => closeGuidedDrawers({ restoreFocus: true }));
+    if(els.pendingList){
+      els.pendingList.addEventListener("click", (event) => {
+        if(event.target && event.target.closest("button")) closeGuidedDrawers();
+      });
+    }
+    document.addEventListener("keydown", (event) => {
+      if(event.key === "Escape" && document.body.classList.contains("guided-drawer-open")){
+        closeGuidedDrawers({ restoreFocus: true });
+      }
+    });
+    if(typeof GUIDED_DRAWER_MEDIA.addEventListener === "function"){
+      GUIDED_DRAWER_MEDIA.addEventListener("change", syncGuidedDrawerMode);
+    } else if(typeof GUIDED_DRAWER_MEDIA.addListener === "function"){
+      GUIDED_DRAWER_MEDIA.addListener(syncGuidedDrawerMode);
+    }
+    syncGuidedDrawerMode();
+    renderGuidedPlan({ history_windows: [], window: null });
     pollGuidedFlowState();
   }

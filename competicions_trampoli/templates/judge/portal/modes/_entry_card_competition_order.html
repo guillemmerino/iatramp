@@ -22,7 +22,7 @@ Expected include context:
     <div class="judge-card-main">
       <div class="judge-entry-name">{{ ins.nom_i_cognoms|default:"Inscripció" }}</div>
       <div class="judge-meta">
-        {% if off_program_mode %}Fora de programa · {% endif %}{{ bloc.label }} · Exercici {{ ex }} · Ordre {{ ins.rotation_order_display|default_if_none:ins.ordre_sortida }}{% if bloc.franja_label %} · {{ bloc.franja_label }}{% endif %}
+        {% if off_program_mode %}Fora de programa · {% endif %}{{ bloc.label }} · Exercici {{ ex }} · Ordre {{ ins.rotation_order_display|default_if_none:ins.ordre_sortida }}{% if ins.rotation_base_order_display %} · Base {{ ins.rotation_base_order_display }}{% endif %}{% if bloc.franja_label %} · {{ bloc.franja_label }}{% endif %}
       </div>
       {% if not off_program_mode and team_subject_mode and ins.members %}
       <div class="judge-meta">

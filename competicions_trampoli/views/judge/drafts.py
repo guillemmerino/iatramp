@@ -17,7 +17,11 @@ from ...services.judging.supervision import (
     normalize_judge_role,
     token_is_supervisor_for_field,
 )
-from ...services.judging.flow import lane_for_scope
+from ...services.judging.flow import (
+    assignment_can_view_scoring_preview,
+    build_scoring_window_preview,
+    lane_for_scope,
+)
 from ...services.scoring.schema_resolution import resolve_scoring_schema_for_comp_aparell
 from ...services.scoring.scoring_subjects import resolve_scoring_subject, serialize_subject_payload
 from ...services.scoring.team_scoring import (
@@ -286,7 +290,10 @@ def judge_draft_update(request, token):
         draft.save()
         rows.append(draft)
     tok.touch()
-    return JsonResponse({"ok": True, "drafts": [_draft_payload(item) for item in rows]})
+    response = {"ok": True, "drafts": [_draft_payload(item) for item in rows]}
+    if scoring_window is not None and assignment_can_view_scoring_preview(lane, scope.assignment):
+        response["preview"] = build_scoring_window_preview(scoring_window)
+    return JsonResponse(response)
 
 
 @require_GET
@@ -299,11 +306,13 @@ def judge_draft_updates(request, token):
         return scope_error
     lane = lane_for_scope(scope)
     cursor = parse_feed_cursor(request)
+    allowed_subject_ids = _allowed_subject_ids(scope)
+    active_window = None
     qs = JudgeScoreDraft.objects.filter(
         competicio=scope.competicio,
         comp_aparell=scope.comp_aparell,
         fase=scope.phase,
-        subject_id__in=_allowed_subject_ids(scope),
+        subject_id__in=allowed_subject_ids,
     )
     if lane is not None:
         active_window = (
@@ -323,10 +332,17 @@ def judge_draft_updates(request, token):
     ]
     page_rows = rows[:JUDGE_DRAFT_UPDATES_LIMIT]
     meta = build_single_model_feed_meta(rows, limit=JUDGE_DRAFT_UPDATES_LIMIT, cursor=cursor)
-    return JsonResponse({
+    response = {
         "ok": True,
         "drafts": [_draft_payload(item) for item in page_rows],
         "next_since": meta["next_since"],
         "next_after_id": meta["next_after_id"],
         "has_more": meta["has_more"],
-    })
+    }
+    if (
+        active_window is not None
+        and int(active_window.subject_id) in allowed_subject_ids
+        and assignment_can_view_scoring_preview(lane, scope.assignment)
+    ):
+        response["preview"] = build_scoring_window_preview(active_window)
+    return JsonResponse(response)

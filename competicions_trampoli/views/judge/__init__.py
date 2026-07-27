@@ -14,6 +14,7 @@ from .flow import (
     judge_flow_close,
     judge_flow_finalize,
     judge_flow_open,
+    judge_flow_presence,
     judge_flow_reopen,
     judge_flow_state,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "judge_flow_close",
     "judge_flow_finalize",
     "judge_flow_open",
+    "judge_flow_presence",
     "judge_flow_reopen",
     "judge_flow_state",
     "judge_supervision_approve",

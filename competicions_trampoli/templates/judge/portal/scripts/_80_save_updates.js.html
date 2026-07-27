@@ -128,6 +128,9 @@
         return;
       }
       (data.drafts || []).forEach(rememberLiveDraft);
+      if(data.preview && typeof applyGuidedScoringPreview === "function"){
+        applyGuidedScoringPreview(data.preview);
+      }
       if(state.sequence === sentSequence){
         clearDirty(insId, exercici);
         setStatus(insId, exercici, "ok", "Sincronitzat");
@@ -653,6 +656,12 @@
     const insId = resolveInsDomId(update.subject_id != null ? update.subject_id : update.inscripcio_id);
     const exercici = exerciseKey(update.exercici);
     const baseEntry = getEntry(insId, exercici);
+    const draft = DRAFTS[entryKey(insId, exercici)];
+    const hasPendingCrashDraft = !!(
+      draft
+      && typeof draft === "object"
+      && Object.keys(draft).some((code) => String(code).startsWith("__crash__"))
+    );
     const mergedInputs = (baseEntry.inputs && typeof baseEntry.inputs === "object") ? { ...baseEntry.inputs } : {};
     const incomingInputs = (update.inputs && typeof update.inputs === "object") ? update.inputs : {};
     const incomingHasCrash = Object.keys(incomingInputs).some((code) => String(code).startsWith("__crash__"));
@@ -660,6 +669,20 @@
     Object.entries(incomingInputs).forEach(([code, val]) => {
       mergedInputs[code] = val;
     });
+
+    if(draft && typeof draft === "object" && incomingHasCrash){
+      Object.entries(incomingInputs).forEach(([code, val]) => {
+        if(!String(code).startsWith("__crash__")) return;
+        const baseCode = String(code).replace(/^__crash__/, "");
+        const supervisorPerms = resolvedPermsForIns(insId).filter((perm) => (
+          String(perm.runtime_field_code || perm.field_code || "") === baseCode
+          && String(perm.role || "") === "supervisor"
+        ));
+        const dirty = getDirtySet(insId, exercici);
+        const localSupervisorCrashIsDirty = supervisorPerms.some((perm) => dirty.has(String(perm.key || "")));
+        if(!localSupervisorCrashIsDirty) draft[code] = deepClone(val);
+      });
+    }
 
     setEntry(insId, exercici, {
       inputs: mergedInputs,
@@ -685,7 +708,7 @@
     }
 
     if(Object.keys(incomingInputs).length){
-      if(!hasDirty(insId, exercici)) clearDraft(insId, exercici);
+      if(!hasDirty(insId, exercici) && !hasPendingCrashDraft) clearDraft(insId, exercici);
       if(isEditorRendered(insId, exercici)){
         renderEditor(insId, exercici, { force: true });
       }
