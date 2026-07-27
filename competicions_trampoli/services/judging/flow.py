@@ -144,6 +144,15 @@ def open_scoring_window(*, lane, assignment, subject_kind, subject_id, exercici,
     require_controller(lane, assignment)
     if active_window_for_lane(lane, for_update=True) is not None:
         raise ValidationError("Ja hi ha una puntuacio oberta en aquest aparell/fase.")
+    pending_exists = JudgeScoringWindow.objects.select_for_update().filter(
+        lane=lane,
+        subject_kind=str(subject_kind or "inscripcio"),
+        subject_id=int(subject_id),
+        exercici=max(1, int(exercici or 1)),
+        status__in=PENDING_WINDOW_STATUSES,
+    ).exists()
+    if pending_exists:
+        raise ValidationError("Aquesta actuacio ja te una nota pendent. Reobre-la en lloc de crear-ne una de nova.")
     last_sequence = (
         JudgeScoringWindow.objects.filter(lane=lane).aggregate(value=Max("sequence"))["value"] or 0
     )
@@ -670,6 +679,7 @@ def serialize_flow_state(*, lane, assignment):
         "subject_label": label_for(window) or _subject_label(window),
         "is_assigned": bool(is_assigned),
         "exercici": int(window.exercici),
+        "draft_count": len(draft_rows),
         "opened_at": window.opened_at.isoformat() if window.opened_at else None,
         "closing_at": window.closing_at.isoformat() if window.closing_at else None,
         "judge_statuses": list(statuses.values()),

@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
 
 from ...models.inscripcions import Inscripcio
-from ...models.judging import JudgeDeviceToken, JudgeScoreDraft, JudgeScoringWindow
+from ...models.judging import JudgeDeviceToken, JudgeScoreDraft, JudgeScoringLane, JudgeScoringWindow
 from ...services.inscripcions.admission import load_excluded_app_ids_by_inscripcio
 from ...services.judging.subject_scope import (
     filter_inscripcions_queryset_by_subject_scope,
@@ -158,6 +158,7 @@ def judge_draft_update(request, token):
     lane = lane_for_scope(scope)
     scoring_window = None
     if lane is not None:
+        lane = JudgeScoringLane.objects.select_for_update().get(pk=lane.pk)
         try:
             window_id = int(payload.get("window_id") or 0)
         except (TypeError, ValueError):
@@ -289,8 +290,13 @@ def judge_draft_update(request, token):
         draft.client_sequence = max(draft.client_sequence, client_sequence)
         draft.save()
         rows.append(draft)
+    if lane is not None and rows:
+        lane.version += 1
+        lane.save(update_fields=["version", "updated_at"])
     tok.touch()
     response = {"ok": True, "drafts": [_draft_payload(item) for item in rows]}
+    if lane is not None:
+        response["lane_version"] = int(lane.version)
     if scoring_window is not None and assignment_can_view_scoring_preview(lane, scope.assignment):
         response["preview"] = build_scoring_window_preview(scoring_window)
     return JsonResponse(response)
@@ -339,6 +345,8 @@ def judge_draft_updates(request, token):
         "next_after_id": meta["next_after_id"],
         "has_more": meta["has_more"],
     }
+    if lane is not None:
+        response["lane_version"] = int(lane.version)
     if (
         active_window is not None
         and int(active_window.subject_id) in allowed_subject_ids

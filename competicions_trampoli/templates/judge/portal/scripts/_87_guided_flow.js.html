@@ -5,7 +5,12 @@
   let guidedLastItem = null;
   let guidedGroupCompletedKey = "";
   let guidedDrawerReturnFocus = null;
+  let guidedDialogReturnFocus = null;
+  let guidedPresenceConfirmResolve = null;
+  let guidedNavigationTarget = null;
+  let guidedSubjectExercisesContext = null;
   let GUIDED_FLOW_PREVIEW = null;
+  let guidedLastAppliedStateVersion = -1;
 
   const GUIDED_DRAWER_MEDIA = window.matchMedia("(max-width: 1180px)");
 
@@ -60,17 +65,43 @@
       current: document.getElementById("guidedCurrentPanel"),
       currentName: document.getElementById("guidedCurrentName"),
       currentMeta: document.getElementById("guidedCurrentMeta"),
+      currentEyebrow: document.getElementById("guidedCurrentEyebrow"),
+      currentExercise: document.getElementById("guidedCurrentExercise"),
       currentStatus: document.getElementById("guidedCurrentStatus"),
       nextCopy: document.getElementById("guidedNextCopy"),
       editor: document.getElementById("guidedEditorHost"),
       subject: document.getElementById("guidedSubjectSelect"),
       exercise: document.getElementById("guidedExerciseSelect"),
+      group: document.getElementById("guidedGroupSelect"),
+      pointSummary: document.getElementById("guidedPointSummary"),
+      pointModal: document.getElementById("guidedPointModal"),
+      pointModalClose: document.getElementById("guidedPointModalClose"),
+      exactPoint: document.getElementById("guidedExactPointButton"),
+      exactPointSidebar: document.getElementById("guidedExactPointSidebarButton"),
+      startGroups: document.getElementById("guidedStartGroups"),
+      subjectExercisesModal: document.getElementById("guidedSubjectExercisesModal"),
+      subjectExercisesClose: document.getElementById("guidedSubjectExercisesClose"),
+      subjectExercisesTitle: document.getElementById("guidedSubjectExercisesTitle"),
+      subjectExercisesMeta: document.getElementById("guidedSubjectExercisesMeta"),
+      subjectExercisesList: document.getElementById("guidedSubjectExercisesList"),
       open: document.getElementById("guidedOpenButton"),
       previous: document.getElementById("guidedPreviousButton"),
       actions: document.getElementById("guidedControllerActions"),
       close: document.getElementById("guidedCloseButton"),
       closePublish: document.getElementById("guidedClosePublishButton"),
-      cancel: document.getElementById("guidedCancelButton"),
+      exit: document.getElementById("guidedExitButton"),
+      exitModal: document.getElementById("guidedExitModal"),
+      exitTitle: document.getElementById("guidedExitModalTitle"),
+      exitModalClose: document.getElementById("guidedExitModalClose"),
+      exitSubject: document.getElementById("guidedExitSubject"),
+      exitCopy: document.getElementById("guidedExitCopy"),
+      exitPending: document.getElementById("guidedExitPendingButton"),
+      exitDiscard: document.getElementById("guidedExitDiscardButton"),
+      exitPublish: document.getElementById("guidedExitPublishButton"),
+      presenceConfirmModal: document.getElementById("guidedPresenceConfirmModal"),
+      presenceConfirmClose: document.getElementById("guidedPresenceConfirmClose"),
+      presenceConfirmJudge: document.getElementById("guidedPresenceConfirmJudge"),
+      presenceConfirmAccept: document.getElementById("guidedPresenceConfirmAccept"),
       statuses: document.getElementById("guidedJudgeStatuses"),
       message: document.getElementById("guidedControllerMessage"),
       pendingList: document.getElementById("guidedPendingList"),
@@ -134,6 +165,49 @@
     closeGuidedDrawers();
   }
 
+  function showGuidedDialog(dialog, returnFocus = null){
+    if(!dialog) return;
+    guidedDialogReturnFocus = returnFocus || document.activeElement;
+    dialog.classList.remove("d-none");
+    dialog.setAttribute("aria-hidden", "false");
+    document.body.classList.add("guided-dialog-open");
+    const focusTarget = dialog.querySelector("select, button:not(.guided-flow-dialog-backdrop)");
+    if(focusTarget && typeof focusTarget.focus === "function") focusTarget.focus();
+  }
+
+  function hideGuidedDialog(dialog, { restoreFocus = true } = {}){
+    if(!dialog) return;
+    dialog.classList.add("d-none");
+    dialog.setAttribute("aria-hidden", "true");
+    if(!document.querySelector(".guided-flow-dialog:not(.d-none)")){
+      document.body.classList.remove("guided-dialog-open");
+    }
+    if(restoreFocus && guidedDialogReturnFocus && typeof guidedDialogReturnFocus.focus === "function"){
+      guidedDialogReturnFocus.focus();
+    }
+    guidedDialogReturnFocus = null;
+  }
+
+  function confirmGuidedEmptyJudge(judgeIndex, returnFocus = null){
+    const els = guidedFlowElements();
+    if(!els.presenceConfirmModal) return Promise.resolve(false);
+    if(guidedPresenceConfirmResolve) guidedPresenceConfirmResolve(false);
+    if(els.presenceConfirmJudge) els.presenceConfirmJudge.textContent = `J${judgeIndex}`;
+    showGuidedDialog(els.presenceConfirmModal, returnFocus);
+    return new Promise((resolve) => {
+      guidedPresenceConfirmResolve = resolve;
+    });
+  }
+
+  function finishGuidedPresenceConfirmation(accepted){
+    const els = guidedFlowElements();
+    if(!els.presenceConfirmModal || els.presenceConfirmModal.classList.contains("d-none")) return;
+    const resolve = guidedPresenceConfirmResolve;
+    guidedPresenceConfirmResolve = null;
+    hideGuidedDialog(els.presenceConfirmModal);
+    if(resolve) resolve(!!accepted);
+  }
+
   function guidedPresenceMeta(fieldCode, judgeIndex){
     const preview = GUIDED_FLOW_PREVIEW && typeof GUIDED_FLOW_PREVIEW === "object" ? GUIDED_FLOW_PREVIEW : {};
     const code = String(fieldCode || "");
@@ -173,8 +247,15 @@
     document.querySelectorAll("[data-presence-field-code][data-presence-judge-index]").forEach(refreshGuidedPresenceButton);
   }
 
-  function applyGuidedScoringPreview(preview, windowState = null){
+  function applyGuidedScoringPreview(preview, windowState = null, stateVersion = null){
     if(!preview || typeof preview !== "object") return;
+    const parsedVersion = Number(stateVersion);
+    if(Number.isFinite(parsedVersion)){
+      if(parsedVersion < guidedLastAppliedStateVersion) return false;
+      guidedLastAppliedStateVersion = Math.max(guidedLastAppliedStateVersion, parsedVersion);
+    } else if(guidedLastAppliedStateVersion >= 0){
+      return false;
+    }
     GUIDED_FLOW_PREVIEW = preview;
     const active = windowState || (GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window);
     if(active && active.subject_id != null && active.exercici != null){
@@ -189,6 +270,7 @@
       refreshSupervisorComputedFields(insId, active.exercici, preview.outputs || {});
     }
     refreshAllGuidedPresenceButtons();
+    return true;
   }
 
   async function toggleGuidedJudgePresence(fieldCode, judgeIndex, button){
@@ -197,7 +279,7 @@
     const meta = guidedPresenceMeta(fieldCode, judgeIndex);
     const nextState = typeof meta.override === "boolean" ? null : !meta.effective;
     if(nextState === true && !meta.automatic){
-      const accepted = window.confirm(`J${judgeIndex} encara no té notes. Si el valides, la fila buida comptarà com a zero. Vols continuar?`);
+      const accepted = await confirmGuidedEmptyJudge(judgeIndex, button);
       if(!accepted) return;
     }
     if(button) button.classList.add("is-loading");
@@ -227,19 +309,19 @@
   function guidedHistoryMaps(state){
     const byQueueIndex = new Map();
     const bySubject = new Map();
-    (Array.isArray(state && state.history_windows) ? state.history_windows : []).forEach((item) => {
+    const addWindow = (item) => {
       const context = item && item.competition_context && typeof item.competition_context === "object"
         ? item.competition_context
         : {};
       if(context.queue_index != null) byQueueIndex.set(Number(context.queue_index), item);
       bySubject.set(guidedItemKey(item.subject_kind, item.subject_id, item.exercici), item);
-    });
+    };
+    (Array.isArray(state && state.history_windows) ? state.history_windows : []).forEach(addWindow);
+    // Un pendent sempre preval sobre l'historial per mantenir el lateral
+    // sincronitzat amb el panell de notes pendents.
+    (Array.isArray(state && state.pending_windows) ? state.pending_windows : []).forEach(addWindow);
     const active = state && state.window;
-    if(active){
-      const context = active.competition_context || {};
-      if(context.queue_index != null) byQueueIndex.set(Number(context.queue_index), active);
-      bySubject.set(guidedItemKey(active.subject_kind, active.subject_id, active.exercici), active);
-    }
+    if(active) addWindow(active);
     return { byQueueIndex, bySubject };
   }
 
@@ -286,14 +368,14 @@
 
   function populateGuidedFlowSelectors(){
     const els = guidedFlowElements();
-    if(els.subject && !els.subject.dataset.ready){
-      SUBJECTS.forEach((subject) => {
+    if(els.group && !els.group.dataset.ready){
+      GUIDED_GROUPS.forEach((group) => {
         const option = document.createElement("option");
-        option.value = String(subject.id || subject.subject_id || "");
-        option.textContent = guidedSubjectName(subject);
-        els.subject.appendChild(option);
+        option.value = String(group.groupIndex);
+        option.textContent = `${group.section.label || "Franja"} · ${group.label || "Grup"}`;
+        els.group.appendChild(option);
       });
-      els.subject.dataset.ready = "1";
+      els.group.dataset.ready = "1";
     }
     if(els.exercise && !els.exercise.dataset.ready){
       EXERCISES.forEach((exercise) => {
@@ -304,6 +386,61 @@
       });
       els.exercise.dataset.ready = "1";
     }
+    refreshGuidedPointSubjects();
+  }
+
+  function selectedGuidedPointItem(){
+    const els = guidedFlowElements();
+    const group = GUIDED_GROUPS[Number((els.group && els.group.value) || 0)];
+    if(!group) return null;
+    const subjectId = Number(els.subject && els.subject.value);
+    const exercise = Number((els.exercise && els.exercise.value) || 1);
+    return group.queue.find((item) => item.subjectId === subjectId && item.exercici === exercise) || null;
+  }
+
+  function refreshGuidedPointSummary(){
+    const els = guidedFlowElements();
+    const item = selectedGuidedPointItem();
+    const windowItem = item ? guidedWindowForItem(item, guidedHistoryMaps(GUIDED_FLOW_STATE || {})) : null;
+    const status = String((windowItem && windowItem.status) || "");
+    const blockedByPending = status === "closing" || status === "locked" || status === "open";
+    if(els.pointSummary){
+      if(!item){
+        els.pointSummary.textContent = "No hi ha cap actuació disponible amb aquesta selecció.";
+      } else if(blockedByPending){
+        els.pointSummary.textContent = `${item.groupLabel} · ${guidedSubjectName(item.subject)} · Exercici ${item.exercici}. Aquesta nota està pendent; reobre-la des del panell de pendents.`;
+      } else if(status === "finalized"){
+        els.pointSummary.textContent = `${item.groupLabel} · ${guidedSubjectName(item.subject)} · Exercici ${item.exercici}. Ja està finalitzat; començar aquí crearà una nova puntuació.`;
+      } else {
+        els.pointSummary.textContent = `${item.groupLabel} · ${guidedSubjectName(item.subject)} · Exercici ${item.exercici}`;
+      }
+    }
+    if(els.open) els.open.disabled = !item || blockedByPending || !!(GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window) || guidedBusy;
+  }
+
+  function refreshGuidedPointSubjects(){
+    const els = guidedFlowElements();
+    if(!els.subject) return;
+    const previous = String(els.subject.value || "");
+    const group = GUIDED_GROUPS[Number((els.group && els.group.value) || 0)];
+    els.subject.innerHTML = "";
+    (group && Array.isArray(group.subjects) ? group.subjects : []).forEach((subject) => {
+      const option = document.createElement("option");
+      option.value = String(subject.subject_id || subject.id || "");
+      option.textContent = guidedSubjectName(subject);
+      els.subject.appendChild(option);
+    });
+    if(Array.from(els.subject.options).some((option) => option.value === previous)) els.subject.value = previous;
+    refreshGuidedPointSummary();
+  }
+
+  function openGuidedPointModal(){
+    const els = guidedFlowElements();
+    if((GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window) || !els.pointModal) return;
+    populateGuidedFlowSelectors();
+    refreshGuidedPointSummary();
+    closeGuidedDrawers();
+    showGuidedDialog(els.pointModal);
   }
 
   function setGuidedControllerMessage(text, kind = ""){
@@ -311,6 +448,148 @@
     if(!el) return;
     el.textContent = text || "";
     el.className = `small ${kind === "error" ? "text-danger" : (kind === "ok" ? "text-success" : "text-muted")}`;
+  }
+
+  function guidedFirstStartableItem(group, maps){
+    if(!group) return null;
+    return group.queue.find((item) => {
+      const status = String((guidedWindowForItem(item, maps) || {}).status || "");
+      return !status || status === "cancelled";
+    }) || null;
+  }
+
+  function renderGuidedStartGroups(state){
+    const els = guidedFlowElements();
+    if(!els.startGroups) return;
+    const maps = guidedHistoryMaps(state || {});
+    const hasActiveWindow = !!(state && state.window);
+    els.startGroups.innerHTML = "";
+    GUIDED_GROUPS.forEach((group) => {
+      const first = guidedFirstStartableItem(group, maps);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "guided-flow-start-card";
+      button.disabled = hasActiveWindow || !first || guidedBusy || guidedActionLock;
+      const copy = first
+        ? `${guidedSubjectName(first.subject)} · Exercici ${first.exercici}`
+        : "Sense actuacions noves; revisa les notes pendents.";
+      button.innerHTML = '<span><span class="guided-flow-start-card-title"></span><span class="guided-flow-start-card-copy"></span></span><span class="guided-flow-start-card-cta"></span>';
+      button.querySelector(".guided-flow-start-card-title").textContent = group.label || "Grup";
+      button.querySelector(".guided-flow-start-card-copy").textContent = copy;
+      button.querySelector(".guided-flow-start-card-cta").textContent = first ? "Començar grup →" : "Completat";
+      if(first) button.addEventListener("click", () => openGuidedQueueItem(first));
+      els.startGroups.appendChild(button);
+    });
+  }
+
+  function guidedNavigationTargetLabel(target){
+    if(!target) return "";
+    if(target.item){
+      return `${guidedSubjectName(target.item.subject)} · Exercici ${target.item.exercici}`;
+    }
+    const windowItem = target.windowItem || {};
+    return `${windowItem.subject_label || `Participant ${windowItem.subject_id || ""}`} · Exercici ${windowItem.exercici || 1}`;
+  }
+
+  function closeGuidedSubjectExercises({ restoreFocus = true } = {}){
+    guidedSubjectExercisesContext = null;
+    hideGuidedDialog(guidedFlowElements().subjectExercisesModal, { restoreFocus });
+  }
+
+  async function activateGuidedNavigationTarget(target = null){
+    const selected = target || guidedNavigationTarget;
+    if(!selected) return null;
+    let data = null;
+    if(selected.windowId && ["closing", "locked"].includes(String(selected.status || ""))){
+      data = await reopenGuidedFlow(selected.windowId);
+    } else if(selected.item){
+      data = await openGuidedQueueItem(selected.item, { internal: true });
+    }
+    if(data){
+      guidedNavigationTarget = null;
+      closeGuidedSubjectExercises({ restoreFocus: false });
+      closeGuidedDrawers();
+    }
+    return data;
+  }
+
+  async function requestGuidedNavigation(item, windowItem = null){
+    const current = GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window;
+    const resolvedWindow = windowItem || (item ? guidedWindowForItem(item) : null);
+    if(current && resolvedWindow && Number(current.id) === Number(resolvedWindow.id)){
+      closeGuidedSubjectExercises({ restoreFocus: false });
+      closeGuidedDrawers();
+      const currentPanel = guidedFlowElements().current;
+      if(currentPanel && typeof currentPanel.scrollIntoView === "function") currentPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+      return current;
+    }
+    const target = {
+      item: item || guidedItemForWindow(resolvedWindow),
+      windowItem: resolvedWindow,
+      windowId: resolvedWindow && ["closing", "locked"].includes(String(resolvedWindow.status || "")) ? Number(resolvedWindow.id) : null,
+      status: String((resolvedWindow && resolvedWindow.status) || ""),
+    };
+    if(current){
+      guidedNavigationTarget = target;
+      closeGuidedSubjectExercises({ restoreFocus: false });
+      closeGuidedDrawers();
+      openGuidedExitModal();
+      return null;
+    }
+    return activateGuidedNavigationTarget(target);
+  }
+
+  function openGuidedSubjectExercises(groupState, subject, returnFocus = null, { refresh = false } = {}){
+    const els = guidedFlowElements();
+    if(!els.subjectExercisesModal || !groupState || !subject) return;
+    guidedSubjectExercisesContext = {
+      groupIndex: Number(groupState.groupIndex),
+      subjectId: Number(subject.subject_id || subject.id || 0),
+    };
+    const maps = guidedHistoryMaps(GUIDED_FLOW_STATE || {});
+    const subjectId = Number(subject.subject_id || subject.id || 0);
+    const items = groupState.queue.filter((item) => item.subjectId === subjectId);
+    if(els.subjectExercisesTitle) els.subjectExercisesTitle.textContent = guidedSubjectName(subject);
+    if(els.subjectExercisesMeta){
+      els.subjectExercisesMeta.textContent = `${groupState.section.label || "Franja"} · ${groupState.label || "Grup"}${subject.order ? ` · Ordre ${subject.order}` : ""}`;
+    }
+    if(els.subjectExercisesList){
+      els.subjectExercisesList.innerHTML = "";
+      items.forEach((item) => {
+        const windowItem = guidedWindowForItem(item, maps);
+        const status = String((windowItem && windowItem.status) || "");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "guided-subject-exercise";
+        const stateText = status === "open"
+          ? "Obert ara"
+          : ["closing", "locked"].includes(status)
+          ? "Pendent · Reobrir"
+          : status === "finalized"
+          ? "Finalitzat · Tornar a puntuar"
+          : status === "cancelled"
+          ? "Cancel·lat · Obrir"
+          : "No iniciat · Obrir";
+        button.innerHTML = '<span class="guided-subject-exercise-title"></span><span class="guided-subject-exercise-state"></span>';
+        button.querySelector(".guided-subject-exercise-title").textContent = `Exercici ${item.exercici} de ${Math.max(1, EXERCISES.length)}`;
+        const state = button.querySelector(".guided-subject-exercise-state");
+        state.textContent = stateText;
+        if(status) state.classList.add(`guided-subject-exercise-state--${status}`);
+        button.addEventListener("click", () => requestGuidedNavigation(item, windowItem));
+        els.subjectExercisesList.appendChild(button);
+      });
+    }
+    if(!refresh) showGuidedDialog(els.subjectExercisesModal, returnFocus);
+  }
+
+  function refreshOpenGuidedSubjectExercises(){
+    const els = guidedFlowElements();
+    if(!guidedSubjectExercisesContext || !els.subjectExercisesModal || els.subjectExercisesModal.classList.contains("d-none")) return;
+    const group = GUIDED_GROUPS[guidedSubjectExercisesContext.groupIndex];
+    const subject = group && (group.subjects || []).find(
+      (item) => Number(item.subject_id || item.id || 0) === guidedSubjectExercisesContext.subjectId,
+    );
+    if(group && subject) openGuidedSubjectExercises(group, subject, null, { refresh: true });
   }
 
   function renderGuidedPlan(state){
@@ -342,11 +621,13 @@
         groupHead.className = "guided-flow-group-head";
         const groupItems = groupState ? groupState.queue : [];
         const groupDone = groupItems.filter((item) => String((guidedWindowForItem(item, maps) || {}).status || "") === "finalized").length;
-        groupHead.innerHTML = `<span></span><span class="guided-flow-group-count">${groupDone}/${groupItems.length}</span>`;
-        groupHead.firstElementChild.textContent = group.label || "Grup";
+        const firstStartable = guidedFirstStartableItem(groupState, maps);
+        groupHead.innerHTML = '<span></span><span class="guided-flow-group-count"></span>';
+        groupHead.firstElementChild.textContent = `${group.label || "Grup"} · Començar`;
+        groupHead.lastElementChild.textContent = `${groupDone}/${groupItems.length}`;
+        groupHead.disabled = !!(state && state.window) || !firstStartable;
         groupHead.addEventListener("click", () => {
-          const firstPending = groupItems.find((item) => String((guidedWindowForItem(item, maps) || {}).status || "") !== "finalized") || groupItems[0];
-          if(firstPending) openGuidedQueueItem(firstPending);
+          if(firstStartable) openGuidedQueueItem(firstStartable);
           closeGuidedDrawers();
         });
         groupEl.appendChild(groupHead);
@@ -354,33 +635,34 @@
         const roster = document.createElement("div");
         roster.className = "guided-flow-roster";
         (Array.isArray(group.subjects) ? group.subjects : []).forEach((subject) => {
-          const row = document.createElement("button");
-          row.type = "button";
+          const row = document.createElement("div");
           row.className = "guided-flow-roster-row";
           const subjectItems = groupItems.filter((item) => item.subjectId === Number(subject.subject_id || subject.id || 0));
           if(activeItem && subjectItems.some((item) => item.queueIndex === activeItem.queueIndex)) row.classList.add("is-active");
-          const name = document.createElement("span");
+          const name = document.createElement("button");
+          name.type = "button";
           name.className = "guided-flow-roster-name";
           name.textContent = `${subject.order ? `${subject.order}. ` : ""}${guidedSubjectName(subject)}`;
+          name.title = `Veure els exercicis de ${guidedSubjectName(subject)}`;
+          name.addEventListener("click", () => openGuidedSubjectExercises(groupState, subject, name));
           const states = document.createElement("span");
           states.className = "guided-flow-exercise-states";
           subjectItems.forEach((item) => {
             const windowItem = guidedWindowForItem(item, maps);
             const status = String((windowItem && windowItem.status) || "");
-            const chip = document.createElement("span");
+            const chip = document.createElement("button");
+            chip.type = "button";
             chip.className = `guided-flow-state${status ? ` guided-flow-state--${status}` : ""}`;
             chip.textContent = guidedStatusSymbol(status, item.exercici);
             chip.title = `Exercici ${item.exercici}: ${guidedStatusLabel(status)}`;
+            chip.addEventListener("click", () => {
+              requestGuidedNavigation(item, windowItem);
+            });
             states.appendChild(chip);
             total += 1;
             if(status === "finalized") completed += 1;
           });
           row.append(name, states);
-          row.addEventListener("click", () => {
-            const firstPending = subjectItems.find((item) => String((guidedWindowForItem(item, maps) || {}).status || "") !== "finalized") || subjectItems[0];
-            if(firstPending) openGuidedQueueItem(firstPending);
-            closeGuidedDrawers();
-          });
           roster.appendChild(row);
         });
         groupEl.appendChild(roster);
@@ -435,8 +717,7 @@
       reopen.type = "button";
       reopen.className = "btn btn-sm btn-outline-primary";
       reopen.textContent = "Reobrir";
-      reopen.disabled = !!(GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window);
-      reopen.addEventListener("click", () => reopenGuidedFlow(item.id));
+      reopen.addEventListener("click", () => requestGuidedNavigation(guidedItemForWindow(item), item));
       const discard = document.createElement("button");
       discard.type = "button";
       discard.className = "btn btn-sm btn-outline-danger";
@@ -453,7 +734,12 @@
     const group = GUIDED_GROUPS[item.groupIndex];
     if(!group) return null;
     const index = group.queue.findIndex((candidate) => candidate.queueIndex === item.queueIndex);
-    return index >= 0 ? (group.queue[index + 1] || null) : null;
+    if(index < 0) return null;
+    const maps = guidedHistoryMaps(GUIDED_FLOW_STATE || {});
+    return group.queue.slice(index + 1).find((candidate) => {
+      const status = String((guidedWindowForItem(candidate, maps) || {}).status || "");
+      return !status || status === "cancelled";
+    }) || null;
   }
 
   function guidedPreviousItem(item){
@@ -464,7 +750,10 @@
   function showGuidedGroupComplete(item){
     const els = guidedFlowElements();
     const group = item ? GUIDED_GROUPS[item.groupIndex] : null;
-    const nextGroup = group ? GUIDED_GROUPS[group.groupIndex + 1] : null;
+    const maps = guidedHistoryMaps(GUIDED_FLOW_STATE || {});
+    const nextGroup = group
+      ? GUIDED_GROUPS.slice(group.groupIndex + 1).find((candidate) => guidedFirstStartableItem(candidate, maps)) || null
+      : null;
     guidedGroupCompletedKey = group ? String(group.key || "") : "";
     if(!els.groupComplete) return;
     els.groupComplete.classList.remove("d-none");
@@ -488,6 +777,8 @@
   }
 
   function renderGuidedFlowState(state){
+    const stateVersion = Number(state && state.lane_version);
+    if(Number.isFinite(stateVersion) && stateVersion < guidedLastAppliedStateVersion) return;
     GUIDED_FLOW_STATE = state || null;
     const els = guidedFlowElements();
     if(!els.root) return;
@@ -495,37 +786,43 @@
     const isOpen = !!windowState && windowState.status === "open";
     const currentItem = guidedItemForWindow(windowState);
     if(currentItem) guidedLastItem = currentItem;
-    if(windowState && state && state.preview) applyGuidedScoringPreview(state.preview, windowState);
+    if(windowState && state && state.preview) applyGuidedScoringPreview(state.preview, windowState, state.lane_version);
     if(!windowState) GUIDED_FLOW_PREVIEW = null;
 
     if(els.open) els.open.disabled = guidedBusy || guidedActionLock || !!windowState || !state.has_controller;
     if(els.actions) els.actions.classList.toggle("d-none", !windowState);
     if(els.close) els.close.disabled = guidedBusy || guidedActionLock || !isOpen;
     if(els.closePublish) els.closePublish.disabled = guidedBusy || guidedActionLock || !isOpen;
-    if(els.cancel) els.cancel.disabled = guidedBusy || guidedActionLock || !windowState;
+    if(els.exit) els.exit.disabled = guidedBusy || guidedActionLock || !windowState;
     if(els.previous){
       els.previous.disabled = guidedBusy || guidedActionLock || !!windowState || !guidedPreviousItem(guidedLastItem);
       els.previous.classList.toggle("d-none", !!windowState);
     }
     if(els.subject) els.subject.disabled = guidedBusy || guidedActionLock || !!windowState;
     if(els.exercise) els.exercise.disabled = guidedBusy || guidedActionLock || !!windowState;
+    if(els.group) els.group.disabled = guidedBusy || guidedActionLock || !!windowState;
+    if(els.exactPoint) els.exactPoint.disabled = guidedBusy || guidedActionLock || !!windowState;
+    if(els.exactPointSidebar) els.exactPointSidebar.disabled = guidedBusy || guidedActionLock || !!windowState;
     renderGuidedJudgeStatuses(windowState ? windowState.judge_statuses : []);
     renderGuidedPendingWindows(state ? state.pending_windows : []);
     renderGuidedPlan(state);
+    renderGuidedStartGroups(state);
+    refreshOpenGuidedSubjectExercises();
 
     if(!windowState || windowState.is_assigned === false){
+      if(!windowState && els.exitModal) hideGuidedDialog(els.exitModal, { restoreFocus: false });
       if(els.waiting) els.waiting.classList.remove("d-none");
       if(els.current) els.current.classList.add("d-none");
       if(els.waitingTitle){
         els.waitingTitle.textContent = windowState && windowState.is_assigned === false
           ? "Actuació no assignada a aquest jutge"
-          : (JUDGE_FLOW_IS_CONTROLLER ? "Preparat per al següent gimnasta" : "Esperant el següent gimnasta");
+          : (JUDGE_FLOW_IS_CONTROLLER ? "Preparat per començar" : "Esperant el següent gimnasta");
       }
       if(els.waitingCopy){
         els.waitingCopy.textContent = windowState && windowState.is_assigned === false
           ? "Continua esperant; el teu torn s'obrirà automàticament."
           : JUDGE_FLOW_IS_CONTROLLER
-          ? "Selecciona una actuació del llistat per començar."
+          ? "Comença un grup o tria un gimnasta i un exercici concrets."
           : state.has_controller
           ? "La puntuació s'obrirà automàticament."
           : "Encara no hi ha cap controlador assignat.";
@@ -538,10 +835,24 @@
     if(els.waiting) els.waiting.classList.add("d-none");
     if(els.current) els.current.classList.remove("d-none");
     if(els.currentName) els.currentName.textContent = windowState.subject_label || `Participant ${windowState.subject_id}`;
+    if(els.currentEyebrow) els.currentEyebrow.textContent = JUDGE_FLOW_IS_CONTROLLER ? "Sessió en curs" : "Actuació oberta";
     if(els.currentMeta){
       const contextParts = currentItem ? [currentItem.sectionLabel, currentItem.groupLabel] : [];
-      contextParts.push(`Exercici ${windowState.exercici}`);
+      if(currentItem){
+        const group = GUIDED_GROUPS[currentItem.groupIndex];
+        const subjects = group && Array.isArray(group.subjects) ? group.subjects : [];
+        const subjectPosition = subjects.findIndex((subject) => Number(subject.subject_id || subject.id || 0) === currentItem.subjectId) + 1;
+        if(subjectPosition > 0) contextParts.push(`Ordre ${subjectPosition} de ${subjects.length}`);
+      }
       els.currentMeta.textContent = contextParts.filter(Boolean).join(" · ");
+    }
+    if(els.currentExercise){
+      const strong = els.currentExercise.querySelector("strong");
+      const detail = els.currentExercise.querySelector("span");
+      const exerciseCount = Math.max(1, EXERCISES.length);
+      if(strong) strong.textContent = `Exercici ${windowState.exercici}`;
+      if(detail) detail.textContent = `de ${exerciseCount}`;
+      els.currentExercise.setAttribute("aria-label", `Exercici ${windowState.exercici} de ${exerciseCount}`);
     }
     if(els.currentStatus) els.currentStatus.textContent = guidedStatusLabel(windowState.status);
     const nextItem = guidedNextItemInGroup(currentItem);
@@ -633,17 +944,11 @@
   }
 
   async function openGuidedFlow(){
-    const els = guidedFlowElements();
-    const subject = subjectForId(els.subject ? els.subject.value : "");
-    const subjectId = Number(subject.subject_id || (els.subject && els.subject.value));
-    const exercici = Number((els.exercise && els.exercise.value) || 1);
-    const item = GUIDED_QUEUE.find((candidate) => candidate.subjectId === subjectId && candidate.exercici === exercici);
-    if(item) return openGuidedQueueItem(item);
-    return guidedFlowRequest(FLOW_OPEN_URL, {
-      subject_kind: subject.subject_kind || (TEAM_SUBJECT_MODE ? "team_unit" : "inscripcio"),
-      subject_id: subjectId,
-      exercici,
-    });
+    const item = selectedGuidedPointItem();
+    if(!item) return null;
+    const data = await openGuidedQueueItem(item);
+    if(data) hideGuidedDialog(guidedFlowElements().pointModal, { restoreFocus: false });
+    return data;
   }
 
   async function waitForGuidedDraftSync(windowState){
@@ -673,6 +978,112 @@
         setGuidedControllerMessage("Nota desada com a pendent.", "ok");
         await advanceAfterGuidedItem(item);
       }
+    } finally {
+      guidedActionLock = false;
+      if(GUIDED_FLOW_STATE) renderGuidedFlowState(GUIDED_FLOW_STATE);
+    }
+  }
+
+  function openGuidedExitModal(){
+    const els = guidedFlowElements();
+    const windowState = GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window;
+    if(!windowState || !els.exitModal) return;
+    const draftCount = Math.max(0, Number(windowState.draft_count || 0));
+    const targetLabel = guidedNavigationTargetLabel(guidedNavigationTarget);
+    if(els.exitTitle) els.exitTitle.textContent = guidedNavigationTarget ? "Canviar d'actuació?" : "Sortir de l'actuació?";
+    if(els.exitSubject){
+      els.exitSubject.textContent = `${windowState.subject_label || `Participant ${windowState.subject_id}`} · Exercici ${windowState.exercici} de ${Math.max(1, EXERCISES.length)}`;
+    }
+    if(els.exitCopy){
+      const draftCopy = draftCount
+        ? `Hi ha dades sincronitzades de ${draftCount} ${draftCount === 1 ? "jutge" : "jutges"}.`
+        : "Encara no hi ha cap puntuació introduïda.";
+      els.exitCopy.textContent = guidedNavigationTarget
+        ? `${draftCopy} En confirmar, s'obrirà ${targetLabel}.`
+        : `${draftCopy} Pots tornar a la selecció conservant la nota com a pendent o descartant-la.`;
+    }
+    if(els.exitPending) els.exitPending.classList.remove("d-none");
+    if(els.exitPending) els.exitPending.textContent = guidedNavigationTarget ? "Deixar pendent i anar-hi" : "Desar com a pendent i sortir";
+    if(els.exitPublish){
+      els.exitPublish.textContent = guidedNavigationTarget ? "Publicar i anar-hi" : "Publicar i sortir";
+      els.exitPublish.classList.toggle("d-none", draftCount === 0);
+    }
+    if(els.exitDiscard){
+      els.exitDiscard.textContent = guidedNavigationTarget
+        ? (draftCount ? "Descartar i anar-hi" : "Tancar i anar-hi")
+        : (draftCount ? "Descartar i sortir" : "Tancar i sortir");
+    }
+    showGuidedDialog(els.exitModal, els.exit);
+  }
+
+  function continueCurrentGuidedFlow(){
+    guidedNavigationTarget = null;
+    hideGuidedDialog(guidedFlowElements().exitModal);
+  }
+
+  async function savePendingAndExitGuidedFlow(){
+    const els = guidedFlowElements();
+    const windowState = GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window;
+    if(!windowState) return;
+    guidedActionLock = true;
+    try{
+      await waitForGuidedDraftSync(windowState);
+      const data = await guidedFlowRequest(FLOW_CLOSE_URL, { window_id: windowState.id });
+      if(data){
+        hideGuidedDialog(els.exitModal, { restoreFocus: false });
+        hideGuidedGroupComplete();
+        guidedLastItem = null;
+        const navigated = guidedNavigationTarget ? await activateGuidedNavigationTarget() : null;
+        setGuidedControllerMessage(navigated ? "Nota pendent i nova actuació oberta." : "Nota desada com a pendent. Tria com vols continuar.", "ok");
+      }
+    } finally {
+      guidedActionLock = false;
+      if(GUIDED_FLOW_STATE) renderGuidedFlowState(GUIDED_FLOW_STATE);
+    }
+  }
+
+  async function discardAndExitGuidedFlow(){
+    const els = guidedFlowElements();
+    const windowState = GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window;
+    if(!windowState) return;
+    const draftCount = Math.max(0, Number(windowState.draft_count || 0));
+    if(draftCount && !window.confirm("Es descartaran totes les puntuacions introduïdes en aquesta actuació. Vols continuar?")) return;
+    guidedActionLock = true;
+    try{
+      const data = await guidedFlowRequest(FLOW_CANCEL_URL, { window_id: windowState.id });
+      if(data){
+        hideGuidedDialog(els.exitModal, { restoreFocus: false });
+        hideGuidedGroupComplete();
+        guidedLastItem = null;
+        const navigated = guidedNavigationTarget ? await activateGuidedNavigationTarget() : null;
+        setGuidedControllerMessage(
+          navigated ? "Actuació anterior tancada i nova actuació oberta." : (draftCount ? "Actuació descartada." : "Actuació tancada."),
+          "ok",
+        );
+      }
+    } finally {
+      guidedActionLock = false;
+      if(GUIDED_FLOW_STATE) renderGuidedFlowState(GUIDED_FLOW_STATE);
+    }
+  }
+
+  async function publishAndExitGuidedFlow(){
+    const els = guidedFlowElements();
+    const windowState = GUIDED_FLOW_STATE && GUIDED_FLOW_STATE.window;
+    if(!windowState) return;
+    guidedActionLock = true;
+    try{
+      await waitForGuidedDraftSync(windowState);
+      const closed = await guidedFlowRequest(FLOW_CLOSE_URL, { window_id: windowState.id });
+      if(!closed) return;
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+      const finalized = await finalizeGuidedFlow(windowState.id);
+      if(!finalized) return;
+      hideGuidedDialog(els.exitModal, { restoreFocus: false });
+      hideGuidedGroupComplete();
+      guidedLastItem = null;
+      const navigated = guidedNavigationTarget ? await activateGuidedNavigationTarget() : null;
+      setGuidedControllerMessage(navigated ? "Nota publicada i nova actuació oberta." : "Nota publicada. Tria com vols continuar.", "ok");
     } finally {
       guidedActionLock = false;
       if(GUIDED_FLOW_STATE) renderGuidedFlowState(GUIDED_FLOW_STATE);
@@ -722,7 +1133,35 @@
     });
     if(els.close) els.close.addEventListener("click", closeGuidedFlow);
     if(els.closePublish) els.closePublish.addEventListener("click", closeAndPublishGuidedFlow);
-    if(els.cancel) els.cancel.addEventListener("click", () => cancelGuidedFlow());
+    if(els.exit) els.exit.addEventListener("click", () => {
+      guidedNavigationTarget = null;
+      openGuidedExitModal();
+    });
+    if(els.exitPending) els.exitPending.addEventListener("click", savePendingAndExitGuidedFlow);
+    if(els.exitDiscard) els.exitDiscard.addEventListener("click", discardAndExitGuidedFlow);
+    if(els.exitPublish) els.exitPublish.addEventListener("click", publishAndExitGuidedFlow);
+    if(els.presenceConfirmAccept) els.presenceConfirmAccept.addEventListener("click", () => finishGuidedPresenceConfirmation(true));
+    if(els.presenceConfirmClose) els.presenceConfirmClose.addEventListener("click", () => finishGuidedPresenceConfirmation(false));
+    document.querySelectorAll("[data-guided-presence-cancel]").forEach((button) => {
+      button.addEventListener("click", () => finishGuidedPresenceConfirmation(false));
+    });
+    document.querySelectorAll("[data-guided-exit-continue]").forEach((button) => {
+      button.addEventListener("click", continueCurrentGuidedFlow);
+    });
+    if(els.exitModalClose) els.exitModalClose.addEventListener("click", continueCurrentGuidedFlow);
+    document.querySelectorAll("[data-guided-subject-close]").forEach((button) => {
+      button.addEventListener("click", closeGuidedSubjectExercises);
+    });
+    if(els.subjectExercisesClose) els.subjectExercisesClose.addEventListener("click", closeGuidedSubjectExercises);
+    if(els.exactPoint) els.exactPoint.addEventListener("click", openGuidedPointModal);
+    if(els.exactPointSidebar) els.exactPointSidebar.addEventListener("click", openGuidedPointModal);
+    document.querySelectorAll("[data-guided-point-close]").forEach((button) => {
+      button.addEventListener("click", () => hideGuidedDialog(els.pointModal));
+    });
+    if(els.pointModalClose) els.pointModalClose.addEventListener("click", () => hideGuidedDialog(els.pointModal));
+    if(els.group) els.group.addEventListener("change", refreshGuidedPointSubjects);
+    if(els.subject) els.subject.addEventListener("change", refreshGuidedPointSummary);
+    if(els.exercise) els.exercise.addEventListener("change", refreshGuidedPointSummary);
     if(els.previous){
       els.previous.addEventListener("click", () => {
         const previous = guidedPreviousItem(guidedLastItem);
@@ -732,7 +1171,8 @@
     if(els.nextGroup){
       els.nextGroup.addEventListener("click", () => {
         const group = GUIDED_GROUPS[Number(els.nextGroup.dataset.nextGroupIndex || -1)];
-        if(group && group.queue.length) openGuidedQueueItem(group.queue[0]);
+        const first = guidedFirstStartableItem(group, guidedHistoryMaps(GUIDED_FLOW_STATE || {}));
+        if(first) openGuidedQueueItem(first);
       });
     }
     if(els.planToggle) els.planToggle.addEventListener("click", () => openGuidedDrawer("plan"));
@@ -746,6 +1186,22 @@
       });
     }
     document.addEventListener("keydown", (event) => {
+      if(event.key === "Escape" && els.presenceConfirmModal && !els.presenceConfirmModal.classList.contains("d-none")){
+        finishGuidedPresenceConfirmation(false);
+        return;
+      }
+      if(event.key === "Escape" && els.exitModal && !els.exitModal.classList.contains("d-none")){
+        continueCurrentGuidedFlow();
+        return;
+      }
+      if(event.key === "Escape" && els.subjectExercisesModal && !els.subjectExercisesModal.classList.contains("d-none")){
+        closeGuidedSubjectExercises();
+        return;
+      }
+      if(event.key === "Escape" && els.pointModal && !els.pointModal.classList.contains("d-none")){
+        hideGuidedDialog(els.pointModal);
+        return;
+      }
       if(event.key === "Escape" && document.body.classList.contains("guided-drawer-open")){
         closeGuidedDrawers({ restoreFocus: true });
       }

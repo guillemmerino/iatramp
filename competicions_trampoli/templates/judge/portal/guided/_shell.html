@@ -14,14 +14,18 @@
     .guided-flow-group{border-top:1px solid #e2e8f0}
     .guided-flow-group:first-child{border-top:0}
     .guided-flow-group-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;width:100%;border:0;background:#f8fafc;padding:.58rem .7rem;text-align:left;color:#0f172a;font-weight:800}
+    .guided-flow-group-head:disabled{color:#64748b}
     .guided-flow-group-count{color:#64748b;font-size:.72rem;font-weight:750}
     .guided-flow-roster{display:grid;padding:.25rem}
     .guided-flow-roster-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.45rem;align-items:center;width:100%;border:0;border-radius:8px;background:transparent;padding:.42rem .48rem;text-align:left}
     .guided-flow-roster-row:hover,.guided-flow-roster-row:focus{background:#eff6ff}
     .guided-flow-roster-row.is-active{background:#dbeafe;box-shadow:inset 3px 0 #2563eb}
-    .guided-flow-roster-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.82rem;font-weight:750;color:#334155}
+    .guided-flow-roster-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:transparent;padding:.18rem 0;text-align:left;font-size:.82rem;font-weight:750;color:#334155}
+    button.guided-flow-roster-name:hover,button.guided-flow-roster-name:focus{color:#1d4ed8;text-decoration:underline}
     .guided-flow-exercise-states{display:flex;gap:.22rem}
-    .guided-flow-state{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;border-radius:999px;background:#f1f5f9;color:#64748b;font-size:.68rem;font-weight:850}
+    .guided-flow-state{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;border:0;border-radius:999px;background:#f1f5f9;color:#64748b;font-size:.68rem;font-weight:850}
+    button.guided-flow-state:not(:disabled){cursor:pointer;box-shadow:0 0 0 1px #bfdbfe}
+    button.guided-flow-state:disabled{cursor:default;opacity:1}
     .guided-flow-state--open{background:#dbeafe;color:#1d4ed8}
     .guided-flow-state--pending,.guided-flow-state--closing,.guided-flow-state--locked{background:#fef3c7;color:#92400e}
     .guided-flow-state--finalized{background:#dcfce7;color:#166534}
@@ -37,6 +41,11 @@
     .guided-flow-title{margin:0;color:#0f172a;font-size:clamp(1.45rem,4vw,2.2rem);font-weight:850}
     .guided-flow-copy{margin:.55rem 0 0;color:#64748b}
     .guided-flow-current-head{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1rem}
+    .guided-flow-current-identity{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;min-width:0;flex:1}
+    .guided-flow-current-eyebrow{margin-bottom:.28rem;color:#2563eb;font-size:.72rem;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+    .guided-flow-current-exercise{display:flex;min-width:132px;min-height:72px;flex-direction:column;align-items:center;justify-content:center;border:2px solid #2563eb;border-radius:14px;background:#eff6ff;color:#1e3a8a;text-align:center}
+    .guided-flow-current-exercise strong{font-size:1.15rem;line-height:1.1}
+    .guided-flow-current-exercise span{margin-top:.18rem;font-size:.72rem;font-weight:800}
     .guided-flow-badge{display:inline-flex;border-radius:999px;background:#dbeafe;color:#1d4ed8;padding:.35rem .65rem;font-size:.8rem;font-weight:800}
     .guided-flow-next-copy{margin-top:.75rem;padding:.55rem .7rem;border-radius:10px;background:#f8fafc;color:#475569;font-size:.82rem}
     .guided-flow-complete{margin-bottom:1rem;text-align:center;border-color:#86efac;background:#f0fdf4}
@@ -45,6 +54,31 @@
     .guided-flow-pending-item{padding:.58rem;border:1px solid #fde68a;border-radius:10px;background:#fffbeb}
     .guided-flow-pending-name{font-size:.82rem;font-weight:800;color:#78350f;overflow-wrap:anywhere}
     .guided-flow-pending-actions{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.45rem}
+    .guided-flow-start-actions{display:grid;gap:.65rem;margin-top:1.25rem;text-align:left}
+    .guided-flow-start-card{display:flex;align-items:center;justify-content:space-between;gap:1rem;width:100%;border:1px solid #bfdbfe;border-radius:13px;background:#fff;padding:.8rem .9rem;text-align:left;color:#0f172a;box-shadow:0 5px 16px rgba(37,99,235,.07)}
+    .guided-flow-start-card:hover,.guided-flow-start-card:focus{border-color:#2563eb;background:#f8fbff}
+    .guided-flow-start-card:disabled{cursor:not-allowed;border-color:#e2e8f0;background:#f8fafc;color:#94a3b8;box-shadow:none}
+    .guided-flow-start-card-title{display:block;font-weight:850}
+    .guided-flow-start-card-copy{display:block;margin-top:.15rem;color:#64748b;font-size:.78rem}
+    .guided-flow-start-card-cta{flex:0 0 auto;color:#1d4ed8;font-size:.78rem;font-weight:850}
+    .guided-flow-dialog{position:fixed;z-index:1080;inset:0;display:flex;align-items:center;justify-content:center;padding:1rem}
+    .guided-flow-dialog.d-none{display:none!important}
+    .guided-flow-dialog-backdrop{position:absolute;inset:0;border:0;background:rgba(15,23,42,.58)}
+    .guided-flow-dialog-card{position:relative;z-index:1;width:min(100%,560px);max-height:calc(100vh - 2rem);overflow:auto;border-radius:16px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.28)}
+    .guided-flow-dialog-head,.guided-flow-dialog-body,.guided-flow-dialog-actions{padding:1rem 1.1rem}
+    .guided-flow-dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;border-bottom:1px solid #e2e8f0}
+    .guided-flow-dialog-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.55rem;border-top:1px solid #e2e8f0}
+    .guided-flow-dialog-close{border:0;background:transparent;color:#64748b;font-size:1.5rem;line-height:1}
+    .guided-subject-exercises{display:grid;gap:.6rem}
+    .guided-subject-exercise{display:flex;align-items:center;justify-content:space-between;gap:1rem;width:100%;border:1px solid #dbe4f0;border-radius:12px;background:#fff;padding:.75rem .85rem;text-align:left;color:#0f172a}
+    .guided-subject-exercise:hover,.guided-subject-exercise:focus{border-color:#2563eb;background:#f8fbff}
+    .guided-subject-exercise-title{font-weight:850}
+    .guided-subject-exercise-state{display:inline-flex;align-items:center;border-radius:999px;padding:.28rem .55rem;background:#f1f5f9;color:#475569;font-size:.75rem;font-weight:850}
+    .guided-subject-exercise-state--open{background:#dbeafe;color:#1d4ed8}
+    .guided-subject-exercise-state--closing,.guided-subject-exercise-state--locked{background:#fef3c7;color:#92400e}
+    .guided-subject-exercise-state--finalized{background:#dcfce7;color:#166534}
+    .guided-subject-exercise-state--cancelled{background:#fee2e2;color:#991b1b}
+    body.guided-dialog-open{overflow:hidden}
     .guided-flow-mobile-nav,.guided-drawer-close,.guided-drawer-backdrop{display:none}
     @media(max-width:1180px){
       .guided-flow-root{max-width:980px}
@@ -126,7 +160,14 @@
       .guided-flow-current-head{margin-bottom:.25rem}
       #guidedSyncStatus{margin-top:.22rem!important}
     }
-    @media(max-width:680px){.guided-flow-controller-grid{grid-template-columns:1fr}.guided-flow-current-head{flex-direction:column}}
+    @media(max-width:680px){
+      .guided-flow-controller-grid{grid-template-columns:1fr}
+      .guided-flow-current-head,.guided-flow-current-identity{flex-direction:column}
+      .guided-flow-current-exercise{width:100%;min-height:58px}
+      .guided-flow-start-card{align-items:flex-start;flex-direction:column}
+      .guided-flow-dialog-actions{flex-direction:column-reverse}
+      .guided-flow-dialog-actions .btn{width:100%}
+    }
   </style>
 
   <div class="guided-flow-layout{% if not judge_flow_is_controller %} guided-flow-layout--judge{% endif %}">
@@ -151,20 +192,9 @@
           </div>
         </div>
         <div id="guidedPlanList" class="guided-flow-plan"></div>
-        <details class="mt-3">
-          <summary class="small fw-bold text-primary">Selecció manual</summary>
-          <div class="guided-flow-controller-grid mt-2">
-            <div>
-              <label class="form-label small text-muted mb-1" for="guidedSubjectSelect">Gimnasta o equip</label>
-              <select id="guidedSubjectSelect" class="form-select form-select-sm"></select>
-            </div>
-            <div>
-              <label class="form-label small text-muted mb-1" for="guidedExerciseSelect">Exercici</label>
-              <select id="guidedExerciseSelect" class="form-select form-select-sm"></select>
-            </div>
-            <button id="guidedOpenButton" type="button" class="btn btn-sm btn-outline-primary">Obrir</button>
-          </div>
-        </details>
+        <button id="guidedExactPointSidebarButton" type="button" class="btn btn-sm btn-outline-primary w-100 mt-3">
+          Començar des d'un punt concret
+        </button>
       </aside>
     {% endif %}
 
@@ -179,7 +209,7 @@
             <button id="guidedPreviousButton" type="button" class="btn btn-sm btn-outline-primary">Anterior</button>
             <button id="guidedClosePublishButton" type="button" class="btn btn-sm btn-success">Publicar i següent</button>
             <button id="guidedCloseButton" type="button" class="btn btn-sm btn-warning">Pendent i següent</button>
-            <button id="guidedCancelButton" type="button" class="btn btn-sm btn-outline-danger">Cancel·lar</button>
+            <button id="guidedExitButton" type="button" class="btn btn-sm btn-outline-secondary">Sortir</button>
           </div>
           <div id="guidedJudgeStatuses" class="guided-flow-status-list"></div>
         </section>
@@ -191,18 +221,31 @@
       {% endif %}
 
       <section id="guidedWaitingPanel" class="guided-flow-panel guided-flow-waiting">
-        <div class="guided-flow-waiting-mark" aria-hidden="true">⏳</div>
-        <h3 id="guidedWaitingTitle" class="guided-flow-title">Esperant el següent gimnasta</h3>
+        <div class="guided-flow-waiting-mark" aria-hidden="true">{% if judge_flow_is_controller %}▶{% else %}⏳{% endif %}</div>
+        <h3 id="guidedWaitingTitle" class="guided-flow-title">{% if judge_flow_is_controller %}Preparat per començar{% else %}Esperant el següent gimnasta{% endif %}</h3>
         <p id="guidedWaitingCopy" class="guided-flow-copy">
-          {% if judge_flow_has_controller %}La puntuació s'obrirà automàticament.{% else %}Encara no hi ha cap controlador assignat.{% endif %}
+          {% if judge_flow_is_controller %}Comença un grup o tria un gimnasta i un exercici concrets.{% elif judge_flow_has_controller %}La puntuació s'obrirà automàticament.{% else %}Encara no hi ha cap controlador assignat.{% endif %}
         </p>
+        {% if judge_flow_is_controller %}
+          <div id="guidedStartGroups" class="guided-flow-start-actions"></div>
+          <button id="guidedExactPointButton" type="button" class="btn btn-outline-primary mt-3">
+            Començar des d'un punt concret
+          </button>
+        {% endif %}
       </section>
 
       <section id="guidedCurrentPanel" class="guided-flow-panel d-none">
         <div class="guided-flow-current-head">
-          <div>
-            <h3 id="guidedCurrentName" class="guided-flow-title"></h3>
-            <p id="guidedCurrentMeta" class="guided-flow-copy"></p>
+          <div class="guided-flow-current-identity">
+            <div>
+              <div id="guidedCurrentEyebrow" class="guided-flow-current-eyebrow">Sessió en curs</div>
+              <h3 id="guidedCurrentName" class="guided-flow-title"></h3>
+              <p id="guidedCurrentMeta" class="guided-flow-copy"></p>
+            </div>
+            <div id="guidedCurrentExercise" class="guided-flow-current-exercise" aria-label="Exercici actual">
+              <strong>Exercici 1</strong>
+              <span>de 1</span>
+            </div>
           </div>
           <span id="guidedCurrentStatus" class="guided-flow-badge">Puntuació oberta</span>
         </div>
@@ -235,4 +278,98 @@
       <button id="guidedDrawerBackdrop" type="button" class="guided-drawer-backdrop" aria-label="Tancar els panells laterals" tabindex="-1"></button>
     {% endif %}
   </div>
+
+  {% if judge_flow_is_controller %}
+    <div id="guidedPointModal" class="guided-flow-dialog d-none" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="guidedPointModalTitle">
+      <button type="button" class="guided-flow-dialog-backdrop" data-guided-point-close aria-label="Tancar"></button>
+      <div class="guided-flow-dialog-card">
+        <div class="guided-flow-dialog-head">
+          <div>
+            <h4 id="guidedPointModalTitle" class="h5 mb-1">Començar des d'un punt concret</h4>
+            <div class="small text-muted">Tria exactament el grup, el participant i l'exercici.</div>
+          </div>
+          <button id="guidedPointModalClose" type="button" class="guided-flow-dialog-close" aria-label="Tancar">&times;</button>
+        </div>
+        <div class="guided-flow-dialog-body">
+          <div class="mb-3">
+            <label class="form-label" for="guidedGroupSelect">Grup</label>
+            <select id="guidedGroupSelect" class="form-select"></select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="guidedSubjectSelect">Gimnasta o equip</label>
+            <select id="guidedSubjectSelect" class="form-select"></select>
+          </div>
+          <div>
+            <label class="form-label" for="guidedExerciseSelect">Exercici</label>
+            <select id="guidedExerciseSelect" class="form-select"></select>
+          </div>
+          <div id="guidedPointSummary" class="alert alert-primary mt-3 mb-0"></div>
+        </div>
+        <div class="guided-flow-dialog-actions">
+          <button type="button" class="btn btn-outline-secondary" data-guided-point-close>Continuar sense canvis</button>
+          <button id="guidedOpenButton" type="button" class="btn btn-primary">Començar aquí</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="guidedSubjectExercisesModal" class="guided-flow-dialog d-none" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="guidedSubjectExercisesTitle">
+      <button type="button" class="guided-flow-dialog-backdrop" data-guided-subject-close aria-label="Tancar"></button>
+      <div class="guided-flow-dialog-card">
+        <div class="guided-flow-dialog-head">
+          <div>
+            <h4 id="guidedSubjectExercisesTitle" class="h5 mb-1"></h4>
+            <div id="guidedSubjectExercisesMeta" class="small text-muted"></div>
+          </div>
+          <button id="guidedSubjectExercisesClose" type="button" class="guided-flow-dialog-close" aria-label="Tancar">&times;</button>
+        </div>
+        <div class="guided-flow-dialog-body">
+          <div id="guidedSubjectExercisesList" class="guided-subject-exercises"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="guidedExitModal" class="guided-flow-dialog d-none" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="guidedExitModalTitle">
+      <button type="button" class="guided-flow-dialog-backdrop" data-guided-exit-continue aria-label="Continuar puntuant"></button>
+      <div class="guided-flow-dialog-card">
+        <div class="guided-flow-dialog-head">
+          <div>
+            <h4 id="guidedExitModalTitle" class="h5 mb-1">Sortir de l'actuació?</h4>
+            <div id="guidedExitSubject" class="fw-semibold"></div>
+          </div>
+          <button id="guidedExitModalClose" type="button" class="guided-flow-dialog-close" aria-label="Continuar puntuant">&times;</button>
+        </div>
+        <div class="guided-flow-dialog-body">
+          <p id="guidedExitCopy" class="mb-0"></p>
+        </div>
+        <div class="guided-flow-dialog-actions">
+          <button id="guidedExitDiscardButton" type="button" class="btn btn-outline-danger">Descartar i sortir</button>
+          <button type="button" class="btn btn-outline-secondary" data-guided-exit-continue>Continuar</button>
+          <button id="guidedExitPendingButton" type="button" class="btn btn-warning">Desar com a pendent i sortir</button>
+          <button id="guidedExitPublishButton" type="button" class="btn btn-success">Publicar i sortir</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="guidedPresenceConfirmModal" class="guided-flow-dialog d-none" role="alertdialog" aria-modal="true" aria-hidden="true" aria-labelledby="guidedPresenceConfirmTitle" aria-describedby="guidedPresenceConfirmCopy">
+      <button type="button" class="guided-flow-dialog-backdrop" data-guided-presence-cancel aria-label="Tornar sense validar"></button>
+      <div class="guided-flow-dialog-card">
+        <div class="guided-flow-dialog-head">
+          <div>
+            <h4 id="guidedPresenceConfirmTitle" class="h5 mb-1">Validar un jutge sense notes?</h4>
+            <div class="small text-warning fw-semibold">La fila buida comptarà com a zero.</div>
+          </div>
+          <button id="guidedPresenceConfirmClose" type="button" class="guided-flow-dialog-close" aria-label="Tornar sense validar">&times;</button>
+        </div>
+        <div class="guided-flow-dialog-body">
+          <p id="guidedPresenceConfirmCopy" class="mb-0">
+            <strong id="guidedPresenceConfirmJudge">Jutge</strong> encara no té notes. Si el valides, la seva fila buida comptarà com a zero.
+          </p>
+        </div>
+        <div class="guided-flow-dialog-actions">
+          <button type="button" class="btn btn-outline-secondary" data-guided-presence-cancel>Tornar sense validar</button>
+          <button id="guidedPresenceConfirmAccept" type="button" class="btn btn-warning">Validar com a zero</button>
+        </div>
+      </div>
+    </div>
+  {% endif %}
 </div>

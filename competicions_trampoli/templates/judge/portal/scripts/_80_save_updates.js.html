@@ -129,7 +129,7 @@
       }
       (data.drafts || []).forEach(rememberLiveDraft);
       if(data.preview && typeof applyGuidedScoringPreview === "function"){
-        applyGuidedScoringPreview(data.preview);
+        applyGuidedScoringPreview(data.preview, null, data.lane_version);
       }
       if(state.sequence === sentSequence){
         clearDirty(insId, exercici);

@@ -437,18 +437,23 @@
       const rowHead = document.createElement("th");
       rowHead.scope = "row";
       rowHead.className = "judge-supervisor-row-head";
-      const judgeLabel = document.createElement(JUDGE_FLOW_IS_CONTROLLER && FLOW_PRESENCE_URL ? "button" : "span");
+      const supportsIndividualPresence = field.supports_individual_presence === true;
+      const judgeLabel = document.createElement(
+        JUDGE_FLOW_IS_CONTROLLER && FLOW_PRESENCE_URL && supportsIndividualPresence ? "button" : "span"
+      );
       judgeLabel.className = "judge-supervisor-presence-toggle";
       judgeLabel.textContent = `J${judgeIndex}`;
-      judgeLabel.dataset.presenceFieldCode = code;
-      judgeLabel.dataset.presenceJudgeIndex = String(judgeIndex);
       if(judgeLabel.tagName === "BUTTON"){
         judgeLabel.type = "button";
+        judgeLabel.dataset.presenceFieldCode = code;
+        judgeLabel.dataset.presenceJudgeIndex = String(judgeIndex);
         judgeLabel.addEventListener("click", () => {
           if(typeof toggleGuidedJudgePresence === "function"){
             toggleGuidedJudgePresence(code, judgeIndex, judgeLabel);
           }
         });
+      } else if(JUDGE_FLOW_IS_CONTROLLER && !supportsIndividualPresence){
+        judgeLabel.title = "Aquest camp no necessita validació individual de jutges.";
       }
       rowHead.appendChild(judgeLabel);
       if(perm.is_supervisor_row){
@@ -460,7 +465,7 @@
         rowHead.setAttribute("aria-label", `J${judgeIndex}, Supervisor`);
         rowHead.appendChild(ownLabel);
       }
-      if(typeof refreshGuidedPresenceButton === "function"){
+      if(judgeLabel.tagName === "BUTTON" && typeof refreshGuidedPresenceButton === "function"){
         refreshGuidedPresenceButton(judgeLabel);
       }
       row.appendChild(rowHead);

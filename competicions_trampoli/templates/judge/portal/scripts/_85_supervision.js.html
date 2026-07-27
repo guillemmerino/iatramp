@@ -188,7 +188,7 @@
         });
         if(changed) refreshInsNavStatuses();
         if(data.preview && typeof applyGuidedScoringPreview === "function"){
-          applyGuidedScoringPreview(data.preview);
+          applyGuidedScoringPreview(data.preview, null, data.lane_version);
         }
         draftSince = data.next_since || draftSince;
         draftAfterId = String(data.next_after_id || "");

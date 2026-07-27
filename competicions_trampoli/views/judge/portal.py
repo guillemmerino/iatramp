@@ -20,6 +20,7 @@ from ...models.judging import JudgeDeviceToken, PublicLiveToken
 from ...models.rotacions import RotacioAssignacio, RotacioFranja
 from ...models.scoring import ScoreEntryVideo
 from ...services.scoring.schema_resolution import resolve_scoring_schema_for_comp_aparell
+from ...services.scoring.judge_presence import is_strict_presence_field
 from ...services.shared.competition_groups import (
     get_group_maps,
     get_inscripcio_competition_order,
@@ -570,6 +571,10 @@ def judge_portal(request, token, assignment_id=None):
                 "grup_competicio_id": int(ins.grup_competicio_id or 0),
                 "meta": "",
             })
+
+    for field in schema.get("fields") or []:
+        if isinstance(field, dict):
+            field["supports_individual_presence"] = bool(is_strict_presence_field(field))
 
     if phase is not None:
         phase_keys_by_unit_id = {

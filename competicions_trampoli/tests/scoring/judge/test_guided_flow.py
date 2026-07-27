@@ -142,6 +142,7 @@ class JudgeGuidedFlowTests(_BaseTrampoliDataMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context["judge_flow_enabled"])
         self.assertTrue(response.context["judge_flow_is_controller"])
+        self.assertFalse(response.context["schema"]["fields"][0]["supports_individual_presence"])
         self.assertContains(response, "Control de pista")
         self.assertContains(response, "judge-portal-page--guided")
         self.assertContains(response, 'id="guidedPlanSidebar"')
@@ -149,8 +150,53 @@ class JudgeGuidedFlowTests(_BaseTrampoliDataMixin, TestCase):
         self.assertContains(response, 'id="guidedPlanToggle"')
         self.assertContains(response, 'id="guidedPendingToggle"')
         self.assertContains(response, 'id="guidedDrawerBackdrop"')
+        self.assertContains(response, 'id="guidedStartGroups"')
+        self.assertContains(response, 'id="guidedExactPointButton"')
+        self.assertContains(response, 'id="guidedPointModal"')
+        self.assertContains(response, 'id="guidedExitButton"')
+        self.assertContains(response, 'id="guidedExitModal"')
+        self.assertContains(response, 'id="guidedSubjectExercisesModal"')
+        self.assertContains(response, 'id="guidedExitPublishButton"')
+        self.assertContains(response, "Pendent · Reobrir")
+        self.assertContains(response, "requestGuidedNavigation")
+        self.assertContains(response, 'id="guidedPresenceConfirmModal"')
+        self.assertContains(response, 'id="guidedPresenceConfirmAccept"')
+        self.assertContains(response, 'id="guidedCurrentExercise"')
+        self.assertNotContains(response, 'id="guidedCancelButton"')
+        self.assertNotContains(response, 'const accepted = window.confirm(`J${judgeIndex}')
+        self.assertContains(response, "parsedVersion < guidedLastAppliedStateVersion")
         self.assertContains(response, "Aquest controlador no te camps de puntuacio assignats")
         self.assertNotContains(response, "Mode competicio")
+
+    def test_runtime_schema_marks_multi_judge_presence_capability(self):
+        self._configure_two_judge_preview()
+
+        response = self.client.get(reverse(
+            "judge_portal_assignment",
+            kwargs={"token": self.controller_token.id, "assignment_id": self.controller_assignment.id},
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        field = next(item for item in response.context["schema"]["fields"] if item["code"] == "E")
+        self.assertTrue(field["supports_individual_presence"])
+
+    def test_single_judge_field_rejects_presence_override_as_defense_in_depth(self):
+        opened = self._open()
+
+        response = self.client.post(
+            self._url("judge_flow_presence", self.controller_token),
+            data=json.dumps({
+                "assignment_id": self.controller_assignment.id,
+                "window_id": opened.json()["window"]["id"],
+                "field_code": "E",
+                "judge_index": 1,
+                "state": True,
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertIn("no admet presencia individual", response.json()["error"])
 
     def test_guided_plan_uses_rotation_franja_and_configured_order(self):
         second = self._create_inscripcio(self.competicio, "Segona gimnasta", ordre=2, grup=1)
@@ -435,7 +481,13 @@ class JudgeGuidedFlowTests(_BaseTrampoliDataMixin, TestCase):
             content_type="application/json",
         )
         self.assertEqual(draft_response.status_code, 200, draft_response.content)
+        self.assertGreater(draft_response.json()["lane_version"], opened.json()["lane_version"])
         self.assertTrue(JudgeScoreDraft.objects.filter(scoring_window_id=window_id).exists())
+        state = self.client.get(
+            f"{self._url('judge_flow_state', self.controller_token)}?assignment_id={self.controller_assignment.id}"
+        )
+        self.assertEqual(state.status_code, 200, state.content)
+        self.assertEqual(state.json()["window"]["draft_count"], 1)
 
         close = self.client.post(
             self._url("judge_flow_close", self.controller_token),
@@ -665,6 +717,32 @@ class JudgeGuidedFlowTests(_BaseTrampoliDataMixin, TestCase):
         self.assertEqual(reopened.json()["window"]["status"], JudgeScoringWindow.Status.OPEN)
         self.assertEqual(reopened.json()["pending_windows"], [])
 
+    def test_controller_cannot_duplicate_a_pending_subject_exercise(self):
+        opened = self._open()
+        window_id = opened.json()["window"]["id"]
+        closed = self.client.post(
+            self._url("judge_flow_close", self.controller_token),
+            data=json.dumps({
+                "assignment_id": self.controller_assignment.id,
+                "window_id": window_id,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(closed.status_code, 200, closed.content)
+
+        duplicate = self._open()
+
+        self.assertEqual(duplicate.status_code, 409, duplicate.content)
+        self.assertIn("nota pendent", duplicate.json()["error"])
+        self.assertEqual(
+            JudgeScoringWindow.objects.filter(
+                lane=self.lane,
+                subject_id=self.inscripcio.id,
+                exercici=1,
+            ).count(),
+            1,
+        )
+
     def test_organization_can_choose_guided_or_free_mode(self):
         self._login_competicio_user(self.competicio, role="owner", username_prefix="flow_owner")
         url = reverse("qr_admin_detail", kwargs={
@@ -696,3 +774,12 @@ class JudgeGuidedFlowTests(_BaseTrampoliDataMixin, TestCase):
         self.lane.refresh_from_db()
         self.assertFalse(self.lane.is_enabled)
         self.assertIsNone(self.lane.controller_assignment_id)
+
+        free_portal = self.client.get(reverse(
+            "judge_portal_assignment",
+            kwargs={"token": self.standard_token.id, "assignment_id": self.standard_assignment.id},
+        ))
+        self.assertEqual(free_portal.status_code, 200)
+        self.assertFalse(free_portal.context["judge_flow_enabled"])
+        self.assertNotContains(free_portal, 'id="guidedFlowRoot"')
+        self.assertContains(free_portal, "Mode competició")
