@@ -27,6 +27,15 @@ class PlatformHomeTests(TestCase):
         self.assertContains(response, f'href="{settings_url}"')
         self.assertEqual(resolve(competitions_url).url_name, "competicions_home")
 
+    def test_home_uses_the_platform_avatar_as_decorative_hero_art(self):
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, 'class="platform-hero-assistant" aria-hidden="true"')
+        self.assertContains(response, "core/avatar/assistant-card.webp")
+        self.assertContains(response, '<img src="/static/core/avatar/assistant-card.webp', html=False)
+        self.assertContains(response, 'alt=""')
+        self.assertIsNotNone(finders.find("core/avatar/assistant-card.webp"))
+
     def test_future_modules_are_clear_and_do_not_expose_broken_links(self):
         response = self.client.get(reverse("home"))
 
@@ -110,11 +119,17 @@ class PlatformHomeTests(TestCase):
         javascript = Path(js_path).read_text(encoding="utf-8")
         self.assertIn("border-radius: 0 999px 999px 0", css)
         self.assertIn("@media (max-width: 720px)", css)
+        self.assertIn("body.competicions-app .platform-nav-rail", css)
+        self.assertIn("has-integrated-avatar-assistant", css)
         self.assertIn("body.has-competition-dock .platform-nav-trigger", css)
         self.assertIn('event.key === "Escape"', javascript)
         self.assertIn('event.key !== "Tab"', javascript)
         self.assertIn('panel.setAttribute("inert", "")', javascript)
         self.assertIn('panel.addEventListener("transitionend", focusPanelClose', javascript)
+        self.assertIn('navigation.querySelector("[data-platform-avatar-open]")', javascript)
+        self.assertIn('document.querySelector(".avatar-helper")', javascript)
+        self.assertIn("new MutationObserver(syncAssistantState)", javascript)
+        self.assertIn('helperOpenButton.click()', javascript)
 
     def test_competitions_keep_the_internal_dock_below_platform_navigation(self):
         user = get_user_model().objects.create_superuser(
@@ -129,6 +144,10 @@ class PlatformHomeTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "data-platform-navigation")
         self.assertContains(response, "competition-dock-wrap")
+        self.assertContains(response, "data-platform-avatar-open")
+        self.assertContains(response, 'aria-label="Obrir l’assistent contextual de Competicions"')
+        self.assertContains(response, "core/avatar/controls/avatar_in.png")
+        self.assertContains(response, "hidden")
         self.assertContains(
             response,
             'class="platform-nav-item platform-nav-item--competitions is-active"',

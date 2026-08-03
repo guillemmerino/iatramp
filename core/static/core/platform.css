@@ -33,8 +33,8 @@
 .platform-hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.55fr);
-  gap: clamp(28px, 5vw, 72px);
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.25fr) minmax(280px, 0.48fr);
+  gap: clamp(18px, 2.6vw, 40px);
   align-items: center;
   overflow: hidden;
   padding: clamp(28px, 5vw, 58px);
@@ -75,9 +75,50 @@
 }
 
 .platform-hero-copy,
+.platform-hero-assistant,
 .platform-profile-card {
   position: relative;
   z-index: 1;
+}
+
+.platform-hero-copy {
+  z-index: 2;
+}
+
+.platform-hero-assistant {
+  align-self: stretch;
+  min-height: 292px;
+  pointer-events: none;
+}
+
+.platform-hero-assistant-glow {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  width: clamp(150px, 15vw, 218px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 32%, rgba(255, 255, 255, 0.96) 0 14%, transparent 15%),
+    linear-gradient(145deg, rgba(219, 234, 254, 0.78), rgba(240, 253, 250, 0.34));
+  box-shadow:
+    0 0 0 22px rgba(248, 250, 252, 0.72),
+    0 20px 48px rgba(37, 99, 235, 0.12);
+  transform: translateX(-50%);
+}
+
+.platform-hero-assistant img {
+  position: absolute;
+  left: 50%;
+  bottom: -66px;
+  display: block;
+  width: auto;
+  height: 390px;
+  max-width: none;
+  filter: drop-shadow(0 18px 18px rgba(15, 23, 42, 0.16));
+  transform: translateX(-50%);
+  user-select: none;
 }
 
 .platform-eyebrow,
@@ -195,11 +236,10 @@
 }
 
 .platform-profile-copy strong {
-  overflow: hidden;
   color: var(--platform-ink);
   font-size: 1rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .platform-profile-copy > span:last-child {
@@ -710,6 +750,15 @@
 }
 
 @media (max-width: 1180px) {
+  .platform-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(130px, 0.22fr) minmax(270px, 0.55fr);
+    gap: 18px;
+  }
+
+  .platform-hero-assistant img {
+    height: 350px;
+  }
+
   .platform-modules-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -720,13 +769,32 @@
 }
 
 @media (max-width: 900px) {
-  .platform-hero,
   .platform-section-heading,
   .platform-foundation {
     grid-template-columns: 1fr;
   }
 
+  .platform-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 0.6fr);
+  }
+
+  .platform-hero-copy {
+    grid-column: 1;
+  }
+
+  .platform-hero-assistant {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    min-height: 278px;
+  }
+
+  .platform-hero-assistant img {
+    bottom: -58px;
+    height: 350px;
+  }
+
   .platform-profile-card {
+    grid-column: 1;
     max-width: 520px;
   }
 
@@ -748,6 +816,34 @@
   .platform-hero,
   .platform-settings-header {
     padding: 26px 20px;
+  }
+
+  .platform-hero {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .platform-hero-copy,
+  .platform-profile-card {
+    grid-column: 1;
+  }
+
+  .platform-hero-assistant {
+    grid-column: 1;
+    grid-row: auto;
+    min-height: 142px;
+    margin: 2px -20px -18px;
+    overflow: hidden;
+  }
+
+  .platform-hero-assistant-glow {
+    bottom: -34px;
+    width: 190px;
+  }
+
+  .platform-hero-assistant img {
+    bottom: -135px;
+    height: 302px;
   }
 
   .platform-hero h1 {

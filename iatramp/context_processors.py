@@ -120,13 +120,6 @@ def _build_competition_dock(request, is_competicions_app):
     return [{**item, "active": item["section"] == active_section, "icon_path": _dock_icon_path(item["section"])} for item in items if item.get("url")]
 
 
-def _competition_dock_avatar_messages(show_help):
-    if not show_help or "competicions_trampoli" not in getattr(settings, "INSTALLED_APPS", ()):
-        return {}
-    from competicions_trampoli.services.avatar.competition.overview import AVATAR_MESSAGES
-    return AVATAR_MESSAGES
-
-
 def app_env(request):
     app_env = getattr(settings, "APP_ENV", "dev")
     is_competicions_app = _is_competicions_app(request)
@@ -152,7 +145,5 @@ def app_env(request):
         "competition_dock_items": dock_items,
         "has_competition_dock": bool(dock_items),
         "competition_dock_help_topic": dock_help_topic,
-        "competition_dock_avatar_messages": _competition_dock_avatar_messages(bool(dock_help_topic)),
-        "competition_dock_avatar_initial_topic": dock_help_topic,
         **_font_config(),
     }

@@ -10,6 +10,7 @@
     <link rel="stylesheet" type="text/css" href="{% staticv 'css/bootstrap.css' %}">
     <link rel="stylesheet" href="{% staticv 'css/style.css' %}">
     <link rel="stylesheet" href="{% staticv 'css/responsive.css' %}">
+    <link rel="stylesheet" href="{% staticv 'core/avatar_helper.css' %}">
     <link rel="stylesheet" href="{% staticv 'core/platform_navigation.css' %}">
     {% if competicio_font_faces %}
     <style id="competicio-font-faces">
@@ -54,14 +55,18 @@
 
     {% if has_competition_dock and not hide_base_chrome %}
     {% include "competicio/_competition_dock.html" %}
-    {% if competition_dock_avatar_messages and not avatar_messages %}
-    {% include "components/avatar_helper.html" with avatar_messages=competition_dock_avatar_messages avatar_initial_topic=competition_dock_avatar_initial_topic position="left" state="closed" %}
     {% endif %}
+
+    {% if avatar_messages %}
+    {% include "core/components/avatar_helper.html" with assistant_module=assistant_context.module assistant_chat_url=assistant_context.chat_url position="left" state="closed" %}
+    {% elif assistant_context.messages and not hide_base_chrome %}
+    {% include "core/components/avatar_helper.html" with avatar_messages=assistant_context.messages avatar_initial_topic=assistant_context.initial_topic assistant_module=assistant_context.module assistant_chat_url=assistant_context.chat_url position="left" state="closed" %}
     {% endif %}
 
     <script type="text/javascript" src="{% staticv 'js/jquery-3.4.1.min.js' %}"></script>
     <script type="text/javascript" src="{% staticv 'js/bootstrap.js' %}"></script>
     <script type="text/javascript" src="{% staticv 'js/app_dialog.js' %}"></script>
+    <script type="text/javascript" src="{% staticv 'core/avatar_helper.js' %}"></script>
     {% if not hide_base_chrome and not is_prod_competition_shell %}
     <script type="text/javascript" src="{% staticv 'core/platform_navigation.js' %}"></script>
     {% endif %}

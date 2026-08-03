@@ -24,6 +24,7 @@
 }
 
 .platform-nav-trigger {
+  box-sizing: border-box;
   position: fixed;
   top: 50%;
   left: 0;
@@ -54,6 +55,7 @@
 }
 
 .platform-nav-trigger:focus-visible,
+.platform-nav-assistant-trigger:focus-visible,
 .platform-nav-close:focus-visible,
 .platform-nav-item:focus-visible,
 .platform-nav-brand:focus-visible,
@@ -88,6 +90,103 @@
 }
 
 .platform-nav-trigger-lines i:nth-child(2) { width: 13px; }
+
+body.competicions-app .platform-nav-rail {
+  position: fixed;
+  top: 50%;
+  left: 0;
+  z-index: 1067;
+  display: grid;
+  grid-template-columns: 48px;
+  gap: 4px;
+  padding: 6px 7px 6px 5px;
+  border: 1px solid var(--platform-nav-border);
+  border-left: 0;
+  border-radius: 0 16px 16px 0;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 8px 10px 28px rgba(15, 23, 42, 0.13);
+  backdrop-filter: blur(12px);
+  transform: translateY(-50%);
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+}
+
+body.competicions-app .platform-nav-trigger {
+  position: static;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  gap: 5px;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  transform: none;
+}
+
+body.competicions-app .platform-nav-trigger:hover {
+  width: 48px;
+  border-color: transparent;
+  background: var(--platform-nav-bg);
+  box-shadow: none;
+}
+
+body.competicions-app .platform-nav-trigger-mark {
+  width: 27px;
+  height: 27px;
+}
+
+body.competicions-app .platform-nav-trigger-lines {
+  gap: 2px;
+}
+
+body.competicions-app .platform-nav-trigger-lines i {
+  width: 16px;
+}
+
+.platform-nav-assistant-trigger {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  padding: 3px;
+  border: 1px solid rgba(191, 219, 254, 0.9);
+  border-radius: 10px;
+  place-items: center;
+  overflow: hidden;
+  background: #eff6ff;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.platform-nav-assistant-trigger[hidden] { display: none; }
+
+.platform-nav-assistant-trigger:hover {
+  border-color: #93c5fd;
+  background: #ffffff;
+}
+
+.platform-nav-assistant-trigger img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+.platform-navigation.is-open .platform-nav-rail,
+.platform-navigation.is-avatar-open .platform-nav-rail {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transform: translate(-8px, -50%);
+}
+
+body.competicions-app.has-integrated-avatar-assistant .avatar-helper__toggle,
+body.competicions-app.has-integrated-avatar-assistant .avatar-helper:not(.is-open) .avatar-helper__hide {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
 
 .platform-nav-backdrop {
   position: fixed;
@@ -353,6 +452,36 @@ a.platform-nav-item:hover {
 body.platform-nav-open { overflow: hidden; }
 
 @media (max-width: 720px) {
+  body.competicions-app .platform-nav-rail {
+    top: auto;
+    bottom: 96px;
+    transform: none;
+  }
+
+  .platform-navigation.is-open .platform-nav-rail,
+  .platform-navigation.is-avatar-open .platform-nav-rail {
+    transform: translateX(-8px);
+  }
+
+  body.competicions-app.has-integrated-avatar-assistant .avatar-helper {
+    bottom: 94px;
+    height: min(580px, calc(100dvh - 112px));
+  }
+
+  body.competicions-app.has-integrated-avatar-assistant .avatar-helper__image {
+    max-width: 160px;
+    height: 260px;
+  }
+
+  body.competicions-app.has-integrated-avatar-assistant .avatar-helper__bubble {
+    top: 8px;
+    left: 112px;
+    box-sizing: border-box;
+    width: calc(100vw - 128px);
+    max-height: calc(100% - 16px);
+    overflow-y: auto;
+  }
+
   .platform-nav-trigger {
     top: auto;
     bottom: 18px;

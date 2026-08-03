@@ -1,0 +1,52 @@
+{% load static static_extras %}
+{% get_static_prefix as STATIC_PREFIX %}
+
+
+{% with avatar_image=image|default:'core/avatar/greeting_2.png' avatar_title=title|default:'Benvingut!' avatar_message=message|default:"Soc l'assistent d'Iatramp. T'ajudaré a entendre aquesta pantalla." initial_topic=avatar_initial_topic|default:'welcome' %}
+{% if avatar_messages %}
+  {{ avatar_messages|json_script:"avatar-helper-messages" }}
+{% endif %}
+<aside
+  class="avatar-helper avatar-helper--{{ position|default:'left' }}{% if state == 'open' %} is-open{% endif %}"
+  aria-label="Assistent Iatramp"
+  data-static-prefix="{{ STATIC_PREFIX }}"
+  data-avatar-assets-prefix="{% static 'core/' %}"
+  data-avatar-module="{{ assistant_module|default:'core' }}"
+  {% if assistant_chat_url %}data-avatar-chat-url="{{ assistant_chat_url }}"{% endif %}
+  {% if competicio %}data-avatar-competicio-id="{{ competicio.id }}"{% endif %}
+  data-avatar-initial-topic="{{ initial_topic }}">
+  <button class="avatar-helper__toggle" type="button" aria-label="Obrir l'assistent" title="Obrir l'assistent" aria-expanded="{% if state == 'open' %}true{% else %}false{% endif %}">
+    <img class="avatar-helper__control-image" src="{% static 'core/avatar/controls/avatar_in.png' %}" alt="">
+  </button>
+  <button class="avatar-helper__hide" type="button" aria-label="Amagar l'assistent" title="Amagar l'assistent">
+    <img class="avatar-helper__control-image" src="{% static 'core/avatar/controls/avatar_out.png' %}" alt="">
+  </button>
+  <button class="avatar-helper__bubble-toggle" type="button" aria-label="Mostrar el missatge" title="Mostrar el missatge">
+    <img class="avatar-helper__control-image" src="{% static 'core/avatar/controls/ask.png' %}" alt="">
+  </button>
+  <div class="avatar-helper__bubble" aria-live="polite">
+    <button class="avatar-helper__bubble-close" type="button" aria-label="Tancar el missatge" title="Tancar el missatge">&times;</button>
+    <strong class="avatar-helper__title" data-avatar-title>{{ avatar_title }}</strong>
+    <p class="avatar-helper__message" data-avatar-message>{{ avatar_message }}</p>
+    <div class="avatar-helper__footer">
+      <span class="avatar-helper__step-count" data-avatar-step-count></span>
+      <span class="avatar-helper__nav" aria-label="Navegació de l'ajuda">
+        <button class="avatar-helper__step-button" type="button" data-avatar-prev>Anterior</button>
+        <button class="avatar-helper__step-button" type="button" data-avatar-next>Següent</button>
+      </span>
+    </div>
+    <div class="avatar-helper__actions" data-avatar-actions></div>
+    {% if assistant_chat_url %}<div class="avatar-helper__chat" data-avatar-chat>
+      <div class="avatar-helper__chat-log" data-avatar-chat-log>
+        <div class="avatar-helper__chat-empty" data-avatar-chat-empty>Pregunta'm coses sobre aquesta pantalla o sobre com funciona el programa.</div>
+      </div>
+      <form class="avatar-helper__chat-form" data-avatar-chat-form>
+        <input class="avatar-helper__chat-input" data-avatar-chat-input type="text" maxlength="1200" autocomplete="off" placeholder="Escriu una pregunta...">
+        <button class="avatar-helper__chat-submit" data-avatar-chat-submit type="submit">Envia</button>
+      </form>
+      <div class="avatar-helper__chat-status" data-avatar-chat-status aria-live="polite"></div>
+    </div>{% endif %}
+  </div>
+  <img class="avatar-helper__image" data-avatar-image src="{% static avatar_image %}" alt="">
+</aside>
+{% endwith %}

@@ -13,7 +13,6 @@
   data-selected-phase-id="{% if selected_phase %}{{ selected_phase.id }}{% elif selected_base_phase %}base{% endif %}"
 >
     {% include "competicio/fases/_header.html" %}
-    {% include "components/avatar_helper.html" with avatar_messages=avatar_messages avatar_initial_topic=avatar_initial_topic position="left" state="closed" %}
 
     <div class="phase-dashboard-body-card">
     {% if messages %}

@@ -1,20 +1,36 @@
+{% load static %}
 {% url 'home' as platform_home_url %}
 {% url 'competicions_home' as competitions_url %}
 {% url 'platform_settings' as settings_url %}
 {% url 'login' as login_url %}
 {% url 'logout' as logout_url %}
 <div class="platform-navigation" data-platform-navigation>
-  <button
-    class="platform-nav-trigger"
-    type="button"
-    aria-label="Obrir la navegació d’Iatramp"
-    aria-controls="platform-nav-panel"
-    aria-expanded="false"
-    data-platform-nav-open
-  >
-    <span class="platform-nav-trigger-mark" aria-hidden="true">IA</span>
-    <span class="platform-nav-trigger-lines" aria-hidden="true"><i></i><i></i><i></i></span>
-  </button>
+  <div class="platform-nav-rail">
+    <button
+      class="platform-nav-trigger"
+      type="button"
+      aria-label="Obrir la navegació d’Iatramp"
+      aria-controls="platform-nav-panel"
+      aria-expanded="false"
+      data-platform-nav-open
+    >
+      <span class="platform-nav-trigger-mark" aria-hidden="true">IA</span>
+      <span class="platform-nav-trigger-lines" aria-hidden="true"><i></i><i></i><i></i></span>
+    </button>
+    {% if is_competicions_app %}
+    <button
+      class="platform-nav-assistant-trigger"
+      type="button"
+      aria-label="Obrir l’assistent contextual de Competicions"
+      aria-expanded="false"
+      title="Assistent contextual"
+      data-platform-avatar-open
+      hidden
+    >
+      <img src="{% static 'core/avatar/controls/avatar_in.png' %}" alt="">
+    </button>
+    {% endif %}
+  </div>
 
   <button class="platform-nav-backdrop" type="button" tabindex="-1" aria-label="Tancar la navegació" data-platform-nav-backdrop hidden></button>
 

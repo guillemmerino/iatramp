@@ -70,6 +70,7 @@ TEMPLATES = [{
         "django.contrib.auth.context_processors.auth",
         "django.contrib.messages.context_processors.messages",
         "iatramp.context_processors.app_env",
+        "core.context_processors.assistant",
     ]},
 }]
 
