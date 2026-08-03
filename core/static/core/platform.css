@@ -425,6 +425,12 @@
   color: var(--platform-inscripcions);
 }
 
+.platform-status--train {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: var(--platform-fases);
+}
+
 .platform-feature-list {
   display: grid;
   grid-template-columns: 1fr 1fr;

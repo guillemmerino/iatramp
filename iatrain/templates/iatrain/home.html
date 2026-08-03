@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% load static_extras %}
+
+{% block title %}IA Train · Iatramp{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% staticv 'core/platform.css' %}">
+  <link rel="stylesheet" href="{% staticv 'iatrain/overview.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="platform-page iatrain-page">
+  <div class="platform-shell iatrain-shell">
+    <header class="iatrain-hero">
+      <div class="iatrain-hero-copy">
+        <a class="iatrain-back-link" href="{% url 'home' %}">← Tornar a Iatramp</a>
+        <span class="iatrain-eyebrow">MVP estructural</span>
+        <h1>IA Train</h1>
+        <p>Contextos, observacions i coneixement tècnic traçable per donar suport al treball professional de l’entrenador.</p>
+        <div class="iatrain-honesty-note" role="note">
+          <strong>Què funciona avui</strong>
+          <span>La base de dades, els permisos, el graf editorial i la consulta inicial. La generació d’entrenaments amb IA encara no està implementada.</span>
+        </div>
+      </div>
+      <div class="iatrain-graph-preview" aria-label="Estructura de coneixement disponible">
+        <span class="iatrain-graph-node iatrain-graph-node--skill">Habilitat</span>
+        <span class="iatrain-graph-edge" aria-hidden="true">progressa cap a</span>
+        <span class="iatrain-graph-node iatrain-graph-node--goal">Objectiu</span>
+        <small>Els nodes i les relacions es gestionen inicialment des de l’administració Django.</small>
+      </div>
+    </header>
+
+    <section class="iatrain-summary" aria-label="Resum d’IA Train">
+      <article>
+        <span>Gimnastes accessibles</span>
+        <strong>{{ iatrain_athletes|length }}</strong>
+        <small>Segons relacions actives de Core</small>
+      </article>
+      <article>
+        <span>Contextos pertinents</span>
+        <strong>{{ iatrain_contexts|length }}</strong>
+        <small>Individuals o compartits</small>
+      </article>
+      <article>
+        <span>Observacions recents</span>
+        <strong>{{ iatrain_observations|length }}</strong>
+        <small>Versions vigents i històriques</small>
+      </article>
+    </section>
+
+    {% if not user.is_authenticated %}
+      <section class="iatrain-empty-state" aria-labelledby="iatrain-empty-title">
+        <span class="iatrain-empty-icon" aria-hidden="true">IA</span>
+        <div>
+          <span class="iatrain-eyebrow">Accés obert</span>
+          <h2 id="iatrain-empty-title">IA Train ja té una base funcional</h2>
+          <p>Pots visitar aquesta entrada sense iniciar sessió. Per consultar gimnastes cal un compte vinculat a una persona i una relació activa d’entrenador.</p>
+          <a href="{% url 'login' %}">Iniciar sessió</a>
+        </div>
+      </section>
+    {% elif not iatrain_person %}
+      <section class="iatrain-empty-state" aria-labelledby="iatrain-empty-title">
+        <span class="iatrain-empty-icon" aria-hidden="true">P</span>
+        <div>
+          <span class="iatrain-eyebrow">Identitat pendent</span>
+          <h2 id="iatrain-empty-title">El compte encara no està vinculat a una persona</h2>
+          <p>IA Train no dedueix identitats ni permisos. Cal vincular el compte a una <code>Person</code> activa des de la configuració administrativa.</p>
+          <a href="{% url 'platform_settings' %}">Veure configuració</a>
+        </div>
+      </section>
+    {% elif not iatrain_athletes %}
+      <section class="iatrain-empty-state" aria-labelledby="iatrain-empty-title">
+        <span class="iatrain-empty-icon" aria-hidden="true">0</span>
+        <div>
+          <span class="iatrain-eyebrow">Sense relacions actives</span>
+          <h2 id="iatrain-empty-title">Encara no hi ha gimnastes accessibles</h2>
+          <p>Quan existeixi una <code>CoachAthleteRelation</code> vigent amb permís de consulta d’entrenament, el gimnasta apareixerà aquí.</p>
+        </div>
+      </section>
+    {% else %}
+      <section class="iatrain-athletes" aria-labelledby="iatrain-athletes-title">
+        <div class="iatrain-section-heading">
+          <div><span class="iatrain-eyebrow">Relacions actives</span><h2 id="iatrain-athletes-title">Gimnastes</h2></div>
+          <p>Aquesta llista no prové de rols globals: cada accés està sostingut per una relació explícita.</p>
+        </div>
+        <ul class="iatrain-athlete-list">
+          {% for athlete in iatrain_athletes %}<li><span aria-hidden="true">{{ athlete.display_name|first|upper }}</span>{{ athlete.display_name }}</li>{% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
+    <div class="iatrain-workspace-grid">
+      <section class="iatrain-panel" aria-labelledby="iatrain-contexts-title">
+        <div class="iatrain-panel-head">
+          <div><span class="iatrain-eyebrow">Marcs de treball</span><h2 id="iatrain-contexts-title">Contextos</h2></div>
+          <span class="iatrain-count">{{ iatrain_contexts|length }}</span>
+        </div>
+        {% if iatrain_contexts %}
+          <ul class="iatrain-context-list">
+            {% for training_context in iatrain_contexts %}
+              <li>
+                <div><strong>{{ training_context.name }}</strong><span>{{ training_context.discipline }} · {{ training_context.get_status_display }}</span></div>
+                <span>{{ training_context.athletes.all|length }} gimnasta{{ training_context.athletes.all|length|pluralize }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="iatrain-panel-empty"><strong>Cap context pertinent</strong><span>Els contextos es poden crear des de l’administració i associar a un o més gimnastes.</span></div>
+        {% endif %}
+      </section>
+
+      <section class="iatrain-panel" aria-labelledby="iatrain-observations-title">
+        <div class="iatrain-panel-head">
+          <div><span class="iatrain-eyebrow">Traça professional</span><h2 id="iatrain-observations-title">Observacions recents</h2></div>
+          <span class="iatrain-count">{{ iatrain_observations|length }}</span>
+        </div>
+        {% if iatrain_observations %}
+          <ul class="iatrain-observation-list">
+            {% for observation in iatrain_observations %}
+              <li>
+                <div class="iatrain-observation-meta">
+                  <strong>{{ observation.athlete.display_name }}</strong>
+                  <span>{{ observation.get_category_display }} · {{ observation.get_status_display }}</span>
+                </div>
+                <p>{{ observation.narrative }}</p>
+                <div class="iatrain-observation-foot">
+                  {% if observation.concept %}<span>Concepte: {{ observation.concept.name }}</span>{% else %}<span>Nota lliure</span>{% endif %}
+                  <time datetime="{{ observation.observed_at|date:'c' }}">{{ observation.observed_at|date:"d/m/Y" }}</time>
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="iatrain-panel-empty"><strong>Cap observació visible</strong><span>Les observacions només apareixen quan la relació vigent permet consultar entrenament.</span></div>
+        {% endif %}
+      </section>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

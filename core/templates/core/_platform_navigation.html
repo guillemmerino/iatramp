@@ -2,6 +2,7 @@
 {% url 'home' as platform_home_url %}
 {% url 'competicions_home' as competitions_url %}
 {% url 'platform_settings' as settings_url %}
+{% url 'iatrain_home' as iatrain_url %}
 {% url 'login' as login_url %}
 {% url 'logout' as logout_url %}
 <div class="platform-navigation" data-platform-navigation>
@@ -71,11 +72,11 @@
       </a>
 
       <p class="platform-nav-label platform-nav-label--spaces">Nous espais</p>
-      <span class="platform-nav-item platform-nav-item--train is-disabled" aria-disabled="true">
+      <a class="platform-nav-item platform-nav-item--train{% if request.resolver_match.url_name == 'iatrain_home' %} is-active{% endif %}" href="{{ iatrain_url }}"{% if request.resolver_match.url_name == 'iatrain_home' %} aria-current="page"{% endif %}>
         <span class="platform-nav-icon" aria-hidden="true">IA</span>
         <span class="platform-nav-copy"><strong>IA Train</strong><small>Entrenament assistit</small></span>
-        <span class="platform-nav-state">En preparació</span>
-      </span>
+        <span class="platform-nav-state platform-nav-state--available">MVP</span>
+      </a>
       <span class="platform-nav-item platform-nav-item--judges is-disabled" aria-disabled="true">
         <span class="platform-nav-icon" aria-hidden="true">QR</span>
         <span class="platform-nav-copy"><strong>Portal de jutges</strong><small>Accés contextual</small></span>

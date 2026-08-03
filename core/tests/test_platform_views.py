@@ -36,11 +36,13 @@ class PlatformHomeTests(TestCase):
         self.assertContains(response, 'alt=""')
         self.assertIsNotNone(finders.find("core/avatar/assistant-card.webp"))
 
-    def test_future_modules_are_clear_and_do_not_expose_broken_links(self):
+    def test_iatrain_is_available_and_future_modules_do_not_expose_broken_links(self):
         response = self.client.get(reverse("home"))
 
-        self.assertContains(response, 'data-module-status="preparation"', count=3)
+        self.assertContains(response, 'data-module-status="preparation"', count=2)
         self.assertContains(response, "IA Train")
+        self.assertContains(response, 'href="{}"'.format(reverse("iatrain_home")))
+        self.assertContains(response, "MVP disponible")
         self.assertContains(response, "Portal de jutges")
         self.assertContains(response, "El meu perfil")
         self.assertContains(response, "En preparació")
@@ -91,10 +93,9 @@ class PlatformHomeTests(TestCase):
         self.assertContains(response, 'class="platform-nav-item platform-nav-item--home is-active"')
         self.assertContains(response, 'href="{}"'.format(reverse("competicions_home")))
         self.assertContains(response, 'href="{}"'.format(reverse("platform_settings")))
-        self.assertContains(response, "platform-nav-item--train is-disabled")
+        self.assertContains(response, 'href="{}"'.format(reverse("iatrain_home")))
         self.assertContains(response, "platform-nav-item--judges is-disabled")
         self.assertContains(response, "platform-nav-item--profile is-disabled")
-        self.assertNotContains(response, '<a class="platform-nav-item platform-nav-item--train')
         self.assertNotContains(response, '<a class="platform-nav-item platform-nav-item--judges')
         self.assertNotContains(response, '<a class="platform-nav-item platform-nav-item--profile')
         self.assertNotContains(response, 'class="header_section"')

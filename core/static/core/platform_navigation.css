@@ -316,6 +316,7 @@ body.competicions-app.has-integrated-avatar-assistant .avatar-helper:not(.is-ope
 
 .platform-nav-item {
   --nav-item-accent: var(--platform-nav-text);
+  position: relative;
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr);
   min-height: 54px;
@@ -396,6 +397,12 @@ a.platform-nav-item:hover {
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+.platform-nav-state--available {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
 }
 
 .platform-nav-item--judges {
