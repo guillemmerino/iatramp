@@ -3,7 +3,18 @@
 
   <style>
     .scoring-panel-dropdown { position: relative; }
+    .scoring-panel-dropdown .dropdown-menu {
+      right: 0;
+      left: auto;
+      max-width: calc(100vw - 24px);
+    }
     .scoring-panel-dropdown .dropdown-menu.show { display: block; }
+    @media (max-width: 767.98px) {
+      .scoring-panel-dropdown .dropdown-menu {
+        width: 100%;
+        min-width: 0;
+      }
+    }
   </style>
 
   <div class="card-surface">
@@ -28,11 +39,12 @@
           <button type="button"
                   class="btn btn-sm section-btn section-btn--notes dropdown-toggle scoring-panel-dropdown-toggle"
                   aria-haspopup="true"
-                  aria-expanded="false">
-            Classificacions
+                  aria-expanded="false"
+                  aria-label="Obrir el menú de gestió">
+            Gestió
           </button>
 
-          <div class="dropdown-menu">
+          <div class="dropdown-menu dropdown-menu-right">
             <a class="dropdown-item"
               href="{% url 'classificacions_live' competicio.id %}"
               data-avatar-action="scores-qrs-open-live">
@@ -44,12 +56,26 @@
               data-avatar-action="scores-qrs-open-loop">
               Classificacions loop
             </a>
+
+            <div class="dropdown-divider" role="separator"></div>
+
+            <a class="dropdown-item"
+              href="{% url 'qr_admin_home' competicio.id %}"
+              data-avatar-action="scores-qrs-open-qr-admin">
+              Administrador QRs
+            </a>
+
+            <a class="dropdown-item"
+              href="{% url 'judge_messages_hub' competicio.id %}"
+              data-avatar-action="scores-qrs-open-support">
+              Suport jutges
+            </a>
+
+            <a class="dropdown-item" href="{% url 'trampoli_config' competicio.id %}">
+              Configuració
+            </a>
           </div>
         </div>
-        
-        <a class="btn btn-sm section-btn section-btn--notes" href="{% url 'qr_admin_home' competicio.id %}" data-avatar-action="scores-qrs-open-qr-admin">Administrador QRs</a>
-        <a class="btn btn-sm btn-outline-warning" href="{% url 'judge_messages_hub' competicio.id %}" data-avatar-action="scores-qrs-open-support">Suport jutges</a>
-        <a class="btn btn-sm btn-outline-secondary" href="{% url 'trampoli_config' competicio.id %}">Configuració</a>
       </div>
     </div>
 
@@ -63,8 +89,31 @@
           dropdown.classList.remove("show");
           var menu = dropdown.querySelector(".dropdown-menu");
           var toggle = dropdown.querySelector(".scoring-panel-dropdown-toggle");
-          if (menu) menu.classList.remove("show");
+          if (menu) {
+            menu.classList.remove("show");
+            menu.style.transform = "";
+          }
           if (toggle) toggle.setAttribute("aria-expanded", "false");
+        }
+
+        function fitDropdownToViewport(menu){
+          if (!menu) return;
+          menu.style.transform = "";
+
+          var gutter = 12;
+          var viewportWidth = document.documentElement.clientWidth;
+          var rect = menu.getBoundingClientRect();
+          var shiftX = 0;
+
+          if (rect.right > viewportWidth - gutter) {
+            shiftX = viewportWidth - gutter - rect.right;
+          }
+          if (rect.left + shiftX < gutter) {
+            shiftX += gutter - (rect.left + shiftX);
+          }
+          if (shiftX) {
+            menu.style.transform = "translateX(" + Math.round(shiftX) + "px)";
+          }
         }
 
         function closeOtherDropdowns(activeToggle){
@@ -89,11 +138,16 @@
           dropdown.classList.toggle("show", shouldOpen);
           menu.classList.toggle("show", shouldOpen);
           toggle.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+          if (shouldOpen) fitDropdownToViewport(menu);
         });
 
         document.addEventListener("keydown", function(event){
           if (event.key !== "Escape") return;
           document.querySelectorAll(".scoring-panel-dropdown.show").forEach(closeDropdown);
+        });
+
+        window.addEventListener("resize", function(){
+          document.querySelectorAll(".scoring-panel-dropdown.show .dropdown-menu.show").forEach(fitDropdownToViewport);
         });
       })();
     </script>
