@@ -4,12 +4,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}IA Tramp{% endblock %}</title>
+    <title>{% block title %}Iatramp{% endblock %}</title>
     {% block extra_head %}{% endblock %}
     <link href="https://fonts.googleapis.com/css?family=Dosis:400,500|Poppins:400,700&amp;display=swap" rel="stylesheet">
     <link rel="stylesheet" type="text/css" href="{% staticv 'css/bootstrap.css' %}">
     <link rel="stylesheet" href="{% staticv 'css/style.css' %}">
     <link rel="stylesheet" href="{% staticv 'css/responsive.css' %}">
+    <link rel="stylesheet" href="{% staticv 'core/platform_navigation.css' %}">
     {% if competicio_font_faces %}
     <style id="competicio-font-faces">
         {% for font_face in competicio_font_faces %}
@@ -24,47 +25,11 @@
     </style>
     {% endif %}
 </head>
-<body class="{% if is_competicions_app or is_prod_competition_shell %}competicions-app competition-section-{{ competition_active_section|default:'general' }}{% endif %}{% if has_competition_dock and not hide_base_chrome %} has-competition-dock{% endif %}" data-app-env="{{ APP_ENV|default:'dev' }}" style="--ceeb-page-background-image: url('{% page_background_url %}'); --competicio-font-family: {{ competicio_font_family_css }};">
+<body class="{% if is_competicions_app or is_prod_competition_shell %}competicions-app competition-section-{{ competition_active_section|default:'general' }}{% endif %}{% if has_competition_dock and not hide_base_chrome %} has-competition-dock{% endif %}{% if not hide_base_chrome and not is_prod_competition_shell %} has-platform-navigation{% endif %}" data-app-env="{{ APP_ENV|default:'dev' }}" style="--ceeb-page-background-image: url('{% page_background_url %}'); --competicio-font-family: {{ competicio_font_family_css }};">
     <div class="background-container"></div>
 
     {% if not hide_base_chrome and not is_prod_competition_shell %}
-    <header class="header_section">
-        <div class="container-fluid">
-            <div class="row align-items-center">
-                <div class="col-lg-3 col-md-4 col-6">
-                    <a class="navbar-brand" href="{% url 'home' %}"><span>IA Tramp</span></a>
-                </div>
-                <div class="col-lg-9 col-md-8 col-6">
-                    <nav class="navbar navbar-expand-lg custom_nav-container">
-                        <button class="navbar-toggler ml-auto" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Obrir menu">
-                            <span class="navbar-toggler-icon"></span>
-                        </button>
-                        <div class="collapse navbar-collapse" id="navbarSupportedContent">
-                            <ul class="navbar-nav ml-auto">
-                                {% url 'competicions_home' as competicions_home_url %}
-                                {% url 'login' as login_url %}
-                                {% url 'logout' as logout_url %}
-                                {% if user.is_authenticated %}
-                                    <li class="nav-item"><a class="nav-link" href="{{ competicions_home_url }}">Competicions</a></li>
-                                    {% if user.is_superuser and user.is_staff %}<li class="nav-item"><a class="nav-link" href="{% url 'admin:index' %}">Admin</a></li>{% endif %}
-                                    {% if logout_url %}
-                                    <li class="nav-item">
-                                        <form method="post" action="{{ logout_url }}" class="mb-0">
-                                            {% csrf_token %}
-                                            <button type="submit" class="nav-link btn btn-link p-0">Sortir</button>
-                                        </form>
-                                    </li>
-                                    {% endif %}
-                                {% else %}
-                                    {% if login_url %}<li class="nav-item"><a class="nav-link" href="{{ login_url }}">Entrar</a></li>{% endif %}
-                                {% endif %}
-                            </ul>
-                        </div>
-                    </nav>
-                </div>
-            </div>
-        </div>
-    </header>
+    {% include "core/_platform_navigation.html" %}
     {% endif %}
 
     <main>
@@ -97,6 +62,9 @@
     <script type="text/javascript" src="{% staticv 'js/jquery-3.4.1.min.js' %}"></script>
     <script type="text/javascript" src="{% staticv 'js/bootstrap.js' %}"></script>
     <script type="text/javascript" src="{% staticv 'js/app_dialog.js' %}"></script>
+    {% if not hide_base_chrome and not is_prod_competition_shell %}
+    <script type="text/javascript" src="{% staticv 'core/platform_navigation.js' %}"></script>
+    {% endif %}
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

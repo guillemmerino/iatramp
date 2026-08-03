@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% load static_extras %}
+
+{% block title %}Configuració · Iatramp{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% staticv 'core/platform.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="platform-page platform-page--settings">
+  <div class="platform-shell">
+    <header class="platform-settings-header">
+      <div>
+        <a class="platform-back-link" href="{% url 'home' %}">← Tornar al tauler</a>
+        <span class="platform-eyebrow">Preferències de plataforma</span>
+        <h1>Configuració general</h1>
+        <p>Aquest espai centralitzarà el perfil, les organitzacions, la privacitat i les preferències compartides.</p>
+      </div>
+      <a class="platform-button platform-button--secondary" href="{% url 'competicions_home' %}">Anar a Competicions</a>
+    </header>
+
+    <div class="platform-settings-grid">
+      <section class="platform-settings-card">
+        <div class="platform-settings-card-head">
+          <span class="platform-settings-icon" aria-hidden="true">{{ platform_initials }}</span>
+          <div><span>Compte</span><h2>Identitat i accés</h2></div>
+        </div>
+        {% if user.is_authenticated %}
+          <dl class="platform-details-list">
+            <div><dt>Nom visible</dt><dd>{{ platform_display_name }}</dd></div>
+            <div><dt>Compte</dt><dd>{{ user.get_username }}</dd></div>
+            <div><dt>Perfil Iatramp</dt><dd>{% if platform_person %}Connectat{% else %}Pendent de vinculació{% endif %}</dd></div>
+          </dl>
+        {% else %}
+          <div class="platform-settings-empty">
+            <strong>No hi ha cap sessió iniciada</strong>
+            <p>La portada és pública i no mostra dades personals sense autenticació.</p>
+            <a href="{% url 'login' %}">Iniciar sessió</a>
+          </div>
+        {% endif %}
+      </section>
+
+      <section class="platform-settings-card">
+        <div class="platform-settings-card-head">
+          <span class="platform-settings-icon platform-settings-icon--organizations" aria-hidden="true">O</span>
+          <div><span>Context</span><h2>Organitzacions</h2></div>
+        </div>
+        {% if platform_memberships %}
+          <ul class="platform-organization-list">
+            {% for membership in platform_memberships %}
+              <li>
+                <div><strong>{{ membership.organization.name }}</strong><span>{{ membership.organization.get_kind_display }}</span></div>
+                <span class="platform-role-badge">{{ membership.get_role_display }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="platform-settings-empty">
+            <strong>Encara no hi ha organitzacions actives</strong>
+            <p>Quan un club o federació es vinculi al perfil, apareixerà aquí amb el rol corresponent.</p>
+          </div>
+        {% endif %}
+      </section>
+
+      <section class="platform-settings-card">
+        <div class="platform-settings-card-head">
+          <span class="platform-settings-icon platform-settings-icon--preferences" aria-hidden="true">A</span>
+          <div><span>Experiència</span><h2>Preferències</h2></div>
+        </div>
+        <dl class="platform-details-list">
+          <div><dt>Idioma</dt><dd>Català</dd></div>
+          <div><dt>Zona horària</dt><dd>Europe/Madrid</dd></div>
+          <div><dt>Edició</dt><dd><span class="platform-status">En preparació</span></dd></div>
+        </dl>
+      </section>
+
+      <section class="platform-settings-card">
+        <div class="platform-settings-card-head">
+          <span class="platform-settings-icon platform-settings-icon--privacy" aria-hidden="true">P</span>
+          <div><span>Control</span><h2>Privacitat i permisos</h2></div>
+        </div>
+        <div class="platform-settings-empty">
+          <strong>Accés basat en relacions explícites</strong>
+          <p>Els futurs mòduls aplicaran permisos per organització i per relació entrenador–gimnasta. Les dades sensibles no es compartiran per defecte.</p>
+        </div>
+      </section>
+    </div>
+
+    <div class="platform-settings-notice" role="status">
+      <strong>Primera versió funcional</strong>
+      <span>La consulta ja és operativa; l’edició de preferències i identitat s’activarà en una fase posterior.</span>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

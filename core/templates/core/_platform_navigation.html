@@ -1,0 +1,93 @@
+{% url 'home' as platform_home_url %}
+{% url 'competicions_home' as competitions_url %}
+{% url 'platform_settings' as settings_url %}
+{% url 'login' as login_url %}
+{% url 'logout' as logout_url %}
+<div class="platform-navigation" data-platform-navigation>
+  <button
+    class="platform-nav-trigger"
+    type="button"
+    aria-label="Obrir la navegació d’Iatramp"
+    aria-controls="platform-nav-panel"
+    aria-expanded="false"
+    data-platform-nav-open
+  >
+    <span class="platform-nav-trigger-mark" aria-hidden="true">IA</span>
+    <span class="platform-nav-trigger-lines" aria-hidden="true"><i></i><i></i><i></i></span>
+  </button>
+
+  <button class="platform-nav-backdrop" type="button" tabindex="-1" aria-label="Tancar la navegació" data-platform-nav-backdrop hidden></button>
+
+  <aside
+    class="platform-nav-panel"
+    id="platform-nav-panel"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="platform-nav-title"
+    aria-hidden="true"
+    data-platform-nav-panel
+    inert
+  >
+    <div class="platform-nav-spectrum" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="platform-nav-panel-head">
+      <a class="platform-nav-brand" href="{{ platform_home_url }}">
+        <span class="platform-nav-brand-mark" aria-hidden="true">IA</span>
+        <span><strong id="platform-nav-title">Iatramp</strong><small>Plataforma de trampolí</small></span>
+      </a>
+      <button class="platform-nav-close" type="button" aria-label="Tancar la navegació d’Iatramp" data-platform-nav-close>
+        <span aria-hidden="true">×</span>
+      </button>
+    </div>
+
+    <nav class="platform-nav-menu" aria-label="Navegació de plataforma">
+      <p class="platform-nav-label">Plataforma</p>
+      <a class="platform-nav-item platform-nav-item--home{% if request.resolver_match.url_name == 'home' %} is-active{% endif %}" href="{{ platform_home_url }}"{% if request.resolver_match.url_name == 'home' %} aria-current="page"{% endif %}>
+        <span class="platform-nav-icon" aria-hidden="true">I</span>
+        <span class="platform-nav-copy"><strong>Inici</strong><small>Tauler general</small></span>
+      </a>
+      <a class="platform-nav-item platform-nav-item--competitions{% if is_competicions_app %} is-active{% endif %}" href="{{ competitions_url }}"{% if is_competicions_app %} aria-current="page"{% endif %}>
+        <span class="platform-nav-icon" aria-hidden="true">C</span>
+        <span class="platform-nav-copy"><strong>Competicions</strong><small>Gestió i seguiment</small></span>
+      </a>
+      <a class="platform-nav-item platform-nav-item--settings{% if request.resolver_match.url_name == 'platform_settings' %} is-active{% endif %}" href="{{ settings_url }}"{% if request.resolver_match.url_name == 'platform_settings' %} aria-current="page"{% endif %}>
+        <span class="platform-nav-icon" aria-hidden="true">A</span>
+        <span class="platform-nav-copy"><strong>Configuració</strong><small>Compte i preferències</small></span>
+      </a>
+
+      <p class="platform-nav-label platform-nav-label--spaces">Nous espais</p>
+      <span class="platform-nav-item platform-nav-item--train is-disabled" aria-disabled="true">
+        <span class="platform-nav-icon" aria-hidden="true">IA</span>
+        <span class="platform-nav-copy"><strong>IA Train</strong><small>Entrenament assistit</small></span>
+        <span class="platform-nav-state">En preparació</span>
+      </span>
+      <span class="platform-nav-item platform-nav-item--judges is-disabled" aria-disabled="true">
+        <span class="platform-nav-icon" aria-hidden="true">QR</span>
+        <span class="platform-nav-copy"><strong>Portal de jutges</strong><small>Accés contextual</small></span>
+        <span class="platform-nav-state">En preparació</span>
+      </span>
+      <span class="platform-nav-item platform-nav-item--profile is-disabled" aria-disabled="true">
+        <span class="platform-nav-icon" aria-hidden="true">P</span>
+        <span class="platform-nav-copy"><strong>Perfil</strong><small>Identitat Iatramp</small></span>
+        <span class="platform-nav-state">En preparació</span>
+      </span>
+    </nav>
+
+    <div class="platform-nav-session">
+      {% if user.is_authenticated %}
+        <span class="platform-nav-session-copy"><small>Sessió activa</small><strong>{{ user.get_full_name|default:user.get_username }}</strong></span>
+        <div class="platform-nav-session-actions">
+          {% if user.is_superuser and user.is_staff %}<a href="{% url 'admin:index' %}">Admin</a>{% endif %}
+          {% if logout_url %}
+          <form method="post" action="{{ logout_url }}">
+            {% csrf_token %}
+            <button type="submit">Sortir</button>
+          </form>
+          {% endif %}
+        </div>
+      {% elif login_url %}
+        <span class="platform-nav-session-copy"><small>Accés obert</small><strong>Explora Iatramp</strong></span>
+        <a class="platform-nav-login" href="{{ login_url }}">Entrar</a>
+      {% endif %}
+    </div>
+  </aside>
+</div>

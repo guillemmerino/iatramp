@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "iatramp",
+    "core.apps.CoreConfig",
     "competicions_trampoli",
 ]
 if importlib.util.find_spec("django_celery_results") is not None:

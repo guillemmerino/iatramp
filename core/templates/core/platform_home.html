@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% load static_extras %}
+
+{% block title %}Iatramp · Tauler de plataforma{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% staticv 'core/platform.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="platform-page">
+  <div class="platform-shell">
+    <header class="platform-hero">
+      <div class="platform-hero-copy">
+        <span class="platform-eyebrow">Plataforma de gimnàstica de trampolí</span>
+        <h1>Iatramp</h1>
+        <p>Un únic punt d’entrada per preparar competicions, connectar equips i construir el futur de l’entrenament assistit.</p>
+        <div class="platform-hero-actions">
+          <a class="platform-button platform-button--primary" href="{% url 'competicions_home' %}">Obrir Competicions</a>
+          <a class="platform-button platform-button--secondary" href="{% url 'platform_settings' %}">Configuració general</a>
+        </div>
+      </div>
+
+      <aside class="platform-profile-card" aria-label="Resum del perfil">
+        <div class="platform-avatar" aria-hidden="true">{{ platform_initials }}</div>
+        <div class="platform-profile-copy">
+          {% if user.is_authenticated %}
+            <span class="platform-profile-kicker">Sessió activa</span>
+            <strong>{{ platform_display_name }}</strong>
+            {% if platform_person %}
+              <span>Identitat Iatramp connectada</span>
+            {% else %}
+              <span>El perfil personal encara no està vinculat</span>
+            {% endif %}
+          {% else %}
+            <span class="platform-profile-kicker">Accés obert</span>
+            <strong>Benvingut/da a Iatramp</strong>
+            <span>Pots explorar la plataforma sense iniciar sessió.</span>
+          {% endif %}
+        </div>
+        <a class="platform-profile-link" href="{% url 'platform_settings' %}">Veure perfil i preferències <span aria-hidden="true">→</span></a>
+      </aside>
+    </header>
+
+    <section class="platform-section" aria-labelledby="modules-title">
+      <div class="platform-section-heading">
+        <div>
+          <span class="platform-section-kicker">Espais de treball</span>
+          <h2 id="modules-title">Què vols fer avui?</h2>
+        </div>
+        <p>Competicions ja està disponible. La resta d’espais s’incorporaran progressivament sobre la nova identitat compartida.</p>
+      </div>
+
+      <div class="platform-modules-grid">
+        <article class="platform-module-card platform-module-card--competition">
+          <div class="platform-module-spectrum" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="platform-module-head">
+            <span class="platform-module-icon" aria-hidden="true">C</span>
+            <span class="platform-status platform-status--available">Disponible</span>
+          </div>
+          <h3>Competicions</h3>
+          <p>Gestiona el flux complet d’una competició, des de les inscripcions fins a les classificacions en viu.</p>
+          <ul class="platform-feature-list" aria-label="Àrees de Competicions">
+            <li><span class="platform-dot platform-dot--inscripcions"></span>Inscripcions</li>
+            <li><span class="platform-dot platform-dot--fases"></span>Aparells i fases</li>
+            <li><span class="platform-dot platform-dot--rotacions"></span>Rotacions</li>
+            <li><span class="platform-dot platform-dot--classificacions"></span>Classificacions</li>
+            <li class="platform-feature-item--notes"><span class="platform-dot platform-dot--notes"></span>Notes i QRs</li>
+          </ul>
+          <a class="platform-module-action" href="{% url 'competicions_home' %}">Entrar a Competicions <span aria-hidden="true">→</span></a>
+        </article>
+
+        <article class="platform-module-card platform-module-card--train" data-module-status="preparation">
+          <div class="platform-module-head">
+            <span class="platform-module-icon" aria-hidden="true">IA</span>
+            <span class="platform-status">En preparació</span>
+          </div>
+          <h3>IA Train</h3>
+          <p>Planificació, seguiment i anàlisi de l’entrenament amb suport d’IA i supervisió tècnica humana.</p>
+          <div class="platform-empty-note">Properament: plans, sessions, càrrega i feedback.</div>
+          <span class="platform-module-action platform-module-action--disabled" aria-disabled="true">Pròximament</span>
+        </article>
+
+        <article class="platform-module-card platform-module-card--judges" data-module-status="preparation">
+          <div class="platform-module-head">
+            <span class="platform-module-icon" aria-hidden="true">QR</span>
+            <span class="platform-status">Accés contextual</span>
+          </div>
+          <h3>Portal de jutges</h3>
+          <p>Espai de puntuació i comunicació per als jutges assignats a una competició.</p>
+          <div class="platform-empty-note">L’accés actual continua disponible mitjançant el QR o l’enllaç de cada competició.</div>
+          <span class="platform-module-action platform-module-action--disabled" aria-disabled="true">Requereix una assignació</span>
+        </article>
+
+        <article class="platform-module-card platform-module-card--profile" data-module-status="preparation">
+          <div class="platform-module-head">
+            <span class="platform-module-icon" aria-hidden="true">{{ platform_initials }}</span>
+            {% if platform_person %}
+              <span class="platform-status platform-status--connected">Connectat</span>
+            {% else %}
+              <span class="platform-status">En preparació</span>
+            {% endif %}
+          </div>
+          <h3>El meu perfil</h3>
+          <p>La identitat compartida, les organitzacions i els permisos personals de tota la plataforma.</p>
+          {% if platform_memberships %}
+            <div class="platform-membership-summary">
+              <strong>{{ platform_memberships|length }}</strong>
+              <span>vincle{{ platform_memberships|length|pluralize }} d’organització actiu{{ platform_memberships|length|pluralize }}</span>
+            </div>
+          {% else %}
+            <div class="platform-empty-note">Encara no hi ha organitzacions vinculades a aquest perfil.</div>
+          {% endif %}
+          <a class="platform-module-action" href="{% url 'platform_settings' %}">Veure la informació actual <span aria-hidden="true">→</span></a>
+        </article>
+      </div>
+    </section>
+
+    <section class="platform-foundation" aria-labelledby="foundation-title">
+      <div>
+        <span class="platform-section-kicker">Base comuna</span>
+        <h2 id="foundation-title">Una plataforma, diversos contextos</h2>
+      </div>
+      <p>La identitat, els clubs i les relacions entre entrenadors i gimnastes es compartiran entre mòduls sense alterar els fluxos actuals de competicions.</p>
+      <a href="{% url 'platform_settings' %}">Consultar l’estat de la plataforma</a>
+    </section>
+  </div>
+</div>
+{% endblock %}
