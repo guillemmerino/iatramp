@@ -6,7 +6,13 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import timezone
 
-from core.models import CoachAthleteRelation, Membership, Organization, Person
+from core.models import (
+    CoachAthleteRelation,
+    Membership,
+    MembershipRole,
+    Organization,
+    Person,
+)
 from core.services import (
     can_manage_organization,
     grant_membership,
@@ -38,28 +44,31 @@ class CoreServiceTests(TestCase):
         first = grant_membership(
             person=self.coach,
             organization=self.organization,
-            role=Membership.Role.COACH,
+            role=MembershipRole.Role.COACH,
             title="Tècnic",
         )
         second = grant_membership(
             person=self.coach,
             organization=self.organization,
-            role=Membership.Role.COACH,
+            role=MembershipRole.Role.COACH,
             title="Tècnic principal",
         )
 
         self.assertEqual(first.pk, second.pk)
-        self.assertEqual(second.title, "Tècnic principal")
+        self.assertEqual(
+            second.roles.get(role=MembershipRole.Role.COACH).title,
+            "Tècnic principal",
+        )
 
     def test_organization_management_requires_current_admin_membership(self):
         grant_membership(
             person=self.coach,
             organization=self.organization,
-            role=Membership.Role.ADMIN,
+            role=MembershipRole.Role.ADMIN,
         )
         self.assertTrue(can_manage_organization(self.coach_user, self.organization))
 
-        membership = self.coach.memberships.get(role=Membership.Role.ADMIN)
+        membership = self.coach.memberships.get(organization=self.organization)
         membership.start_date = timezone.localdate() - timedelta(days=2)
         membership.end_date = timezone.localdate() - timedelta(days=1)
         membership.save()

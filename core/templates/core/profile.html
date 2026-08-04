@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% load static_extras %}
+
+{% block title %}El meu perfil · Iatramp{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% staticv 'core/platform.css' %}">{% endblock %}
+
+{% block content %}
+<div class="platform-page platform-page--settings">
+  <div class="platform-shell platform-workspace-shell">
+    <header class="platform-settings-header">
+      <div>
+        <a class="platform-back-link" href="{% url 'platform_settings' %}">← Tornar a configuració</a>
+        <span class="platform-eyebrow">Identitat compartida</span>
+        <h1>{% if profile_person %}El meu perfil{% else %}Completa el teu perfil{% endif %}</h1>
+        <p>Aquesta identitat s’utilitza a tota la plataforma i és independent dels rols de cada organització.</p>
+      </div>
+    </header>
+
+    <section class="platform-workspace-card platform-workspace-card--narrow">
+      <form method="post" class="platform-form">
+        {% csrf_token %}
+        {% include "core/_form_fields.html" %}
+        <div class="platform-form-actions">
+          <button class="platform-button platform-button--primary" type="submit">Desar el perfil</button>
+          <a class="platform-button platform-button--secondary" href="{% url 'platform_settings' %}">Cancel·lar</a>
+        </div>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

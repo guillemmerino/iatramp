@@ -6,7 +6,7 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from core.models import CoachAthleteRelation, Membership, Organization, Person
+from core.models import CoachAthleteRelation, Membership, MembershipRole, Organization, Person
 
 
 class CoreModelTests(TestCase):
@@ -38,30 +38,35 @@ class CoreModelTests(TestCase):
             person.full_clean()
 
     def test_person_can_have_multiple_contextual_memberships(self):
-        Membership.objects.create(
+        membership = Membership.objects.create(
             person=self.coach,
             organization=self.organization,
-            role=Membership.Role.COACH,
         )
-        Membership.objects.create(
-            person=self.coach,
-            organization=self.organization,
-            role=Membership.Role.ADMIN,
+        MembershipRole.objects.create(
+            membership=membership,
+            role=MembershipRole.Role.COACH,
+        )
+        MembershipRole.objects.create(
+            membership=membership,
+            role=MembershipRole.Role.ADMIN,
         )
         other = Organization.objects.create(name="Federació", slug="federacio")
-        Membership.objects.create(
+        other_membership = Membership.objects.create(
             person=self.coach,
             organization=other,
-            role=Membership.Role.COACH,
+        )
+        MembershipRole.objects.create(
+            membership=other_membership,
+            role=MembershipRole.Role.COACH,
         )
 
-        self.assertEqual(self.coach.memberships.count(), 3)
+        self.assertEqual(self.coach.memberships.count(), 2)
+        self.assertEqual(membership.roles.count(), 2)
 
     def test_membership_rejects_inverted_dates(self):
         membership = Membership(
             person=self.coach,
             organization=self.organization,
-            role=Membership.Role.COACH,
             start_date=timezone.localdate(),
             end_date=timezone.localdate() - timedelta(days=1),
         )
@@ -97,4 +102,3 @@ class CoreModelTests(TestCase):
         CoachAthleteRelation.objects.create(coach=self.coach, athlete=self.athlete)
         with self.assertRaises(IntegrityError), transaction.atomic():
             CoachAthleteRelation.objects.create(coach=self.coach, athlete=self.athlete)
-

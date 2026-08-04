@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% load static_extras %}
+
+{% block title %}Organitzacions · Iatramp{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% staticv 'core/platform.css' %}">{% endblock %}
+
+{% block content %}
+<div class="platform-page platform-page--settings">
+  <div class="platform-shell platform-workspace-shell">
+    <header class="platform-settings-header">
+      <div>
+        <a class="platform-back-link" href="{% url 'platform_settings' %}">← Tornar a configuració</a>
+        <span class="platform-eyebrow">Comunitat Iatramp</span>
+        <h1>Organitzacions</h1>
+        <p>Crea una organització o demana unir-te a un club, federació o altra entitat existent.</p>
+      </div>
+      <a class="platform-button platform-button--primary" href="{% url 'organization_create' %}">Crear organització</a>
+    </header>
+
+    <form method="get" class="platform-search-form" role="search">
+      <label for="organization-search">Cercar organitzacions</label>
+      <div>
+        <input class="platform-form-control" id="organization-search" type="search" name="q" value="{{ organization_query }}" placeholder="Nom del club o federació">
+        <button class="platform-button platform-button--secondary" type="submit">Cercar</button>
+      </div>
+    </form>
+
+    <section class="platform-workspace-card">
+      <div class="platform-workspace-heading">
+        <div><span class="platform-section-kicker">Directori</span><h2>Organitzacions disponibles</h2></div>
+        <span class="platform-count-badge">{{ organizations|length }}</span>
+      </div>
+      {% if organizations %}
+        <ul class="platform-directory-list">
+          {% for organization in organizations %}
+            <li>
+              <div>
+                <strong>{{ organization.name }}</strong>
+                <span>{{ organization.get_kind_display }}{% if organization.created_by %} · creada per {{ organization.created_by.display_name }}{% endif %}</span>
+              </div>
+              <div class="platform-directory-actions">
+                {% if organization.viewer_membership %}<span class="platform-status platform-status--connected">{{ organization.viewer_membership.role_summary }}</span>{% elif organization.viewer_request %}<span class="platform-status">Sol·licitud pendent</span>{% endif %}
+                <a href="{% url 'organization_detail' organization.slug %}">Veure</a>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="platform-settings-empty"><strong>No s’ha trobat cap organització</strong><p>Prova una altra cerca o crea una organització nova.</p></div>
+      {% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}

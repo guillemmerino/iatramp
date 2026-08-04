@@ -32,6 +32,7 @@
             <div><dt>Compte</dt><dd>{{ user.get_username }}</dd></div>
             <div><dt>Perfil Iatramp</dt><dd>{% if platform_person %}Connectat{% else %}Pendent de vinculació{% endif %}</dd></div>
           </dl>
+          <a class="platform-card-action" href="{% url 'profile' %}">{% if platform_person %}Editar el perfil{% else %}Completar el perfil{% endif %}</a>
         {% else %}
           <div class="platform-settings-empty">
             <strong>No hi ha cap sessió iniciada</strong>
@@ -51,7 +52,7 @@
             {% for membership in platform_memberships %}
               <li>
                 <div><strong>{{ membership.organization.name }}</strong><span>{{ membership.organization.get_kind_display }}</span></div>
-                <span class="platform-role-badge">{{ membership.get_role_display }}</span>
+                <span class="platform-role-badge">{{ membership.role_summary }}</span>
               </li>
             {% endfor %}
           </ul>
@@ -61,6 +62,7 @@
             <p>Quan un club o federació es vinculi al perfil, apareixerà aquí amb el rol corresponent.</p>
           </div>
         {% endif %}
+        {% if user.is_authenticated %}<a class="platform-card-action" href="{% url 'organizations' %}">Gestionar organitzacions</a>{% endif %}
       </section>
 
       <section class="platform-settings-card">
@@ -89,9 +91,8 @@
 
     <div class="platform-settings-notice" role="status">
       <strong>Primera versió funcional</strong>
-      <span>La consulta ja és operativa; l’edició de preferències i identitat s’activarà en una fase posterior.</span>
+      <span>La identitat i les organitzacions ja es poden gestionar; les preferències d’experiència continuen en preparació.</span>
     </div>
   </div>
 </div>
 {% endblock %}
-

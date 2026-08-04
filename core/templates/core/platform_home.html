@@ -43,7 +43,7 @@
             <span>Pots explorar la plataforma sense iniciar sessió.</span>
           {% endif %}
         </div>
-        <a class="platform-profile-link" href="{% url 'platform_settings' %}">Veure perfil i preferències <span aria-hidden="true">→</span></a>
+        <a class="platform-profile-link" href="{% if user.is_authenticated %}{% url 'profile' %}{% else %}{% url 'platform_settings' %}{% endif %}">Veure perfil i preferències <span aria-hidden="true">→</span></a>
       </aside>
     </header>
 
@@ -118,7 +118,7 @@
           {% else %}
             <div class="platform-empty-note">Encara no hi ha organitzacions vinculades a aquest perfil.</div>
           {% endif %}
-          <a class="platform-module-action" href="{% url 'platform_settings' %}">Veure la informació actual <span aria-hidden="true">→</span></a>
+          <a class="platform-module-action" href="{% if user.is_authenticated %}{% url 'profile' %}{% else %}{% url 'platform_settings' %}{% endif %}">Gestionar el perfil <span aria-hidden="true">→</span></a>
         </article>
       </div>
     </section>

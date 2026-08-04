@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% load static_extras %}
+
+{% block title %}{% if mode == 'create' %}Nova organització{% else %}Editar organització{% endif %} · Iatramp{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% staticv 'core/platform.css' %}">{% endblock %}
+
+{% block content %}
+<div class="platform-page platform-page--settings">
+  <div class="platform-shell platform-workspace-shell">
+    <header class="platform-settings-header">
+      <div>
+        <a class="platform-back-link" href="{% if organization %}{% url 'organization_detail' organization.slug %}{% else %}{% url 'organizations' %}{% endif %}">← Tornar</a>
+        <span class="platform-eyebrow">Gestió d’organització</span>
+        <h1>{% if mode == 'create' %}Crear una organització{% else %}Editar {{ organization.name }}{% endif %}</h1>
+        {% if mode == 'create' %}<p>En seràs la persona creadora i rebràs el rol de responsable.</p>{% endif %}
+      </div>
+    </header>
+    <section class="platform-workspace-card platform-workspace-card--narrow">
+      <form method="post" class="platform-form">
+        {% csrf_token %}
+        {% include "core/_form_fields.html" %}
+        <div class="platform-form-actions">
+          <button class="platform-button platform-button--primary" type="submit">{% if mode == 'create' %}Crear organització{% else %}Desar canvis{% endif %}</button>
+          <a class="platform-button platform-button--secondary" href="{% if organization %}{% url 'organization_detail' organization.slug %}{% else %}{% url 'organizations' %}{% endif %}">Cancel·lar</a>
+        </div>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

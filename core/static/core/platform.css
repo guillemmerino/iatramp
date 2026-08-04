@@ -7,6 +7,9 @@
   --platform-border-strong: #cbd5e1;
   --platform-bg: #f8fafc;
   --platform-surface: #ffffff;
+  --platform-primary: #0f766e;
+  --platform-neutral-soft: #f1f5f9;
+  --platform-shadow-soft: 0 12px 30px rgba(15, 23, 42, 0.07);
   --platform-inscripcions: #0f766e;
   --platform-fases: #2563eb;
   --platform-rotacions: #b45309;
@@ -887,5 +890,235 @@
   .platform-button,
   .platform-module-card {
     transition: none;
+  }
+}
+
+.platform-workspace-shell {
+  display: grid;
+  gap: 24px;
+}
+
+.platform-workspace-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.platform-workspace-card,
+.platform-search-form,
+.platform-membership-banner {
+  border: 1px solid var(--platform-border);
+  border-radius: 24px;
+  background: var(--platform-surface);
+  box-shadow: var(--platform-shadow-soft);
+  padding: 24px;
+}
+
+.platform-workspace-card--narrow {
+  width: min(100%, 760px);
+}
+
+.platform-workspace-heading,
+.platform-membership-banner,
+.platform-directory-list li,
+.platform-request-list li,
+.platform-directory-actions,
+.platform-inline-actions,
+.platform-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.platform-workspace-heading {
+  margin-bottom: 18px;
+}
+
+.platform-workspace-heading h2 {
+  margin: 3px 0 0;
+  color: var(--platform-ink);
+  font-size: 1.35rem;
+}
+
+.platform-count-badge {
+  display: inline-grid;
+  min-width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--platform-neutral-soft);
+  color: var(--platform-muted);
+  font-weight: 700;
+}
+
+.platform-search-form label,
+.platform-form-field > label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--platform-ink);
+  font-weight: 700;
+}
+
+.platform-search-form > div {
+  display: flex;
+  gap: 12px;
+}
+
+.platform-search-form input {
+  flex: 1;
+}
+
+.platform-form {
+  display: grid;
+  gap: 18px;
+}
+
+.platform-form-control {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--platform-border-strong);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--platform-ink);
+  padding: 10px 12px;
+}
+
+textarea.platform-form-control {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.platform-form-control:focus {
+  border-color: var(--platform-primary);
+  box-shadow: 0 0 0 3px rgba(14, 116, 144, 0.14);
+  outline: none;
+}
+
+.platform-form-field > small,
+.platform-directory-list span,
+.platform-request-list span,
+.platform-membership-banner span {
+  color: var(--platform-muted);
+}
+
+.platform-form-field > ul,
+.platform-form-field > div[id^="id_"] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.platform-form-field > ul label,
+.platform-form-field > div[id^="id_"] label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--platform-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 500;
+}
+
+.platform-form-errors,
+.platform-field-errors {
+  margin-top: 6px;
+  color: #b91c1c;
+}
+
+.platform-form-errors .errorlist,
+.platform-field-errors .errorlist {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.platform-form-note {
+  border-radius: 12px;
+  background: var(--platform-neutral-soft);
+  color: var(--platform-muted);
+  padding: 12px 14px;
+}
+
+.platform-card-action {
+  display: inline-flex;
+  margin-top: 16px;
+  color: var(--platform-primary);
+  font-weight: 700;
+}
+
+.platform-directory-list,
+.platform-request-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.platform-directory-list li,
+.platform-request-list li {
+  border-top: 1px solid var(--platform-border);
+  padding: 15px 0;
+}
+
+.platform-directory-list li:first-child,
+.platform-request-list li:first-child {
+  border-top: 0;
+}
+
+.platform-directory-list li > div:first-child,
+.platform-request-list li > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.platform-directory-list a,
+.platform-request-list a,
+.platform-link-button {
+  color: var(--platform-primary);
+  font-weight: 700;
+}
+
+.platform-link-button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.platform-link-button--approve {
+  color: #15803d;
+}
+
+.platform-inline-actions form,
+.platform-membership-banner form {
+  margin: 0;
+}
+
+.platform-request-list p {
+  margin: 6px 0 0;
+  color: var(--platform-muted);
+}
+
+@media (max-width: 760px) {
+  .platform-workspace-grid,
+  .platform-form-field > ul,
+  .platform-form-field > div[id^="id_"] {
+    grid-template-columns: 1fr;
+  }
+
+  .platform-search-form > div,
+  .platform-directory-list li,
+  .platform-request-list li,
+  .platform-membership-banner,
+  .platform-form-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .platform-directory-actions,
+  .platform-inline-actions {
+    justify-content: flex-start;
   }
 }

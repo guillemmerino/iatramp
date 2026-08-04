@@ -5,7 +5,7 @@ from django.contrib.staticfiles import finders
 from django.test import TestCase
 from django.urls import resolve, reverse
 
-from core.models import Membership, Organization, Person
+from core.models import Membership, MembershipRole, Organization, Person
 
 
 class PlatformHomeTests(TestCase):
@@ -95,7 +95,7 @@ class PlatformHomeTests(TestCase):
         self.assertContains(response, 'href="{}"'.format(reverse("platform_settings")))
         self.assertContains(response, 'href="{}"'.format(reverse("iatrain_home")))
         self.assertContains(response, "platform-nav-item--judges is-disabled")
-        self.assertContains(response, "platform-nav-item--profile is-disabled")
+        self.assertNotContains(response, "platform-nav-item--profile")
         self.assertNotContains(response, '<a class="platform-nav-item platform-nav-item--judges')
         self.assertNotContains(response, '<a class="platform-nav-item platform-nav-item--profile')
         self.assertNotContains(response, 'class="header_section"')
@@ -177,7 +177,8 @@ class PlatformHomeTests(TestCase):
         Membership.objects.create(
             person=person,
             organization=organization,
-            role=Membership.Role.ATHLETE,
+        ).roles.create(
+            role=MembershipRole.Role.ATHLETE,
         )
         self.client.force_login(user)
 
@@ -207,10 +208,13 @@ class PlatformSettingsTests(TestCase):
             slug="federacio-catalana",
             kind=Organization.Kind.FEDERATION,
         )
-        Membership.objects.create(
+        membership = Membership.objects.create(
             person=person,
             organization=organization,
-            role=Membership.Role.COACH,
+        )
+        MembershipRole.objects.create(
+            membership=membership,
+            role=MembershipRole.Role.COACH,
         )
         self.client.force_login(user)
 

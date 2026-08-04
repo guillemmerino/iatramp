@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% load static_extras %}
+
+{% block title %}Rols de {{ membership.person.display_name }} · Iatramp{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% staticv 'core/platform.css' %}">{% endblock %}
+
+{% block content %}
+<div class="platform-page platform-page--settings">
+  <div class="platform-shell platform-workspace-shell">
+    <header class="platform-settings-header">
+      <div>
+        <a class="platform-back-link" href="{% url 'organization_detail' organization.slug %}">← Tornar a {{ organization.name }}</a>
+        <span class="platform-eyebrow">Rols i permisos</span>
+        <h1>{{ membership.person.display_name }}</h1>
+        <p>Una persona pot tenir diversos rols. Els permisos efectius es poden ajustar individualment.</p>
+      </div>
+    </header>
+    <section class="platform-workspace-card platform-workspace-card--narrow">
+      <form method="post" class="platform-form">
+        {% csrf_token %}
+        {% include "core/_form_fields.html" %}
+        <div class="platform-form-note">Només una persona responsable pot assignar o retirar el rol de responsable. Hi pot haver múltiples administradors.</div>
+        <div class="platform-form-actions">
+          <button class="platform-button platform-button--primary" type="submit">Desar rols i permisos</button>
+          <a class="platform-button platform-button--secondary" href="{% url 'organization_detail' organization.slug %}">Cancel·lar</a>
+        </div>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

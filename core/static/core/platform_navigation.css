@@ -351,6 +351,7 @@ a.platform-nav-item:hover {
 .platform-nav-item--train { --nav-item-accent: var(--platform-nav-blue); }
 .platform-nav-item--judges { --nav-item-accent: var(--platform-nav-gold); }
 .platform-nav-item--profile { --nav-item-accent: var(--platform-nav-teal); }
+.platform-nav-item--organizations { --nav-item-accent: var(--platform-nav-blue); }
 
 .platform-nav-icon {
   display: grid;

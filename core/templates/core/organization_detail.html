@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% load static_extras %}
+
+{% block title %}{{ organization.name }} · Iatramp{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% staticv 'core/platform.css' %}">{% endblock %}
+
+{% block content %}
+<div class="platform-page platform-page--settings">
+  <div class="platform-shell platform-workspace-shell">
+    <header class="platform-settings-header">
+      <div>
+        <a class="platform-back-link" href="{% url 'organizations' %}">← Totes les organitzacions</a>
+        <span class="platform-eyebrow">{{ organization.get_kind_display }}</span>
+        <h1>{{ organization.name }}</h1>
+        <p>{% if organization.created_by %}Creada per {{ organization.created_by.display_name }}. {% endif %}La persona creadora és única; els rols administratius poden tenir múltiples membres.</p>
+      </div>
+      {% if can_manage_organization %}<a class="platform-button platform-button--secondary" href="{% url 'organization_edit' organization.slug %}">Editar organització</a>{% endif %}
+    </header>
+
+    {% if membership %}
+      <section class="platform-membership-banner">
+        <div><span>La teva pertinença</span><strong>{{ membership.role_summary }}</strong></div>
+        <span class="platform-status platform-status--connected">Activa</span>
+      </section>
+    {% elif pending_request %}
+      <section class="platform-membership-banner">
+        <div><span>Sol·licitud pendent</span><strong>{{ pending_request.requested_role_summary }}</strong></div>
+        <form method="post" action="{% url 'organization_request_cancel' pending_request.pk %}">{% csrf_token %}<button class="platform-link-button" type="submit">Cancel·lar sol·licitud</button></form>
+      </section>
+    {% else %}
+      <section class="platform-workspace-card platform-workspace-card--narrow">
+        <div class="platform-workspace-heading"><div><span class="platform-section-kicker">Accés</span><h2>Demanar unir-m’hi</h2></div></div>
+        <form method="post" action="{% url 'organization_join' organization.slug %}" class="platform-form">
+          {% csrf_token %}
+          {% with form=join_form %}{% include "core/_form_fields.html" %}{% endwith %}
+          <button class="platform-button platform-button--primary" type="submit">Enviar la sol·licitud</button>
+        </form>
+      </section>
+    {% endif %}
+
+    {% if membership %}
+      <div class="platform-workspace-grid">
+        <section class="platform-workspace-card">
+          <div class="platform-workspace-heading"><div><span class="platform-section-kicker">Equip humà</span><h2>Membres actius</h2></div><span class="platform-count-badge">{{ members|length }}</span></div>
+          <ul class="platform-directory-list">
+            {% for item in members %}
+              <li>
+                <div><strong>{{ item.person.display_name }}</strong><span>{{ item.role_summary }}</span></div>
+                {% if can_manage_roles %}<a href="{% url 'organization_member_access' organization.slug item.pk %}">Rols i permisos</a>{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </section>
+
+        {% if can_review_requests %}
+          <section class="platform-workspace-card">
+            <div class="platform-workspace-heading"><div><span class="platform-section-kicker">Administració</span><h2>Sol·licituds pendents</h2></div><span class="platform-count-badge">{{ pending_for_review|length }}</span></div>
+            {% if pending_for_review %}
+              <ul class="platform-request-list">
+                {% for item in pending_for_review %}
+                  <li>
+                    <div><strong>{{ item.person.display_name }}</strong><span>{{ item.requested_role_summary }}</span>{% if item.message %}<p>{{ item.message }}</p>{% endif %}</div>
+                    <div class="platform-inline-actions">
+                      <form method="post" action="{% url 'organization_request_review' item.pk 'approve' %}">{% csrf_token %}<button class="platform-link-button platform-link-button--approve" type="submit">Aprovar</button></form>
+                      <form method="post" action="{% url 'organization_request_review' item.pk 'reject' %}">{% csrf_token %}<button class="platform-link-button" type="submit">Rebutjar</button></form>
+                    </div>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}<div class="platform-settings-empty"><strong>Cap sol·licitud pendent</strong><p>Les peticions noves apareixeran aquí.</p></div>{% endif %}
+          </section>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

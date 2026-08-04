@@ -2,6 +2,8 @@
 {% url 'home' as platform_home_url %}
 {% url 'competicions_home' as competitions_url %}
 {% url 'platform_settings' as settings_url %}
+{% url 'profile' as profile_url %}
+{% url 'organizations' as organizations_url %}
 {% url 'iatrain_home' as iatrain_url %}
 {% url 'login' as login_url %}
 {% url 'logout' as logout_url %}
@@ -77,14 +79,19 @@
         <span class="platform-nav-copy"><strong>IA Train</strong><small>Entrenament assistit</small></span>
         <span class="platform-nav-state platform-nav-state--available">MVP</span>
       </a>
+      {% if user.is_authenticated %}
+      <a class="platform-nav-item platform-nav-item--profile{% if request.resolver_match.url_name == 'profile' %} is-active{% endif %}" href="{{ profile_url }}"{% if request.resolver_match.url_name == 'profile' %} aria-current="page"{% endif %}>
+        <span class="platform-nav-icon" aria-hidden="true">P</span>
+        <span class="platform-nav-copy"><strong>Perfil</strong><small>Identitat Iatramp</small></span>
+      </a>
+      <a class="platform-nav-item platform-nav-item--organizations{% if 'organization' in request.resolver_match.url_name %} is-active{% endif %}" href="{{ organizations_url }}"{% if 'organization' in request.resolver_match.url_name %} aria-current="page"{% endif %}>
+        <span class="platform-nav-icon" aria-hidden="true">O</span>
+        <span class="platform-nav-copy"><strong>Organitzacions</strong><small>Membres i sol·licituds</small></span>
+      </a>
+      {% endif %}
       <span class="platform-nav-item platform-nav-item--judges is-disabled" aria-disabled="true">
         <span class="platform-nav-icon" aria-hidden="true">QR</span>
         <span class="platform-nav-copy"><strong>Portal de jutges</strong><small>Accés contextual</small></span>
-        <span class="platform-nav-state">En preparació</span>
-      </span>
-      <span class="platform-nav-item platform-nav-item--profile is-disabled" aria-disabled="true">
-        <span class="platform-nav-icon" aria-hidden="true">P</span>
-        <span class="platform-nav-copy"><strong>Perfil</strong><small>Identitat Iatramp</small></span>
         <span class="platform-nav-state">En preparació</span>
       </span>
     </nav>
