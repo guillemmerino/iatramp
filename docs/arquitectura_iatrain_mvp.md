@@ -25,7 +25,7 @@ No genera entrenaments, no consulta cap LLM, no conté encara un catàleg ampli 
 - `Person`: individu real, amb compte opcional;
 - `Organization`: club, federació o altra organització;
 - `Membership`: rol contextual dins d'una organització;
-- `CoachAthleteRelation`: relació explícita entrenador–gimnasta, vigència i permisos.
+- `PersonClaimInvitation` i `PersonMergeRecord`: reclamació i consolidació traçable d'identitats.
 
 `iatrain` referencia aquests models; no els replica i no dedueix permisos a partir del nom d'un rol. Ser entrenador en una `Membership` no concedeix automàticament accés a cap gimnasta.
 
@@ -33,6 +33,8 @@ No genera entrenaments, no consulta cap LLM, no conté encara un catàleg ampli 
 
 `iatrain` és propietari de:
 
+- `AthleteProfile` i `CoachProfile`: els dos únics perfils esportius del mòdul;
+- `CoachAthleteRelation`: relació explícita entre perfils, vigència i permisos;
 - `TrainingContext`: marc temporal i organitzatiu de treball;
 - `KnowledgeConcept`: node del coneixement professional;
 - `KnowledgeRelation`: aresta dirigida entre nodes;
@@ -42,13 +44,13 @@ La dependència permesa és `iatrain -> core`. No s'ha d'introduir la dependènc
 
 ## 3. Autorització
 
-La capa de serveis d'`iatrain.services` reutilitza `CoachAthleteRelation` i les capacitats de Core:
+La capa de serveis d'`iatrain.services` aplica `CoachAthleteRelation` sobre els perfils esportius:
 
 - consultar observacions requereix `can_view_training=True`;
 - registrar o revisar observacions requereix `can_edit_training=True`;
 - la relació ha d'estar activa i dins de les dates de vigència;
 - si el context té organització, la relació autoritzadora ha de tenir el mateix context organitzatiu segons la semàntica actual de Core;
-- un compte sense `Person` activa no pot crear observacions, perquè no hi ha autoria professional traçable;
+- un compte amb una `Person` provisional encara ha de completar la seva identitat abans dels fluxos operatius;
 - una persona no obté permís d'escriptura sobre si mateixa pel simple fet de ser el mateix subjecte;
 - el superusuari conserva l'excepció global de Core, però per crear observacions també necessita una `Person` activa com a autora.
 
@@ -227,11 +229,40 @@ Flux recomanat:
 
 Aquest flux separa quatre fets: qui té permís, què s'ha observat, quin coneixement és reutilitzable i quin grau de validació editorial té.
 
-## 12. Punts d'extensió futurs
+## 12. UI operativa i autorització de grups
+
+La primera iteració de la UI d'IA Train separa explícitament tres conceptes:
+
+- `AthleteProfile` i `CoachProfile` són perfils esportius personals. Es poden activar i suspendre sense eliminar cap relació, grup, observació ni historial.
+- La perspectiva (`athlete` o `coach`) és una preferència lleugera de sessió. El servidor només accepta una perspectiva si el perfil corresponent existeix i està actiu.
+- `MembershipRole` descriu el paper dins d'una organització; no activa perfils d'IA Train ni concedeix per si sol accés a dades de gimnastes.
+
+### Regla MVP de grups
+
+`TrainingGroup.managing_coaches` identifica de manera explícita els entrenadors que poden gestionar cada grup i admet més d'un gestor. Consultar o modificar un grup requereix figurar en aquesta relació amb un `CoachProfile` actiu. Una persona administradora o responsable de l'organització no obté accés esportiu implícit.
+
+Per crear un grup cal un perfil d'entrenador actiu i un punt d'entrada esportiu explícit a l'organització: o bé una `CoachAthleteRelation` activa i contextualitzada en aquella organització, o bé una `MembershipRole.COACH` activa. Els rols `OWNER` i `ADMIN`, sols, no són suficients.
+
+Per afegir un gimnasta al grup, el gestor necessita una `CoachAthleteRelation` vigent amb `can_view_profile=True` i `organization` igual a la del grup. Una relació global no s'eleva automàticament a cap club. Retirar un membre finalitza `TrainingGroupMembership` amb data de fi i `is_active=False`; no elimina la fila i, per tant, conserva l'historial.
+
+L'alta manual reutilitza `create_unclaimed_athlete`. L'organització és opcional i el formulari només accepta les organitzacions esportivament disponibles segons la regla anterior. Si hi ha correu, el servei existent crea la invitació de reclamació; la UI no exposa el token.
+
+### Superfície inclosa
+
+- resum diferenciat per perspectives entrenador i gimnasta;
+- activació i suspensió de perfils esportius;
+- selector de perspectiva persistit a sessió;
+- directori amb cerca, alta i detall bàsic de gimnastes autoritzats;
+- llista, creació i detall de grups, amb alta i retirada històrica de membres;
+- espai propi del gimnasta amb grups actius, entrenadors vinculats i observacions visibles.
+
+No s'hi inclouen planificació, vídeo, generació amb IA ni edició completa del graf de coneixement.
+
+## 13. Punts d'extensió futurs
 
 Quan hi hagi requisits reals es poden afegir, mitjançant migracions explícites:
 
-- grups amb membresia i rols propis;
+- rols més granulars dins dels grups i historial dels seus entrenadors gestors;
 - sessions i plans d'entrenament;
 - adjunts o referències d'evidència;
 - revisors i historial editorial del graf;

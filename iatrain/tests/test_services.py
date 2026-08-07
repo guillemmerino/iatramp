@@ -5,8 +5,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 from django.utils import timezone
 
-from core.models import CoachAthleteRelation, Person
-from core.services import set_coach_athlete_relation
+from core.models import Person
 from iatrain.models import AthleteObservation, KnowledgeConcept, KnowledgeRelation, TrainingContext
 from iatrain.services import (
     accessible_athletes,
@@ -16,17 +15,18 @@ from iatrain.services import (
     create_knowledge_relation,
     record_athlete_observation,
     revise_athlete_observation,
+    set_coach_athlete_relation,
 )
 
 
 class IatrainServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="coach")
-        self.coach = Person.objects.create(
-            user=self.user,
-            first_name="Joan",
-            last_name="Puig",
-        )
+        self.coach = self.user.person
+        self.coach.first_name = "Joan"
+        self.coach.last_name = "Puig"
+        self.coach.is_provisional = False
+        self.coach.save()
         self.athlete = Person.objects.create(first_name="Aina", last_name="Serra")
         self.other_athlete = Person.objects.create(first_name="Berta", last_name="Prat")
         self.relation = set_coach_athlete_relation(

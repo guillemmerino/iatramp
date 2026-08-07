@@ -3,7 +3,7 @@ from django.test import TestCase
 from django.urls import resolve, reverse
 
 from core.models import Person
-from core.services import set_coach_athlete_relation
+from iatrain.services import set_coach_athlete_relation
 from iatrain.models import AthleteObservation, TrainingContext
 
 
@@ -31,18 +31,23 @@ class IatrainHomeTests(TestCase):
         self.assertContains(platform, "MVP disponible")
         self.assertNotContains(platform, "platform-nav-item--train is-disabled")
 
-    def test_authenticated_account_without_person_gets_identity_empty_state(self):
+    def test_authenticated_account_gets_provisional_identity(self):
         user = get_user_model().objects.create_user(username="unlinked")
         self.client.force_login(user)
 
         response = self.client.get(reverse("iatrain_home"))
 
-        self.assertContains(response, "El compte encara no està vinculat a una persona")
-        self.assertContains(response, 'href="{}"'.format(reverse("platform_settings")))
+        self.assertEqual(user.person.user, user)
+        self.assertTrue(user.person.is_provisional)
+        self.assertContains(response, "Completa la teva identitat abans de continuar")
 
     def test_coach_sees_only_athletes_contexts_and_observations_granted_by_relation(self):
         user = get_user_model().objects.create_user(username="coach")
-        coach = Person.objects.create(user=user, first_name="Joan", last_name="Puig")
+        coach = user.person
+        coach.first_name = "Joan"
+        coach.last_name = "Puig"
+        coach.is_provisional = False
+        coach.save()
         athlete = Person.objects.create(first_name="Aina", last_name="Serra")
         hidden_athlete = Person.objects.create(first_name="Berta", last_name="Prat")
         set_coach_athlete_relation(
@@ -82,4 +87,3 @@ class IatrainHomeTests(TestCase):
         self.assertContains(response, "Recepció més estable")
         self.assertNotContains(response, "Berta Prat")
         self.assertNotContains(response, "No s'ha de mostrar")
-

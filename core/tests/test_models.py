@@ -2,11 +2,10 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from core.models import CoachAthleteRelation, Membership, MembershipRole, Organization, Person
+from core.models import Membership, MembershipRole, Organization, Person
 
 
 class CoreModelTests(TestCase):
@@ -20,13 +19,12 @@ class CoreModelTests(TestCase):
 
     def test_person_survives_account_deletion(self):
         user = get_user_model().objects.create_user(username="aina")
-        self.athlete.user = user
-        self.athlete.save()
+        account_person = user.person
 
         user.delete()
 
-        self.athlete.refresh_from_db()
-        self.assertIsNone(self.athlete.user)
+        account_person.refresh_from_db()
+        self.assertIsNone(account_person.user)
 
     def test_person_rejects_future_birth_date(self):
         person = Person(
@@ -36,6 +34,14 @@ class CoreModelTests(TestCase):
         )
         with self.assertRaises(ValidationError):
             person.full_clean()
+
+    def test_person_can_be_registered_without_a_last_name(self):
+        person = Person(first_name="Jaume")
+
+        person.full_clean()
+        person.save()
+
+        self.assertEqual(person.display_name, "Jaume")
 
     def test_person_can_have_multiple_contextual_memberships(self):
         membership = Membership.objects.create(
@@ -72,33 +78,3 @@ class CoreModelTests(TestCase):
         )
         with self.assertRaises(ValidationError):
             membership.full_clean()
-
-    def test_athlete_can_have_multiple_coaches(self):
-        second_coach = Person.objects.create(first_name="Laia", last_name="Prat")
-        CoachAthleteRelation.objects.create(coach=self.coach, athlete=self.athlete)
-        CoachAthleteRelation.objects.create(
-            coach=second_coach,
-            athlete=self.athlete,
-            function=CoachAthleteRelation.Function.ASSISTANT_COACH,
-        )
-
-        self.assertEqual(self.athlete.coach_relations.count(), 2)
-
-    def test_relation_rejects_self_coaching_and_incoherent_permissions(self):
-        self_relation = CoachAthleteRelation(coach=self.coach, athlete=self.coach)
-        with self.assertRaises(ValidationError):
-            self_relation.full_clean()
-
-        invalid_permissions = CoachAthleteRelation(
-            coach=self.coach,
-            athlete=self.athlete,
-            can_view_training=False,
-            can_edit_training=True,
-        )
-        with self.assertRaises(ValidationError):
-            invalid_permissions.full_clean()
-
-    def test_global_relation_is_unique_for_function(self):
-        CoachAthleteRelation.objects.create(coach=self.coach, athlete=self.athlete)
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            CoachAthleteRelation.objects.create(coach=self.coach, athlete=self.athlete)

@@ -85,14 +85,15 @@ Les vistes no creen directament pertinences, rols o resolucions de sol·licitud.
 
 S'han incorporat els fluxos següents:
 
-- `/perfil/`: alta i edició de `Person` per al compte autenticat.
+- `/perfil/`: espai unificat d’identitat, organitzacions i preferències; l’alta i edició de `Person` es fa en un modal.
+- `/configuracio/`: redirecció de compatibilitat cap al perfil unificat.
 - `/organitzacions/`: directori, cerca i estat personal.
 - `/organitzacions/nova/`: creació d'una organització.
 - `/organitzacions/<slug>/`: pertinença, membres i sol·licituds.
 - `/organitzacions/<slug>/editar/`: edició bàsica per qui tingui permís.
 - `/organitzacions/<slug>/membres/<id>/accessos/`: rols i permisos efectius.
 
-La configuració general i la navegació global enllacen els nous espais. Les mutacions requereixen autenticació, perfil actiu, CSRF i els permisos d'organització corresponents.
+El perfil unificat i la navegació global enllacen els nous espais. La navegació avisa de les sol·licituds pendents que la persona autenticada pot revisar, respectant rols, vigència i excepcions de permisos. Les mutacions requereixen autenticació, perfil actiu, CSRF i els permisos d'organització corresponents.
 
 ### Administració Django
 
@@ -141,8 +142,8 @@ Encara no s'ha implementat:
 - baixa voluntària, suspensió o expulsió des de la UI;
 - historial visible de canvis de rols i permisos;
 - tutors legals per a persones menors;
-- perfils esportius especialitzats;
-- consentiment de relacions entrenador-gimnasta;
+- interfície d’activació dels perfils esportius d’IA Train;
+- consentiment visible de relacions entrenador-gimnasta;
 - creació de contextos d'entrenament des d'IA Train.
 
 ## Passos futurs
@@ -158,9 +159,9 @@ Encara no s'ha implementat:
 
 ### Entrega 2: perfils i relacions esportives
 
-1. Permetre activar perfils de `coach`, `athlete` i `judge` sense concedir accessos automàtics.
+1. Exposar a la UI l’activació dels perfils `CoachProfile` i `AthleteProfile`, que ja existeixen al domini.
 2. Afegir dades específiques només quan el domini estigui definit: llicències, disciplines o acreditacions.
-3. Crear sol·licituds i consentiment explícit per a relacions entrenador-gimnasta.
+3. Exposar el cicle ja implementat de creació, invitació i reclamació de gimnastes.
 4. Validar que les dues persones siguin membres vigents de l'organització contextual.
 
 ### Entrega 3: IA Train

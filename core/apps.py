@@ -6,3 +6,5 @@ class CoreConfig(AppConfig):
     name = "core"
     verbose_name = "Identitat i organitzacions"
 
+    def ready(self):
+        from . import signals  # noqa: F401

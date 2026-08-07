@@ -1,7 +1,6 @@
 from django.contrib import admin
 
 from .models import (
-    CoachAthleteRelation,
     Membership,
     MembershipPermission,
     MembershipRole,
@@ -9,6 +8,8 @@ from .models import (
     OrganizationMembershipRequest,
     OrganizationMembershipRequestRole,
     Person,
+    PersonClaimInvitation,
+    PersonMergeRecord,
 )
 
 
@@ -37,13 +38,6 @@ class MembershipRequestRoleInline(admin.TabularInline):
     extra = 0
 
 
-class CoachRelationInline(admin.TabularInline):
-    model = CoachAthleteRelation
-    fk_name = "athlete"
-    extra = 0
-    autocomplete_fields = ("coach", "organization")
-
-
 @admin.register(Person)
 class PersonAdmin(admin.ModelAdmin):
     list_display = ("display_name", "email", "user", "is_active", "updated_at")
@@ -58,7 +52,7 @@ class PersonAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("user",)
     readonly_fields = ("created_at", "updated_at")
-    inlines = (MembershipInline, CoachRelationInline)
+    inlines = (MembershipInline,)
 
 
 @admin.register(Organization)
@@ -99,23 +93,29 @@ class OrganizationMembershipRequestAdmin(admin.ModelAdmin):
         return obj.requested_role_summary
 
 
-@admin.register(CoachAthleteRelation)
-class CoachAthleteRelationAdmin(admin.ModelAdmin):
-    list_display = (
-        "coach",
-        "athlete",
-        "organization",
-        "function",
-        "is_active",
-        "can_edit_training",
-        "can_view_health_data",
-    )
-    list_filter = ("function", "is_active", "organization")
+
+@admin.register(PersonClaimInvitation)
+class PersonClaimInvitationAdmin(admin.ModelAdmin):
+    list_display = ("person", "email", "status", "created_by", "expires_at")
+    list_filter = ("status",)
+    search_fields = ("person__first_name", "person__last_name", "email")
+    autocomplete_fields = ("person", "created_by", "claimed_by")
+    readonly_fields = ("token_digest", "claimed_at", "created_at", "updated_at")
+
+
+@admin.register(PersonMergeRecord)
+class PersonMergeRecordAdmin(admin.ModelAdmin):
+    list_display = ("duplicate_person_id", "canonical_person", "merged_by", "created_at")
     search_fields = (
-        "coach__first_name",
-        "coach__last_name",
-        "athlete__first_name",
-        "athlete__last_name",
+        "canonical_person__first_name",
+        "canonical_person__last_name",
+        "duplicate_person_id",
     )
-    autocomplete_fields = ("coach", "athlete", "organization")
-    readonly_fields = ("created_at", "updated_at")
+    autocomplete_fields = ("canonical_person", "merged_by")
+    readonly_fields = (
+        "canonical_person",
+        "duplicate_person_id",
+        "duplicate_snapshot",
+        "merged_by",
+        "created_at",
+    )

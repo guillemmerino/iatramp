@@ -21,14 +21,19 @@ from core.services import (
 )
 
 
+def complete_person(user, first_name, last_name):
+    person = user.person
+    person.first_name = first_name
+    person.last_name = last_name
+    person.is_provisional = False
+    person.save()
+    return person
+
+
 class OrganizationDomainTests(TestCase):
     def setUp(self):
         self.owner_user = get_user_model().objects.create_user(username="owner")
-        self.owner = Person.objects.create(
-            user=self.owner_user,
-            first_name="Olga",
-            last_name="Responsable",
-        )
+        self.owner = complete_person(self.owner_user, "Olga", "Responsable")
         self.organization = create_organization_for_user(
             user=self.owner_user,
             name="Club Delta",
@@ -36,11 +41,7 @@ class OrganizationDomainTests(TestCase):
 
     def make_person(self, username):
         user = get_user_model().objects.create_user(username=username)
-        person = Person.objects.create(
-            user=user,
-            first_name=username.title(),
-            last_name="Prova",
-        )
+        person = complete_person(user, username.title(), "Prova")
         return user, person
 
     def test_creator_is_traced_and_gets_owner_role(self):
@@ -199,11 +200,11 @@ class OrganizationUiTests(TestCase):
         )
 
         self.assertRedirects(response, reverse("profile"))
-        self.assertEqual(user.person.display_name, "Aina S.")
+        self.assertEqual(Person.objects.get(user=user).display_name, "Aina S.")
 
     def test_user_can_create_organization_and_becomes_owner(self):
         user = get_user_model().objects.create_user(username="creator")
-        person = Person.objects.create(user=user, first_name="Crea", last_name="Dora")
+        person = complete_person(user, "Crea", "Dora")
         self.client.force_login(user)
 
         response = self.client.post(
@@ -225,14 +226,10 @@ class OrganizationUiTests(TestCase):
 
     def test_join_and_approval_flow_is_available_through_ui(self):
         owner_user = get_user_model().objects.create_user(username="owner-ui")
-        owner = Person.objects.create(user=owner_user, first_name="Oriol", last_name="Roca")
+        owner = complete_person(owner_user, "Oriol", "Roca")
         organization = create_organization_for_user(user=owner_user, name="Club UI")
         applicant_user = get_user_model().objects.create_user(username="applicant-ui")
-        applicant = Person.objects.create(
-            user=applicant_user,
-            first_name="Anna",
-            last_name="Sol",
-        )
+        applicant = complete_person(applicant_user, "Anna", "Sol")
         self.client.force_login(applicant_user)
 
         response = self.client.post(
@@ -266,18 +263,10 @@ class OrganizationUiTests(TestCase):
 
     def test_owner_can_assign_multiple_roles_and_custom_permissions_through_ui(self):
         owner_user = get_user_model().objects.create_user(username="access-owner")
-        owner = Person.objects.create(
-            user=owner_user,
-            first_name="Ona",
-            last_name="Owner",
-        )
+        owner = complete_person(owner_user, "Ona", "Owner")
         organization = create_organization_for_user(user=owner_user, name="Club Accessos")
         member_user = get_user_model().objects.create_user(username="access-member")
-        member = Person.objects.create(
-            user=member_user,
-            first_name="Marta",
-            last_name="Membre",
-        )
+        member = complete_person(member_user, "Marta", "Membre")
         membership = grant_membership(
             person=member,
             organization=organization,

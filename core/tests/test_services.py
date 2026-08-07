@@ -7,7 +7,6 @@ from django.test import TestCase
 from django.utils import timezone
 
 from core.models import (
-    CoachAthleteRelation,
     Membership,
     MembershipRole,
     Organization,
@@ -26,14 +25,17 @@ class CoreServiceTests(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Club", slug="club")
         self.coach_user = get_user_model().objects.create_user(username="coach")
-        self.coach = Person.objects.create(first_name="Coach", last_name="One")
+        self.coach = self.coach_user.person
+        self.coach.first_name = "Coach"
+        self.coach.last_name = "One"
+        self.coach.is_provisional = False
+        self.coach.save()
         self.athlete_user = get_user_model().objects.create_user(username="athlete")
-        self.athlete = Person.objects.create(
-            first_name="Athlete",
-            last_name="One",
-            user=self.athlete_user,
-        )
-        link_person_to_user(person=self.coach, user=self.coach_user)
+        self.athlete = self.athlete_user.person
+        self.athlete.first_name = "Athlete"
+        self.athlete.last_name = "One"
+        self.athlete.is_provisional = False
+        self.athlete.save()
 
     def test_link_person_to_user_does_not_replace_an_existing_link(self):
         other_user = get_user_model().objects.create_user(username="other")

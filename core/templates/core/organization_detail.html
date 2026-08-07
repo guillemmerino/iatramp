@@ -53,7 +53,7 @@
         </section>
 
         {% if can_review_requests %}
-          <section class="platform-workspace-card">
+          <section class="platform-workspace-card" id="sollicituds-pendents">
             <div class="platform-workspace-heading"><div><span class="platform-section-kicker">Administració</span><h2>Sol·licituds pendents</h2></div><span class="platform-count-badge">{{ pending_for_review|length }}</span></div>
             {% if pending_for_review %}
               <ul class="platform-request-list">

@@ -1,0 +1,38 @@
+<header class="iatrain-header">
+  <div>
+    <a class="iatrain-back" href="{% url 'home' %}">Iatramp</a>
+    <h1>{% block workspace_title %}IA Train{% endblock %}</h1>
+    {% if iatrain_person %}<p>{{ iatrain_person.display_name }}</p>{% endif %}
+  </div>
+  {% if iatrain_person and not iatrain_person.is_provisional %}
+    <div class="iatrain-profile-tools">
+      <div class="iatrain-profile-status" aria-label="Perfils esportius d’IA Train">
+        <form method="post" action="{% url 'iatrain_profile_update' %}">
+          {% csrf_token %}<input type="hidden" name="profile_type" value="athlete"><input type="hidden" name="next" value="{{ request.path }}">
+          <label><input type="checkbox" name="active" {% if sport_profiles.athlete.is_active %}checked{% endif %} onchange="this.form.submit()"> Perfil de gimnasta</label>
+        </form>
+        <form method="post" action="{% url 'iatrain_profile_update' %}">
+          {% csrf_token %}<input type="hidden" name="profile_type" value="coach"><input type="hidden" name="next" value="{{ request.path }}">
+          <label><input type="checkbox" name="active" {% if sport_profiles.coach.is_active %}checked{% endif %} onchange="this.form.submit()"> Perfil d’entrenador</label>
+        </form>
+      </div>
+      {% if sport_profiles.athlete.is_active and sport_profiles.coach.is_active %}
+        <form class="iatrain-perspective" method="post" action="{% url 'iatrain_perspective' %}">
+          {% csrf_token %}<input type="hidden" name="next" value="{% url 'iatrain_home' %}">
+          <label for="perspective">Perspectiva</label>
+          <select id="perspective" name="perspective" onchange="this.form.submit()">
+            <option value="coach" {% if perspective == 'coach' %}selected{% endif %}>Entrenador</option>
+            <option value="athlete" {% if perspective == 'athlete' %}selected{% endif %}>Gimnasta</option>
+          </select>
+        </form>
+      {% endif %}
+    </div>
+  {% endif %}
+</header>
+{% if perspective == 'coach' %}
+  <nav class="iatrain-tabs" aria-label="Navegació d’IA Train">
+    <a href="{% url 'iatrain_home' %}" {% if request.resolver_match.url_name == 'iatrain_home' %}aria-current="page"{% endif %}>Resum</a>
+    <a href="{% url 'iatrain_athlete_list' %}" {% if 'athlete' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Gimnastes</a>
+    <a href="{% url 'iatrain_group_list' %}" {% if 'group' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Grups</a>
+  </nav>
+{% endif %}

@@ -5,7 +5,24 @@ from django.contrib.staticfiles import finders
 from django.test import TestCase
 from django.urls import resolve, reverse
 
-from core.models import Membership, MembershipRole, Organization, Person
+from core.models import (
+    Membership,
+    MembershipPermission,
+    MembershipRole,
+    Organization,
+    OrganizationMembershipRequest,
+    Person,
+)
+
+
+def complete_person(user, first_name, last_name, preferred_name=""):
+    person = user.person
+    person.first_name = first_name
+    person.last_name = last_name
+    person.preferred_name = preferred_name
+    person.is_provisional = False
+    person.save()
+    return person
 
 
 class PlatformHomeTests(TestCase):
@@ -18,13 +35,13 @@ class PlatformHomeTests(TestCase):
         self.assertContains(response, "Què vols fer avui?")
         self.assertNotContains(response, "http-equiv=\"refresh\"")
 
-    def test_home_links_to_existing_competitions_and_platform_settings(self):
+    def test_home_links_to_existing_competitions_and_profile(self):
         response = self.client.get(reverse("home"))
 
         competitions_url = reverse("competicions_home")
-        settings_url = reverse("platform_settings")
+        profile_url = reverse("profile")
         self.assertContains(response, f'href="{competitions_url}"')
-        self.assertContains(response, f'href="{settings_url}"')
+        self.assertContains(response, f'href="{profile_url}"')
         self.assertEqual(resolve(competitions_url).url_name, "competicions_home")
 
     def test_home_uses_the_platform_avatar_as_decorative_hero_art(self):
@@ -92,7 +109,7 @@ class PlatformHomeTests(TestCase):
         self.assertContains(response, 'id="platform-nav-panel"')
         self.assertContains(response, 'class="platform-nav-item platform-nav-item--home is-active"')
         self.assertContains(response, 'href="{}"'.format(reverse("competicions_home")))
-        self.assertContains(response, 'href="{}"'.format(reverse("platform_settings")))
+        self.assertContains(response, 'href="{}"'.format(reverse("profile")))
         self.assertContains(response, 'href="{}"'.format(reverse("iatrain_home")))
         self.assertContains(response, "platform-nav-item--judges is-disabled")
         self.assertNotContains(response, "platform-nav-item--profile")
@@ -101,12 +118,15 @@ class PlatformHomeTests(TestCase):
         self.assertNotContains(response, 'class="header_section"')
         self.assertNotContains(response, 'id="navbarSupportedContent"')
 
-    def test_navigation_marks_settings_as_the_active_platform_context(self):
-        response = self.client.get(reverse("platform_settings"))
+    def test_navigation_marks_profile_as_the_active_platform_context(self):
+        user = get_user_model().objects.create_user(username="profile-navigation")
+        complete_person(user, "Nora", "Perfil")
+        self.client.force_login(user)
+        response = self.client.get(reverse("profile"))
 
         self.assertContains(
             response,
-            'class="platform-nav-item platform-nav-item--settings is-active"',
+            'class="platform-nav-item platform-nav-item--profile is-active"',
         )
         self.assertContains(response, 'aria-current="page"')
 
@@ -154,7 +174,7 @@ class PlatformHomeTests(TestCase):
             'class="platform-nav-item platform-nav-item--competitions is-active"',
         )
 
-    def test_authenticated_user_without_person_gets_coherent_empty_state(self):
+    def test_authenticated_user_gets_coherent_provisional_profile(self):
         user = get_user_model().objects.create_user(username="guillem")
         self.client.force_login(user)
 
@@ -162,17 +182,13 @@ class PlatformHomeTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "guillem")
-        self.assertContains(response, "El perfil personal encara no està vinculat")
+        self.assertTrue(user.person.is_provisional)
+        self.assertContains(response, "El perfil personal està pendent de completar")
         self.assertContains(response, "Encara no hi ha organitzacions vinculades")
 
     def test_linked_person_and_membership_appear_on_home(self):
         user = get_user_model().objects.create_user(username="aina")
-        person = Person.objects.create(
-            user=user,
-            first_name="Aina",
-            last_name="Serra",
-            preferred_name="Aina S.",
-        )
+        person = complete_person(user, "Aina", "Serra", "Aina S.")
         organization = Organization.objects.create(name="Club Trampolí", slug="club-trampoli")
         Membership.objects.create(
             person=person,
@@ -190,19 +206,15 @@ class PlatformHomeTests(TestCase):
         self.assertContains(response, "vincle d’organització actiu")
 
 
-class PlatformSettingsTests(TestCase):
-    def test_settings_is_public_and_has_safe_empty_state(self):
+class PlatformProfileTests(TestCase):
+    def test_legacy_settings_redirects_to_profile(self):
         response = self.client.get(reverse("platform_settings"))
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Configuració general")
-        self.assertContains(response, "No hi ha cap sessió iniciada")
-        self.assertContains(response, f'href="{reverse("home")}"')
-        self.assertContains(response, f'href="{reverse("competicions_home")}"')
+        self.assertRedirects(response, reverse("profile"), fetch_redirect_response=False)
 
-    def test_settings_lists_current_membership_context(self):
+    def test_profile_lists_current_membership_context(self):
         user = get_user_model().objects.create_user(username="coach")
-        person = Person.objects.create(user=user, first_name="Joan", last_name="Puig")
+        person = complete_person(user, "Joan", "Puig")
         organization = Organization.objects.create(
             name="Federació Catalana",
             slug="federacio-catalana",
@@ -218,9 +230,68 @@ class PlatformSettingsTests(TestCase):
         )
         self.client.force_login(user)
 
-        response = self.client.get(reverse("platform_settings"))
+        response = self.client.get(reverse("profile"))
 
         self.assertContains(response, "Joan Puig")
         self.assertContains(response, "Federació Catalana")
         self.assertContains(response, "Entrenador/a")
         self.assertContains(response, "Connectat")
+        self.assertContains(response, "data-profile-dialog")
+
+    def test_profile_editor_opens_for_onboarding_and_query_parameter(self):
+        user = get_user_model().objects.create_user(username="onboarding")
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("profile"))
+        self.assertContains(response, "data-open-on-load")
+
+        complete_person(user, "Ona", "Board")
+        response = self.client.get(f'{reverse("profile")}?editar=1')
+        self.assertContains(response, "data-open-on-load")
+
+    def test_owner_sees_pending_review_notification_in_navigation_and_profile(self):
+        owner_user = get_user_model().objects.create_user(username="owner-alert")
+        owner = complete_person(owner_user, "Olga", "Alert")
+        organization = Organization.objects.create(name="Club Alert", slug="club-alert")
+        owner_membership = Membership.objects.create(person=owner, organization=organization)
+        MembershipRole.objects.create(
+            membership=owner_membership,
+            role=MembershipRole.Role.OWNER,
+        )
+        candidate_user = get_user_model().objects.create_user(username="candidate-alert")
+        candidate = complete_person(candidate_user, "Candi", "Data")
+        OrganizationMembershipRequest.objects.create(
+            person=candidate,
+            organization=organization,
+        )
+        self.client.force_login(owner_user)
+
+        response = self.client.get(reverse("profile"))
+
+        self.assertContains(response, 'class="platform-nav-trigger-alert"')
+        self.assertContains(response, "1 sol·licitud pendent de revisar")
+        self.assertContains(response, "Club Alert")
+        self.assertContains(
+            response,
+            f'{reverse("organization_detail", kwargs={"slug": organization.slug})}#sollicituds-pendents',
+        )
+
+    def test_denied_admin_does_not_see_pending_review_notification(self):
+        admin_user = get_user_model().objects.create_user(username="admin-denied-alert")
+        admin = complete_person(admin_user, "Ada", "Min")
+        organization = Organization.objects.create(name="Club Privat", slug="club-privat")
+        membership = Membership.objects.create(person=admin, organization=organization)
+        MembershipRole.objects.create(membership=membership, role=MembershipRole.Role.ADMIN)
+        MembershipPermission.objects.create(
+            membership=membership,
+            permission=MembershipPermission.Permission.REVIEW_REQUESTS,
+            is_allowed=False,
+        )
+        candidate = Person.objects.create(first_name="Pere", last_name="Pendent")
+        OrganizationMembershipRequest.objects.create(person=candidate, organization=organization)
+        self.client.force_login(admin_user)
+
+        response = self.client.get(reverse("profile"))
+
+        self.assertNotContains(response, "platform-nav-trigger-alert")
+        self.assertNotContains(response, "Acció necessària")

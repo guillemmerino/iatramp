@@ -72,6 +72,7 @@ TEMPLATES = [{
         "django.contrib.messages.context_processors.messages",
         "iatramp.context_processors.app_env",
         "core.context_processors.assistant",
+        "core.context_processors.platform_notifications",
     ]},
 }]
 

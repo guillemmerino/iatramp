@@ -1,6 +1,99 @@
 from django.contrib import admin
 
-from .models import AthleteObservation, KnowledgeConcept, KnowledgeRelation, TrainingContext
+from .models import (
+    AthleteObservation,
+    AthleteProfile,
+    CoachAthleteRelation,
+    CoachProfile,
+    KnowledgeConcept,
+    KnowledgeRelation,
+    TrainingContext,
+    TrainingGroup,
+    TrainingGroupMembership,
+)
+
+
+@admin.register(AthleteProfile)
+class AthleteProfileAdmin(admin.ModelAdmin):
+    list_display = ("person", "is_active", "updated_at")
+    list_filter = ("is_active",)
+    search_fields = ("person__first_name", "person__last_name", "person__preferred_name")
+    autocomplete_fields = ("person",)
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(CoachProfile)
+class CoachProfileAdmin(admin.ModelAdmin):
+    list_display = ("person", "is_active", "updated_at")
+    list_filter = ("is_active",)
+    search_fields = ("person__first_name", "person__last_name", "person__preferred_name")
+    autocomplete_fields = ("person",)
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(CoachAthleteRelation)
+class CoachAthleteRelationAdmin(admin.ModelAdmin):
+    list_display = (
+        "coach_profile",
+        "athlete_profile",
+        "organization",
+        "function",
+        "is_active",
+        "can_edit_training",
+        "can_view_health_data",
+    )
+    list_filter = ("function", "is_active", "organization")
+    search_fields = (
+        "coach_profile__person__first_name",
+        "coach_profile__person__last_name",
+        "athlete_profile__person__first_name",
+        "athlete_profile__person__last_name",
+    )
+    autocomplete_fields = ("coach_profile", "athlete_profile", "organization")
+    readonly_fields = ("created_at", "updated_at")
+
+
+class TrainingGroupMembershipInline(admin.TabularInline):
+    model = TrainingGroupMembership
+    extra = 0
+    autocomplete_fields = ("athlete_profile",)
+    fields = ("athlete_profile", "start_date", "end_date", "is_active", "notes")
+
+
+@admin.register(TrainingGroup)
+class TrainingGroupAdmin(admin.ModelAdmin):
+    list_display = ("name", "organization", "is_active", "updated_at")
+    list_filter = ("is_active", "organization")
+    search_fields = (
+        "name",
+        "description",
+        "organization__name",
+        "memberships__athlete_profile__person__first_name",
+        "memberships__athlete_profile__person__last_name",
+    )
+    autocomplete_fields = ("organization", "managing_coaches")
+    readonly_fields = ("created_at", "updated_at")
+    inlines = (TrainingGroupMembershipInline,)
+
+
+@admin.register(TrainingGroupMembership)
+class TrainingGroupMembershipAdmin(admin.ModelAdmin):
+    list_display = (
+        "training_group",
+        "athlete_profile",
+        "start_date",
+        "end_date",
+        "is_active",
+    )
+    list_filter = ("is_active", "training_group__organization", "training_group")
+    search_fields = (
+        "training_group__name",
+        "athlete_profile__person__first_name",
+        "athlete_profile__person__last_name",
+        "notes",
+    )
+    autocomplete_fields = ("training_group", "athlete_profile")
+    readonly_fields = ("created_at", "updated_at")
 
 
 class OutgoingKnowledgeRelationInline(admin.TabularInline):

@@ -2,7 +2,6 @@ from django.urls import path
 
 from .views import (
     PlatformHomeView,
-    PlatformSettingsView,
     organization_create,
     organization_detail,
     organization_edit,
@@ -11,13 +10,14 @@ from .views import (
     organization_request_cancel,
     organization_request_review,
     organizations,
+    platform_settings_redirect,
     profile,
 )
 
 
 urlpatterns = [
     path("", PlatformHomeView.as_view(), name="home"),
-    path("configuracio/", PlatformSettingsView.as_view(), name="platform_settings"),
+    path("configuracio/", platform_settings_redirect, name="platform_settings"),
     path("perfil/", profile, name="profile"),
     path("organitzacions/", organizations, name="organizations"),
     path("organitzacions/nova/", organization_create, name="organization_create"),

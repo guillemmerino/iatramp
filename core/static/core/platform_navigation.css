@@ -91,6 +91,24 @@
 
 .platform-nav-trigger-lines i:nth-child(2) { width: 13px; }
 
+.platform-nav-trigger-alert {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  display: grid;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  place-items: center;
+  background: #be123c;
+  color: #fff;
+  font-size: 0.58rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
 body.competicions-app .platform-nav-rail {
   position: fixed;
   top: 50%;
@@ -404,6 +422,12 @@ a.platform-nav-item:hover {
   border-color: #bfdbfe;
   background: #eff6ff;
   color: #1e3a8a;
+}
+
+.platform-nav-state--alert {
+  border-color: #fecdd3;
+  background: #fff1f2;
+  color: #9f1239;
 }
 
 .platform-nav-item--judges {

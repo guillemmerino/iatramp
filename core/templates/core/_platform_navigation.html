@@ -1,7 +1,6 @@
 {% load static %}
 {% url 'home' as platform_home_url %}
 {% url 'competicions_home' as competitions_url %}
-{% url 'platform_settings' as settings_url %}
 {% url 'profile' as profile_url %}
 {% url 'organizations' as organizations_url %}
 {% url 'iatrain_home' as iatrain_url %}
@@ -19,6 +18,7 @@
     >
       <span class="platform-nav-trigger-mark" aria-hidden="true">IA</span>
       <span class="platform-nav-trigger-lines" aria-hidden="true"><i></i><i></i><i></i></span>
+      {% if platform_pending_review_count %}<span class="platform-nav-trigger-alert" aria-hidden="true">{{ platform_pending_review_count }}</span>{% endif %}
     </button>
     {% if is_competicions_app %}
     <button
@@ -64,31 +64,27 @@
         <span class="platform-nav-icon" aria-hidden="true">I</span>
         <span class="platform-nav-copy"><strong>Inici</strong><small>Tauler general</small></span>
       </a>
-      <a class="platform-nav-item platform-nav-item--competitions{% if is_competicions_app %} is-active{% endif %}" href="{{ competitions_url }}"{% if is_competicions_app %} aria-current="page"{% endif %}>
-        <span class="platform-nav-icon" aria-hidden="true">C</span>
-        <span class="platform-nav-copy"><strong>Competicions</strong><small>Gestió i seguiment</small></span>
-      </a>
-      <a class="platform-nav-item platform-nav-item--settings{% if request.resolver_match.url_name == 'platform_settings' %} is-active{% endif %}" href="{{ settings_url }}"{% if request.resolver_match.url_name == 'platform_settings' %} aria-current="page"{% endif %}>
-        <span class="platform-nav-icon" aria-hidden="true">A</span>
-        <span class="platform-nav-copy"><strong>Configuració</strong><small>Compte i preferències</small></span>
-      </a>
-
-      <p class="platform-nav-label platform-nav-label--spaces">Nous espais</p>
-      <a class="platform-nav-item platform-nav-item--train{% if request.resolver_match.url_name == 'iatrain_home' %} is-active{% endif %}" href="{{ iatrain_url }}"{% if request.resolver_match.url_name == 'iatrain_home' %} aria-current="page"{% endif %}>
-        <span class="platform-nav-icon" aria-hidden="true">IA</span>
-        <span class="platform-nav-copy"><strong>IA Train</strong><small>Entrenament assistit</small></span>
-        <span class="platform-nav-state platform-nav-state--available">MVP</span>
-      </a>
       {% if user.is_authenticated %}
-      <a class="platform-nav-item platform-nav-item--profile{% if request.resolver_match.url_name == 'profile' %} is-active{% endif %}" href="{{ profile_url }}"{% if request.resolver_match.url_name == 'profile' %} aria-current="page"{% endif %}>
+      <a class="platform-nav-item platform-nav-item--profile{% if request.resolver_match.url_name == 'profile' %} is-active{% endif %}" href="{{ profile_url }}"{% if request.resolver_match.url_name == 'profile' %} aria-current="page"{% endif %}{% if platform_pending_review_count %} aria-label="Perfil, {{ platform_pending_review_count }} sol·licituds pendents"{% endif %}>
         <span class="platform-nav-icon" aria-hidden="true">P</span>
-        <span class="platform-nav-copy"><strong>Perfil</strong><small>Identitat Iatramp</small></span>
+        <span class="platform-nav-copy"><strong>Perfil</strong><small>Identitat i preferències</small></span>
+        {% if platform_pending_review_count %}<span class="platform-nav-state platform-nav-state--alert" aria-hidden="true">{{ platform_pending_review_count }}</span>{% endif %}
       </a>
       <a class="platform-nav-item platform-nav-item--organizations{% if 'organization' in request.resolver_match.url_name %} is-active{% endif %}" href="{{ organizations_url }}"{% if 'organization' in request.resolver_match.url_name %} aria-current="page"{% endif %}>
         <span class="platform-nav-icon" aria-hidden="true">O</span>
         <span class="platform-nav-copy"><strong>Organitzacions</strong><small>Membres i sol·licituds</small></span>
       </a>
       {% endif %}
+      <a class="platform-nav-item platform-nav-item--competitions{% if is_competicions_app %} is-active{% endif %}" href="{{ competitions_url }}"{% if is_competicions_app %} aria-current="page"{% endif %}>
+        <span class="platform-nav-icon" aria-hidden="true">C</span>
+        <span class="platform-nav-copy"><strong>Competicions</strong><small>Gestió i seguiment</small></span>
+      </a>
+      <p class="platform-nav-label platform-nav-label--spaces">Nous espais</p>
+      <a class="platform-nav-item platform-nav-item--train{% if request.resolver_match.url_name == 'iatrain_home' %} is-active{% endif %}" href="{{ iatrain_url }}"{% if request.resolver_match.url_name == 'iatrain_home' %} aria-current="page"{% endif %}>
+        <span class="platform-nav-icon" aria-hidden="true">IA</span>
+        <span class="platform-nav-copy"><strong>IA Train</strong><small>Entrenament assistit</small></span>
+        <span class="platform-nav-state platform-nav-state--available">MVP</span>
+      </a>
       <span class="platform-nav-item platform-nav-item--judges is-disabled" aria-disabled="true">
         <span class="platform-nav-icon" aria-hidden="true">QR</span>
         <span class="platform-nav-copy"><strong>Portal de jutges</strong><small>Accés contextual</small></span>

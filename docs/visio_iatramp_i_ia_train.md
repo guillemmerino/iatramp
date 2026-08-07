@@ -29,9 +29,11 @@ La primera versió de `core` estableix aquesta base; encara no implementa sessio
 
 ### Persona i compte
 
-`Person` representa l'individu real. Pot existir sense credencials i sobreviu a la supressió del seu compte. El camp opcional 1:1 `Person.user` reutilitza `settings.AUTH_USER_MODEL`; no s'introdueix cap model d'usuari nou.
+`Person` representa l'individu real. Pot existir sense credencials i sobreviu a la supressió del seu compte. Cada compte nou rep una `Person` provisional automàtica. El camp opcional 1:1 `Person.user` reutilitza `settings.AUTH_USER_MODEL`; no s'introdueix cap model d'usuari nou.
 
 El compte respon **qui pot iniciar sessió**. La persona respon **qui és l'individu del domini**. Els rols no es desen al compte.
+
+Una persona creada prèviament per un entrenador es pot reclamar mitjançant una invitació. Si el compte ja té una identitat, el servei fusiona les dues `Person`, trasllada les referències conegudes i conserva una traça de la fusió. Una mateixa persona humana no es duplica per entrenador.
 
 ### Organització i rols
 
@@ -39,7 +41,7 @@ El compte respon **qui pot iniciar sessió**. La persona respon **qui és l'indi
 
 ### Entrenadors i gimnastes
 
-`CoachAthleteRelation` és un vincle explícit entre dues persones. Admet múltiples entrenadors per gimnasta, diverses funcions i un context d'organització opcional. Els permisos es concedeixen per capacitat:
+IA Train defineix `AthleteProfile` i `CoachProfile` com a perfils opcionals i compatibles sobre una mateixa `Person`. `CoachAthleteRelation` és un vincle explícit entre aquests perfils. Admet múltiples entrenadors per gimnasta, diverses funcions i un context d'organització opcional. Els permisos es concedeixen per capacitat:
 
 - consulta de perfil;
 - consulta d'entrenament;
@@ -60,12 +62,11 @@ La IA ha d'assistir, no substituir, el criteri tècnic ni concedir-se accés imp
 
 ## Decisions obertes
 
-- procés de verificació, fusió i deduplicació de persones;
+- verificació reforçada de reclamacions i resolució manual de conflictes de fusió;
 - consentiment i representació legal de menors;
 - granularitat futura dels permisos per equip, grup, temporada o pla;
-- cicle d'invitacions i reclamació d'un perfil per un compte;
+- lliurament per correu i interfície pública del cicle d'invitacions;
 - model territorial i jerarquia club–federació;
 - migració o vinculació progressiva amb inscripcions i membresies de competició;
 - política de conservació, auditoria i exportació de dades personals;
 - límits exactes, explicabilitat i supervisió humana de les funcions d'IA.
-

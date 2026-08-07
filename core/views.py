@@ -2,7 +2,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -31,6 +31,7 @@ from .services import (
     has_organization_permission,
     person_for_user,
     request_organization_membership,
+    reviewable_membership_requests_for_user,
     review_organization_membership_request,
     update_membership_access,
 )
@@ -49,54 +50,53 @@ def _add_validation_error(form, error):
 
 def _profile_required(request):
     person = person_for_user(request.user)
-    if person is None:
+    if person is None or person.is_provisional:
         messages.info(request, "Completa el perfil personal per continuar.")
+        return None
     return person
 
 
-class PlatformContextMixin:
-    def get_platform_identity(self):
-        user = self.request.user
-        person = None
-        memberships = []
-        if user.is_authenticated:
-            person = Person.objects.filter(user=user, is_active=True).first()
-            if person is not None:
-                today = timezone.localdate()
-                memberships = list(
-                    person.memberships.filter(
-                        status=Membership.Status.ACTIVE,
-                        organization__is_active=True,
-                        start_date__lte=today,
-                    )
-                    .filter(Q(end_date__isnull=True) | Q(end_date__gte=today))
-                    .select_related("organization")
-                    .prefetch_related(
-                        Prefetch("roles", queryset=MembershipRole.objects.filter(is_active=True))
-                    )
-                    .order_by("organization__name")
+def _platform_identity_context(request):
+    user = request.user
+    person = None
+    memberships = []
+    if user.is_authenticated:
+        person = Person.objects.filter(user=user, is_active=True).first()
+        if person is not None:
+            today = timezone.localdate()
+            memberships = list(
+                person.memberships.filter(
+                    status=Membership.Status.ACTIVE,
+                    organization__is_active=True,
+                    start_date__lte=today,
                 )
-        return person, memberships
+                .filter(Q(end_date__isnull=True) | Q(end_date__gte=today))
+                .select_related("organization")
+                .prefetch_related(
+                    Prefetch("roles", queryset=MembershipRole.objects.filter(is_active=True))
+                )
+                .order_by("organization__name")
+            )
+    if person is not None:
+        display_name = person.display_name
+    elif user.is_authenticated:
+        display_name = user.get_full_name().strip() or user.get_username()
+    else:
+        display_name = "Visitant"
+    initials = "".join(part[:1] for part in display_name.split()[:2]).upper() or "IA"
+    return {
+        "platform_person": person,
+        "platform_memberships": memberships,
+        "platform_display_name": display_name,
+        "platform_initials": initials,
+    }
+
+
+class PlatformContextMixin:
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        person, memberships = self.get_platform_identity()
-        user = self.request.user
-        if person is not None:
-            display_name = person.display_name
-        elif user.is_authenticated:
-            display_name = user.get_full_name().strip() or user.get_username()
-        else:
-            display_name = "Visitant"
-        initials = "".join(part[:1] for part in display_name.split()[:2]).upper() or "IA"
-        context.update(
-            {
-                "platform_person": person,
-                "platform_memberships": memberships,
-                "platform_display_name": display_name,
-                "platform_initials": initials,
-            }
-        )
+        context.update(_platform_identity_context(self.request))
         return context
 
 
@@ -104,8 +104,8 @@ class PlatformHomeView(PlatformContextMixin, TemplateView):
     template_name = "core/platform_home.html"
 
 
-class PlatformSettingsView(PlatformContextMixin, TemplateView):
-    template_name = "core/platform_settings.html"
+def platform_settings_redirect(request):
+    return redirect("profile")
 
 
 @login_required
@@ -118,6 +118,7 @@ def profile(request):
             "last_name": request.user.last_name,
             "email": request.user.email,
         }
+    modal_open = person is None or person.is_provisional or request.GET.get("editar") == "1"
     if request.method == "POST":
         form = PersonProfileForm(request.POST, instance=person)
         if form.is_valid():
@@ -125,16 +126,35 @@ def profile(request):
                 saved_person = form.save(commit=False)
                 saved_person.user = request.user
                 saved_person.is_active = True
+                saved_person.is_provisional = False
                 saved_person.full_clean()
                 saved_person.save()
             messages.success(request, "El perfil personal s'ha desat.")
             return redirect("profile")
+        modal_open = True
     else:
         form = PersonProfileForm(instance=person, initial=initial)
+    pending_by_organization = list(
+        reviewable_membership_requests_for_user(request.user)
+        .values("organization__name", "organization__slug")
+        .annotate(pending_count=Count("id"))
+        .order_by("organization__name")
+    )
+    pending_review_count = sum(item["pending_count"] for item in pending_by_organization)
+    context = _platform_identity_context(request)
+    context.update(
+        {
+            "form": form,
+            "profile_person": person,
+            "profile_modal_open": modal_open,
+            "pending_by_organization": pending_by_organization,
+            "platform_pending_review_count": pending_review_count,
+        }
+    )
     return render(
         request,
         "core/profile.html",
-        {"form": form, "profile_person": person},
+        context,
     )
 
 

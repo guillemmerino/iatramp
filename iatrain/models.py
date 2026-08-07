@@ -8,6 +8,334 @@ from django.utils import timezone
 from core.models import Organization, Person
 
 
+def validate_extracted_facts(value):
+    """Validate the stable envelope used for facts extracted from natural language."""
+    if not isinstance(value, list):
+        raise ValidationError("Els fets extrets han de ser una llista.")
+    allowed_statuses = {"unconfirmed", "confirmed", "rejected", "superseded"}
+    for index, fact in enumerate(value):
+        if not isinstance(fact, dict):
+            raise ValidationError(f"El fet extret {index + 1} ha de ser un objecte.")
+        if not isinstance(fact.get("key"), str) or not fact["key"].strip():
+            raise ValidationError(f"El fet extret {index + 1} necessita una clau textual.")
+        status = fact.get("status", "unconfirmed")
+        if status not in allowed_statuses:
+            raise ValidationError(f"El fet extret {index + 1} té un estat desconegut.")
+        source = fact.get("source")
+        if source is not None and not isinstance(source, str):
+            raise ValidationError(f"La font del fet extret {index + 1} ha de ser textual.")
+        confidence = fact.get("confidence")
+        if confidence is not None and (
+            isinstance(confidence, bool)
+            or not isinstance(confidence, (int, float))
+            or not 0 <= confidence <= 1
+        ):
+            raise ValidationError(
+                f"La confiança del fet extret {index + 1} ha d'estar entre 0 i 1."
+            )
+
+
+class AthleteProfile(models.Model):
+    person = models.OneToOneField(
+        Person,
+        on_delete=models.CASCADE,
+        related_name="athlete_profile",
+    )
+    settings = models.JSONField(
+        blank=True,
+        default=dict,
+        help_text="Configuració pròpia del mode gimnasta; només dades petites i estructurades.",
+    )
+    extracted_facts = models.JSONField(
+        blank=True,
+        default=list,
+        validators=(validate_extracted_facts,),
+        help_text=(
+            "Fets extrets del llenguatge natural, amb font, confiança i estat; "
+            "no substitueixen els camps de domini confirmats."
+        ),
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("person__last_name", "person__first_name", "id")
+
+    def clean(self):
+        super().clean()
+        if not isinstance(self.settings, dict):
+            raise ValidationError({"settings": "La configuració ha de ser un objecte JSON."})
+
+    def __str__(self):
+        return self.person.display_name
+
+
+class CoachProfile(models.Model):
+    person = models.OneToOneField(
+        Person,
+        on_delete=models.CASCADE,
+        related_name="coach_profile",
+    )
+    settings = models.JSONField(
+        blank=True,
+        default=dict,
+        help_text="Configuració pròpia del mode entrenador; només dades petites i estructurades.",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("person__last_name", "person__first_name", "id")
+
+    def clean(self):
+        super().clean()
+        if not isinstance(self.settings, dict):
+            raise ValidationError({"settings": "La configuració ha de ser un objecte JSON."})
+
+    def __str__(self):
+        return self.person.display_name
+
+
+class CoachAthleteRelation(models.Model):
+    class Function(models.TextChoices):
+        PRIMARY_COACH = "primary", "Entrenador/a principal"
+        ASSISTANT_COACH = "assistant", "Entrenador/a assistent"
+        PHYSICAL_TRAINER = "physical", "Preparació física"
+        CHOREOGRAPHER = "choreographer", "Coreografia"
+        OTHER = "other", "Altres"
+
+    coach_profile = models.ForeignKey(
+        CoachProfile,
+        on_delete=models.CASCADE,
+        related_name="athlete_relations",
+    )
+    athlete_profile = models.ForeignKey(
+        AthleteProfile,
+        on_delete=models.CASCADE,
+        related_name="coach_relations",
+    )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="training_relationships",
+        help_text="Organització en què s'aplica la relació; buit si és global.",
+    )
+    function = models.CharField(
+        max_length=20,
+        choices=Function.choices,
+        default=Function.PRIMARY_COACH,
+    )
+    can_view_profile = models.BooleanField(default=True)
+    can_view_training = models.BooleanField(default=True)
+    can_edit_training = models.BooleanField(default=False)
+    can_view_health_data = models.BooleanField(
+        default=False,
+        help_text="Permís sensible que s'ha de concedir explícitament.",
+    )
+    start_date = models.DateField(default=timezone.localdate)
+    end_date = models.DateField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("athlete_profile_id", "coach_profile_id", "function")
+        constraints = [
+            models.CheckConstraint(
+                check=Q(end_date__isnull=True) | Q(end_date__gte=F("start_date")),
+                name="iatrain_relation_dates_valid",
+            ),
+            models.CheckConstraint(
+                check=Q(can_edit_training=False) | Q(can_view_training=True),
+                name="iatrain_relation_edit_view",
+            ),
+            models.CheckConstraint(
+                check=Q(can_view_health_data=False) | Q(can_view_profile=True),
+                name="iatrain_relation_health_profile",
+            ),
+            models.UniqueConstraint(
+                fields=("coach_profile", "athlete_profile", "organization", "function"),
+                condition=Q(organization__isnull=False),
+                name="iatrain_relation_uniq_context",
+            ),
+            models.UniqueConstraint(
+                fields=("coach_profile", "athlete_profile", "function"),
+                condition=Q(organization__isnull=True),
+                name="iatrain_relation_uniq_global",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("coach_profile", "is_active"),
+                name="iatrain_rel_coach_idx",
+            ),
+            models.Index(
+                fields=("athlete_profile", "is_active"),
+                name="iatrain_rel_athlete_idx",
+            ),
+            models.Index(
+                fields=("organization", "is_active"),
+                name="iatrain_rel_org_idx",
+            ),
+        ]
+
+    @property
+    def coach(self):
+        return self.coach_profile.person
+
+    @property
+    def athlete(self):
+        return self.athlete_profile.person
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if (
+            self.coach_profile_id
+            and self.athlete_profile_id
+            and self.coach_profile.person_id == self.athlete_profile.person_id
+        ):
+            errors["athlete_profile"] = "Una persona no pot ser entrenadora de si mateixa."
+        if self.end_date and self.end_date < self.start_date:
+            errors["end_date"] = "La data de fi no pot ser anterior a la d'inici."
+        if self.can_edit_training and not self.can_view_training:
+            errors["can_edit_training"] = "Editar entrenaments requereix poder-los consultar."
+        if self.can_view_health_data and not self.can_view_profile:
+            errors["can_view_health_data"] = "Consultar dades de salut requereix accés al perfil."
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f"{self.coach} → {self.athlete} ({self.get_function_display()})"
+
+
+class TrainingGroup(models.Model):
+    """A stable roster of athletes who usually train together in an organization."""
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="training_groups",
+    )
+    name = models.CharField(max_length=180)
+    description = models.TextField(blank=True, default="")
+    athletes = models.ManyToManyField(
+        AthleteProfile,
+        through="TrainingGroupMembership",
+        related_name="training_groups",
+        blank=True,
+    )
+    managing_coaches = models.ManyToManyField(
+        CoachProfile,
+        related_name="managed_training_groups",
+        blank=True,
+        help_text="Entrenadors amb capacitat explícita per gestionar el grup.",
+    )
+    extracted_facts = models.JSONField(
+        blank=True,
+        default=list,
+        validators=(validate_extracted_facts,),
+        help_text=(
+            "Fets encara no formalitzats sobre el grup, com horaris, material o objectius."
+        ),
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("organization__name", "name", "id")
+        constraints = [
+            models.UniqueConstraint(
+                Lower("name"),
+                "organization",
+                name="iatrain_group_name_org_ci_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=("organization", "is_active"),
+                name="iatrain_group_org_active_idx",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValidationError({"name": "El grup necessita un nom."})
+
+    def __str__(self):
+        return f"{self.organization} · {self.name}"
+
+
+class TrainingGroupMembership(models.Model):
+    training_group = models.ForeignKey(
+        TrainingGroup,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    athlete_profile = models.ForeignKey(
+        AthleteProfile,
+        on_delete=models.CASCADE,
+        related_name="group_memberships",
+    )
+    start_date = models.DateField(default=timezone.localdate)
+    end_date = models.DateField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("training_group_id", "athlete_profile_id", "-start_date", "id")
+        constraints = [
+            models.CheckConstraint(
+                check=Q(end_date__isnull=True) | Q(end_date__gte=F("start_date")),
+                name="iatrain_group_membership_dates_valid",
+            ),
+            models.UniqueConstraint(
+                fields=("training_group", "athlete_profile"),
+                condition=Q(is_active=True),
+                name="iatrain_group_member_unique_active",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("training_group", "is_active"),
+                name="iatrain_grp_member_group_idx",
+            ),
+            models.Index(
+                fields=("athlete_profile", "is_active"),
+                name="iatrain_grp_member_ath_idx",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.end_date and self.end_date < self.start_date:
+            raise ValidationError(
+                {"end_date": "La data de fi no pot ser anterior a la d'inici."}
+            )
+
+    def is_current(self, on_date=None):
+        on_date = on_date or timezone.localdate()
+        return (
+            self.is_active
+            and self.start_date <= on_date
+            and (self.end_date is None or self.end_date >= on_date)
+            and self.training_group.is_active
+        )
+
+    def __str__(self):
+        return f"{self.athlete_profile} · {self.training_group}"
+
+
 class TrainingContext(models.Model):
     """A bounded training workspace owned by a coach and shared by its athletes."""
 
@@ -375,4 +703,3 @@ class AthleteObservation(models.Model):
 
     def __str__(self):
         return f"{self.athlete} · {self.get_category_display()} · {self.observed_at:%Y-%m-%d}"
-

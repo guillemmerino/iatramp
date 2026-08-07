@@ -17,7 +17,7 @@
         <p>Un únic punt d’entrada per preparar competicions, connectar equips i construir el futur de l’entrenament assistit.</p>
         <div class="platform-hero-actions">
           <a class="platform-button platform-button--primary" href="{% url 'competicions_home' %}">Obrir Competicions</a>
-          <a class="platform-button platform-button--secondary" href="{% url 'platform_settings' %}">Configuració general</a>
+          <a class="platform-button platform-button--secondary" href="{% url 'profile' %}">Perfil i preferències</a>
         </div>
       </div>
 
@@ -32,10 +32,10 @@
           {% if user.is_authenticated %}
             <span class="platform-profile-kicker">Sessió activa</span>
             <strong>{{ platform_display_name }}</strong>
-            {% if platform_person %}
+            {% if platform_person and not platform_person.is_provisional %}
               <span>Identitat Iatramp connectada</span>
             {% else %}
-              <span>El perfil personal encara no està vinculat</span>
+              <span>El perfil personal està pendent de completar</span>
             {% endif %}
           {% else %}
             <span class="platform-profile-kicker">Accés obert</span>
@@ -43,7 +43,7 @@
             <span>Pots explorar la plataforma sense iniciar sessió.</span>
           {% endif %}
         </div>
-        <a class="platform-profile-link" href="{% if user.is_authenticated %}{% url 'profile' %}{% else %}{% url 'platform_settings' %}{% endif %}">Veure perfil i preferències <span aria-hidden="true">→</span></a>
+        <a class="platform-profile-link" href="{% url 'profile' %}">Veure perfil i preferències <span aria-hidden="true">→</span></a>
       </aside>
     </header>
 
@@ -102,7 +102,7 @@
         <article class="platform-module-card platform-module-card--profile" data-module-status="preparation">
           <div class="platform-module-head">
             <span class="platform-module-icon" aria-hidden="true">{{ platform_initials }}</span>
-            {% if platform_person %}
+            {% if platform_person and not platform_person.is_provisional %}
               <span class="platform-status platform-status--connected">Connectat</span>
             {% else %}
               <span class="platform-status">En preparació</span>
@@ -118,7 +118,7 @@
           {% else %}
             <div class="platform-empty-note">Encara no hi ha organitzacions vinculades a aquest perfil.</div>
           {% endif %}
-          <a class="platform-module-action" href="{% if user.is_authenticated %}{% url 'profile' %}{% else %}{% url 'platform_settings' %}{% endif %}">Gestionar el perfil <span aria-hidden="true">→</span></a>
+          <a class="platform-module-action" href="{% url 'profile' %}">Gestionar el perfil <span aria-hidden="true">→</span></a>
         </article>
       </div>
     </section>
@@ -129,7 +129,7 @@
         <h2 id="foundation-title">Una plataforma, diversos contextos</h2>
       </div>
       <p>La identitat, els clubs i les relacions entre entrenadors i gimnastes es compartiran entre mòduls sense alterar els fluxos actuals de competicions.</p>
-      <a href="{% url 'platform_settings' %}">Consultar l’estat de la plataforma</a>
+      <a href="{% url 'profile' %}">Consultar el perfil i les preferències</a>
     </section>
   </div>
 </div>
