@@ -8,33 +8,37 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django.views.generic import TemplateView
 
-from .forms import (
+from organizations.forms import (
     MembershipAccessForm,
     OrganizationCreateForm,
     OrganizationEditForm,
     OrganizationJoinRequestForm,
-    PersonProfileForm,
 )
-from .models import (
+from organizations.models import (
     Membership,
     MembershipPermission,
     MembershipRole,
     Organization,
     OrganizationMembershipRequest,
-    Person,
 )
-from .services import (
-    cancel_organization_membership_request,
-    can_manage_organization,
-    create_organization_for_user,
+from organizations.policies import can_manage_organization, has_organization_permission
+from organizations.selectors import (
     current_membership_filter,
-    has_organization_permission,
-    person_for_user,
-    request_organization_membership,
     reviewable_membership_requests_for_user,
+)
+from organizations.services import (
+    cancel_organization_membership_request,
+    create_organization_for_user,
+    request_organization_membership,
     review_organization_membership_request,
     update_membership_access,
 )
+
+from .forms import (
+    PersonProfileForm,
+)
+from .models import Person
+from .services import person_for_user
 
 
 def _add_validation_error(form, error):

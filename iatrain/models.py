@@ -5,7 +5,8 @@ from django.db.models import F, Q
 from django.db.models.functions import Lower
 from django.utils import timezone
 
-from core.models import Organization, Person
+from core.models import Person
+from organizations.models import Organization
 
 
 def validate_extracted_facts(value):

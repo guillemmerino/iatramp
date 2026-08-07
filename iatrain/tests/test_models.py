@@ -6,7 +6,8 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from core.models import Organization, Person
+from core.models import Person
+from organizations.models import Organization
 from iatrain.models import (
     AthleteObservation,
     AthleteProfile,

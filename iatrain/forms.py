@@ -1,6 +1,6 @@
 from django import forms
 
-from core.models import Organization
+from organizations.models import Organization
 
 from .models import AthleteProfile, CoachAthleteRelation, GymEquipment
 from .services import accessible_athletes, organizations_available_to_coach

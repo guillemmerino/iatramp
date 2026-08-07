@@ -74,7 +74,7 @@ class IatrainServiceTests(TestCase):
         self.assertEqual(observation.category, AthleteObservation.Category.NOTE)
 
     def test_context_organization_must_match_authorizing_relation(self):
-        from core.models import Organization
+        from organizations.models import Organization
 
         club = Organization.objects.create(name="Club", slug="club")
         context = TrainingContext.objects.create(

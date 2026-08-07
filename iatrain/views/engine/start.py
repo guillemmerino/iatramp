@@ -2,7 +2,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import Http404, JsonResponse
 from django.shortcuts import render
 
-from core.models import Organization
+from organizations.models import Organization
 from iatrain.engine import build_training_selection
 from iatrain.engine.forms import TrainingStartForm
 from iatrain.services import accessible_gyms, managed_groups, organizations_available_to_coach

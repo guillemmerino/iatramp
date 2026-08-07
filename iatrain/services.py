@@ -3,8 +3,9 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from core.models import Membership, MembershipRole, Organization, Person
-from core.services import current_membership_filter
+from core.models import Person
+from organizations.models import Membership, MembershipRole, Organization
+from organizations.selectors import current_membership_filter
 
 from .models import (
     AthleteObservation,

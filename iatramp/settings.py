@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "iatramp",
     "core.apps.CoreConfig",
+    "organizations.apps.OrganizationsConfig",
     "iatrain.apps.IatrainConfig",
     "competicions_trampoli",
 ]

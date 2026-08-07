@@ -2,7 +2,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import Http404
 from django.shortcuts import render
 
-from core.models import Organization
+from organizations.models import Organization
 from iatrain.services import (
     accessible_athletes,
     accessible_gyms,

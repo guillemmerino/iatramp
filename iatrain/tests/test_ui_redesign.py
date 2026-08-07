@@ -3,7 +3,8 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import resolve, reverse
 
-from core.models import Membership, MembershipRole, Organization, Person
+from core.models import Person
+from organizations.models import Membership, MembershipRole, Organization
 from iatrain.engine import build_training_selection
 from iatrain.models import GymEquipment
 from iatrain.services import (

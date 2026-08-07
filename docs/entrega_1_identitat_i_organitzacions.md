@@ -69,7 +69,7 @@ La migració és reversible i es va aplicar correctament sobre PostgreSQL amb da
 
 ### Serveis
 
-`core.services` concentra les operacions transaccionals:
+Des de la fase 1 d'extracció del domini, `organizations.services` concentra les operacions transaccionals. `core.services` només en manté exportacions de compatibilitat temporal:
 
 - crear una organització i el seu responsable;
 - concedir una pertinença o un rol;

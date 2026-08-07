@@ -3,18 +3,17 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 from django.urls import reverse
 
-from core.models import (
+from core.models import Person
+from organizations.models import (
     Membership,
     MembershipPermission,
     MembershipRole,
     OrganizationMembershipRequest,
-    Person,
 )
-from core.services import (
-    can_manage_organization,
+from organizations.policies import can_manage_organization, has_organization_permission
+from organizations.services import (
     create_organization_for_user,
     grant_membership,
-    has_organization_permission,
     request_organization_membership,
     review_organization_membership_request,
     update_membership_access,

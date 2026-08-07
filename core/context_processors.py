@@ -1,7 +1,8 @@
 from django.utils.functional import SimpleLazyObject
 
+from organizations.selectors import reviewable_membership_requests_for_user
+
 from .assistant import get_assistant_context
-from .services import reviewable_membership_requests_for_user
 
 
 def assistant(request):

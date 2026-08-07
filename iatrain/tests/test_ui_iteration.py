@@ -3,7 +3,8 @@ from django.core.exceptions import PermissionDenied
 from django.test import TestCase
 from django.urls import reverse
 
-from core.models import Membership, MembershipRole, Organization, Person
+from core.models import Person
+from organizations.models import Membership, MembershipRole, Organization
 from iatrain.models import TrainingGroupMembership
 from iatrain.services import (
     activate_athlete_profile,
