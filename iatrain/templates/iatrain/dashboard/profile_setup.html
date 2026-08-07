@@ -1,0 +1,4 @@
+{% extends "iatrain/base.html" %}
+{% block iatrain_content %}
+<section class="iatrain-empty-state"><span class="iatrain-eyebrow">Comença aquí</span><h1>Tria el teu primer espai esportiu</h1><p>Pots activar tots dos perfils i alternar-los des del commutador central.</p><div class="iatrain-inline-actions"><form method="post" action="{% url 'iatrain_profile_update' %}">{% csrf_token %}<input type="hidden" name="profile_type" value="coach"><input type="hidden" name="active" value="on"><button class="iatrain-button iatrain-button--primary">Activar Entrenador</button></form><form method="post" action="{% url 'iatrain_profile_update' %}">{% csrf_token %}<input type="hidden" name="profile_type" value="athlete"><input type="hidden" name="active" value="on"><button class="iatrain-button iatrain-button--secondary">Activar Gimnasta</button></form></div></section>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% load static_extras %}
+
+{% block title %}{% block iatrain_title %}IA Train{% endblock %} · Iatramp{% endblock %}
+{% block extra_head %}{{ block.super }}<link rel="stylesheet" href="{% staticv 'core/platform.css' %}"><link rel="stylesheet" href="{% staticv 'iatrain/overview.css' %}">{% endblock %}
+
+{% block content %}
+<div class="iatrain-app">
+  <div class="iatrain-shell">
+    {% include "iatrain/components/header.html" %}
+    <div class="iatrain-workspace">{% block iatrain_content %}{% endblock %}</div>
+  </div>
+</div>
+{% endblock %}

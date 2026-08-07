@@ -1,0 +1,6 @@
+{% extends "iatrain/base.html" %}
+{% block iatrain_title %}Grups{% endblock %}
+{% block iatrain_content %}
+<section class="iatrain-page-head tone-group"><div><span class="iatrain-eyebrow">Equips</span><h1>Grups d’entrenament</h1><p>Plantilles estables de gimnastes, sempre vinculades a una organització.</p></div><a class="iatrain-button iatrain-button--domain" href="{% url 'iatrain_group_create' %}">+ Crear grup</a></section>
+{% if iatrain_groups %}<div class="iatrain-card-grid">{% for group in iatrain_groups %}<article class="iatrain-domain-card tone-group"><div class="iatrain-card-mark">G</div><div><span>{{ group.organization.name }}</span><h3>{{ group.name }}</h3><p>{{ group.memberships.all|length }} membre{{ group.memberships.all|length|pluralize }} actius{% if group.description %} · {{ group.description|truncatechars:80 }}{% endif %}</p></div><div class="iatrain-card-actions"><a href="{% url 'iatrain_group_detail' group.pk %}">Gestionar grup</a><a href="{% url 'iatrain_training_start' %}">Entrenar</a></div></article>{% endfor %}</div>{% else %}<div class="iatrain-empty-inline"><strong>Encara no gestiones cap grup.</strong><p>Crea’n un dins d’una de les teves organitzacions.</p><a href="{% url 'iatrain_group_create' %}">Crear el primer grup</a></div>{% endif %}
+{% endblock %}

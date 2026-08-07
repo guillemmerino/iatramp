@@ -11,6 +11,9 @@ from .models import (
     AthleteProfile,
     CoachAthleteRelation,
     CoachProfile,
+    Gym,
+    GymEquipment,
+    GymOrganization,
     KnowledgeConcept,
     KnowledgeRelation,
     TrainingGroup,
@@ -135,6 +138,85 @@ def managed_groups(user):
         managing_coaches__person=person,
         managing_coaches__is_active=True,
     ).distinct()
+
+
+def accessible_gyms(user):
+    """Gyms connected to an organization where the user coaches."""
+    if not getattr(user, "is_authenticated", False):
+        return Gym.objects.none()
+    if user.is_superuser:
+        return Gym.objects.filter(is_active=True)
+    return Gym.objects.filter(
+        is_active=True,
+        organization_links__is_active=True,
+        organization_links__organization__in=organizations_available_to_coach(user),
+    ).distinct()
+
+
+def can_manage_gym(user, gym):
+    return accessible_gyms(user).filter(pk=gym.pk).exists()
+
+
+@transaction.atomic
+def create_gym(*, user, name, organizations, location="", notes=""):
+    allowed = organizations_available_to_coach(user)
+    organization_ids = {organization.pk for organization in organizations}
+    if not organization_ids or allowed.filter(pk__in=organization_ids).count() != len(organization_ids):
+        raise PermissionDenied("Només pots vincular el gimnàs a organitzacions on entrenes.")
+    person = person_for_user(user)
+    try:
+        coach_profile = person.coach_profile
+    except (AttributeError, CoachProfile.DoesNotExist):
+        raise PermissionDenied("Cal un perfil d’entrenador actiu.")
+    if not coach_profile.is_active:
+        raise PermissionDenied("Cal un perfil d’entrenador actiu.")
+    gym = Gym(name=name, location=location, notes=notes, created_by=coach_profile)
+    gym.full_clean()
+    gym.save()
+    GymOrganization.objects.bulk_create(
+        [GymOrganization(gym=gym, organization_id=organization_id) for organization_id in organization_ids]
+    )
+    return gym
+
+
+@transaction.atomic
+def update_gym(*, user, gym, name, organizations, location="", notes=""):
+    if not can_manage_gym(user, gym):
+        raise PermissionDenied("No pots gestionar aquest gimnàs.")
+    allowed = organizations_available_to_coach(user)
+    organization_ids = {organization.pk for organization in organizations}
+    if not organization_ids or allowed.filter(pk__in=organization_ids).count() != len(organization_ids):
+        raise PermissionDenied("Només pots vincular el gimnàs a organitzacions on entrenes.")
+    gym.name = name
+    gym.location = location
+    gym.notes = notes
+    gym.full_clean()
+    gym.save(update_fields=("name", "location", "notes", "updated_at"))
+    GymOrganization.objects.filter(gym=gym).exclude(organization_id__in=organization_ids).update(
+        is_active=False
+    )
+    for organization_id in organization_ids:
+        GymOrganization.objects.update_or_create(
+            gym=gym,
+            organization_id=organization_id,
+            defaults={"is_active": True},
+        )
+    return gym
+
+
+@transaction.atomic
+def save_gym_equipment(*, user, gym, equipment=None, **values):
+    if not can_manage_gym(user, gym):
+        raise PermissionDenied("No pots gestionar el material d’aquest gimnàs.")
+    if equipment is None:
+        equipment = GymEquipment(gym=gym)
+    elif equipment.gym_id != gym.pk:
+        raise PermissionDenied("Aquest material no pertany al gimnàs seleccionat.")
+    for field in ("name", "equipment_type", "quantity", "availability", "notes"):
+        setattr(equipment, field, values[field])
+    equipment.full_clean()
+    equipment.save()
+    return equipment
 
 
 def can_manage_group(user, training_group):

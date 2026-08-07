@@ -1,0 +1,30 @@
+{% extends "iatrain/base.html" %}
+{% load static %}
+{% block iatrain_content %}
+<section class="iatrain-coach-hero">
+  <div class="iatrain-coach-hero-copy">
+    <span class="iatrain-eyebrow">Espai d’entrenador</span>
+    <h1>Prepara la sessió.<br>Nosaltres ordenem el context.</h1>
+    <p>Tria organització, grup, gimnastes i gimnàs abans d’entrar al motor d’entrenament.</p>
+    <div class="iatrain-inline-actions"><a class="iatrain-start-button iatrain-start-button--large" href="{% url 'iatrain_training_start' %}"><span>▶</span> Començar entrenament</a><a class="iatrain-button iatrain-button--ghost" href="{% url 'iatrain_athlete_create' %}">Afegir gimnasta</a></div>
+  </div>
+  <div class="iatrain-coach-hero-aside"><img src="{% static 'core/avatar/assistant-card.webp' %}" alt=""><div><strong>Tot a punt?</strong><span>Et guiaré en cada pas.</span></div></div>
+</section>
+
+<section class="iatrain-metrics" aria-label="Resum del teu espai">
+  <a class="tone-organization" href="{% url 'iatrain_organization_list' %}"><span>Organitzacions</span><strong>{{ coach_totals.organizations }}</strong></a>
+  <a class="tone-group" href="{% url 'iatrain_group_list' %}"><span>Grups actius</span><strong>{{ coach_totals.groups }}</strong></a>
+  <a class="tone-athlete" href="{% url 'iatrain_athlete_list' %}"><span>Gimnastes</span><strong>{{ coach_totals.athletes }}</strong></a>
+  <a class="tone-gym" href="{% url 'iatrain_gym_list' %}"><span>Gimnasos</span><strong>{{ coach_totals.gyms }}</strong></a>
+</section>
+
+<section class="iatrain-section-head"><div><span class="iatrain-eyebrow tone-organization-text">Estructura esportiva</span><h2>Les meves organitzacions</h2></div><a href="{% url 'iatrain_organization_list' %}">Veure-les totes →</a></section>
+{% if iatrain_organizations %}<div class="iatrain-organization-grid">{% for organization in iatrain_organizations %}<article class="iatrain-domain-card tone-organization"><div class="iatrain-card-mark">{{ organization.name|first|upper }}</div><div><span>{{ organization.get_kind_display }}</span><h3>{{ organization.name }}</h3><p>{{ organization.coach_group_count }} grup{{ organization.coach_group_count|pluralize }} · {{ organization.coach_athlete_count }} gimnastes · {{ organization.coach_gym_count }} {% if organization.coach_gym_count == 1 %}gimnàs{% else %}gimnasos{% endif %}</p></div><div class="iatrain-card-actions"><a href="{% url 'iatrain_organization_detail' organization.slug %}">Obrir espai</a><a href="{% url 'iatrain_group_create' %}?organization={{ organization.pk }}">Crear grup</a></div></article>{% endfor %}</div>{% else %}<div class="iatrain-empty-inline"><strong>Encara no tens cap organització esportiva.</strong><p>Necessites una membresia activa amb rol d’entrenador.</p><a href="{% url 'organizations' %}">Explorar organitzacions</a></div>{% endif %}
+
+<div class="iatrain-dashboard-columns">
+  <section class="iatrain-panel tone-group"><div class="iatrain-panel-head"><div><span>Grups</span><h2>Equips que gestiones</h2></div><a href="{% url 'iatrain_group_create' %}">+ Crear</a></div>{% if iatrain_groups %}<ul class="iatrain-rows">{% for group in iatrain_groups %}<li><a href="{% url 'iatrain_group_detail' group.pk %}"><span class="iatrain-row-icon">G</span><span><strong>{{ group.name }}</strong><small>{{ group.organization.name }}</small></span><b>→</b></a></li>{% endfor %}</ul>{% else %}<div class="iatrain-panel-empty">Crea el primer grup dins d’una organització.</div>{% endif %}</section>
+  <section class="iatrain-panel tone-athlete"><div class="iatrain-panel-head"><div><span>Gimnastes</span><h2>Persones vinculades</h2></div><a href="{% url 'iatrain_athlete_create' %}">+ Afegir</a></div>{% if iatrain_athletes %}<ul class="iatrain-rows">{% for athlete in iatrain_athletes %}<li><a href="{% url 'iatrain_athlete_detail' athlete.athlete_profile.pk %}"><span class="iatrain-row-icon">{{ athlete.display_name|first|upper }}</span><span><strong>{{ athlete.display_name }}</strong><small>{% if athlete.email %}{{ athlete.email }}{% else %}Perfil esportiu{% endif %}</small></span><b>→</b></a></li>{% endfor %}</ul>{% else %}<div class="iatrain-panel-empty">Afegeix un gimnasta per començar el seguiment.</div>{% endif %}</section>
+</div>
+
+{% if iatrain_contexts or iatrain_observations %}<section class="iatrain-activity"><div class="iatrain-section-head"><div><span class="iatrain-eyebrow">Seguiment</span><h2>Activitat recent</h2></div></div><div class="iatrain-activity-grid">{% for training_context in iatrain_contexts %}<article><span class="iatrain-status-dot"></span><div><strong>{{ training_context.name }}</strong><small>Context d’entrenament · {{ training_context.get_status_display }}</small></div></article>{% endfor %}{% for observation in iatrain_observations %}<article><span class="iatrain-status-dot tone-athlete-bg"></span><div><strong>{{ observation.narrative }}</strong><small>{{ observation.athlete.display_name }} · {{ observation.observed_at|date:'d/m/Y' }}</small></div></article>{% endfor %}</div></section>{% endif %}
+{% endblock %}

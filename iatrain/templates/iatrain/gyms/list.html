@@ -1,0 +1,6 @@
+{% extends "iatrain/base.html" %}
+{% block iatrain_title %}Gimnasos{% endblock %}
+{% block iatrain_content %}
+<section class="iatrain-page-head tone-gym"><div><span class="iatrain-eyebrow">Espais i recursos</span><h1>Gimnasos</h1><p>Descriu les instal·lacions i el material que el motor podrà tenir en compte.</p></div><a class="iatrain-button iatrain-button--domain" href="{% url 'iatrain_gym_create' %}">+ Crear gimnàs</a></section>
+{% if iatrain_gyms %}<div class="iatrain-card-grid">{% for gym in iatrain_gyms %}<article class="iatrain-domain-card tone-gym"><div class="iatrain-card-mark">⌂</div><div><span>{% for organization in gym.organizations.all %}{% if not forloop.first %} · {% endif %}{{ organization.name }}{% endfor %}</span><h3>{{ gym.name }}</h3><p>{% if gym.location %}{{ gym.location }} · {% endif %}{{ gym.equipment.all|length }} registres de material</p></div><div class="iatrain-card-actions"><a href="{% url 'iatrain_gym_detail' gym.pk %}">Gestionar</a><a href="{% url 'iatrain_gym_equipment_create' gym.pk %}">Afegir material</a></div></article>{% endfor %}</div>{% else %}<div class="iatrain-empty-inline"><strong>Encara no has configurat cap gimnàs.</strong><p>Crea una instal·lació i especifica-hi el material disponible.</p><a href="{% url 'iatrain_gym_create' %}">Crear el primer gimnàs</a></div>{% endif %}
+{% endblock %}

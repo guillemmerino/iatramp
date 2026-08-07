@@ -1,0 +1,35 @@
+{% load static %}
+<header class="iatrain-shell-header">
+  <div class="iatrain-brand-block">
+    <a class="iatrain-brand" href="{% url 'iatrain_home' %}"><span>IA</span><strong>Train</strong></a>
+    {% if iatrain_person %}<small>{{ iatrain_person.display_name }}</small>{% else %}<small>Entrenament intel·ligent</small>{% endif %}
+  </div>
+
+  {% if iatrain_person and not iatrain_person.is_provisional %}
+    <form class="iatrain-mode-switch" method="post" action="{% url 'iatrain_perspective' %}" aria-label="Mode de treball">
+      {% csrf_token %}
+      <button type="submit" name="perspective" value="coach" {% if perspective == 'coach' %}aria-pressed="true"{% else %}aria-pressed="false"{% endif %} {% if not sport_profiles.coach.is_active %}disabled{% endif %}>Entrenador</button>
+      <button type="submit" name="perspective" value="athlete" {% if perspective == 'athlete' %}aria-pressed="true"{% else %}aria-pressed="false"{% endif %} {% if not sport_profiles.athlete.is_active %}disabled{% endif %}>Gimnasta</button>
+    </form>
+  {% endif %}
+
+  <div class="iatrain-header-assistant">
+    <button type="button" data-avatar-topic="iatrain_welcome" aria-label="Obrir l’assistent d’IA Train">
+      <img src="{% static 'core/avatar/controls/avatar_in.png' %}" alt="">
+    </button>
+    <div><strong>Assistent IA</strong><small>Sempre al teu costat</small></div>
+  </div>
+</header>
+
+{% if perspective == 'coach' %}
+  <div class="iatrain-coach-bar">
+    <nav class="iatrain-primary-nav" aria-label="Navegació d’IA Train">
+      <a href="{% url 'iatrain_home' %}" {% if request.resolver_match.url_name == 'iatrain_home' %}aria-current="page"{% endif %}>Resum</a>
+      <a class="tone-organization" href="{% url 'iatrain_organization_list' %}" {% if 'organization' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Organitzacions</a>
+      <a class="tone-group" href="{% url 'iatrain_group_list' %}" {% if 'group' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Grups</a>
+      <a class="tone-athlete" href="{% url 'iatrain_athlete_list' %}" {% if 'athlete' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Gimnastes</a>
+      <a class="tone-gym" href="{% url 'iatrain_gym_list' %}" {% if 'gym' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Gimnasos</a>
+    </nav>
+    <a class="iatrain-start-button" href="{% url 'iatrain_training_start' %}"><span>▶</span> Començar entrenament</a>
+  </div>
+{% endif %}

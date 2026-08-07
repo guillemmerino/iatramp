@@ -1,0 +1,14 @@
+{% extends "iatrain/base.html" %}
+{% load static %}
+{% block iatrain_content %}
+<section class="iatrain-landing">
+  <div>
+    <span class="iatrain-eyebrow">IA Train</span>
+    <h1>Entrenament connectat amb les persones</h1>
+    <p>IA Train ja té una base funcional per organitzar entrenadors, gimnastes, grups i espais d’entrenament.</p>
+    <p class="iatrain-fine-print">La generació d’entrenaments amb IA encara no està implementada.</p>
+    <a class="iatrain-button iatrain-button--primary" href="{% url 'login' %}">Iniciar sessió</a>
+  </div>
+  <img src="{% static 'core/avatar/assistant-card.webp' %}" alt="Assistent d’IA Train">
+</section>
+{% endblock %}

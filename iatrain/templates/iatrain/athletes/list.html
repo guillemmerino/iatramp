@@ -1,0 +1,7 @@
+{% extends "iatrain/base.html" %}
+{% block iatrain_title %}Gimnastes{% endblock %}
+{% block iatrain_content %}
+<section class="iatrain-page-head tone-athlete"><div><span class="iatrain-eyebrow">Persones</span><h1>Gimnastes</h1><p>Gestiona els perfils esportius vinculats al teu espai d’entrenador.</p></div><a class="iatrain-button iatrain-button--domain" href="{% url 'iatrain_athlete_create' %}">+ Afegir gimnasta</a></section>
+<form class="iatrain-search" method="get" role="search"><label for="athlete-search">Cerca per nom o correu</label><div><input id="athlete-search" name="q" type="search" value="{{ query }}" placeholder="Cerca un gimnasta"><button type="submit">Cercar</button></div></form>
+{% if iatrain_athletes %}<div class="iatrain-directory">{% for athlete in iatrain_athletes %}<a class="iatrain-directory-row tone-athlete" href="{% url 'iatrain_athlete_detail' athlete.athlete_profile.pk %}"><span class="iatrain-row-icon">{{ athlete.display_name|first|upper }}</span><span><strong>{{ athlete.display_name }}</strong><small>{% if athlete.email %}{{ athlete.email }}{% else %}Sense correu vinculat{% endif %}</small></span><b>Veure perfil →</b></a>{% endfor %}</div>{% else %}<div class="iatrain-empty-inline"><strong>No s’ha trobat cap gimnasta.</strong><p>Afegeix una persona o prova una altra cerca.</p></div>{% endif %}
+{% endblock %}

@@ -336,6 +336,141 @@ class TrainingGroupMembership(models.Model):
         return f"{self.athlete_profile} · {self.training_group}"
 
 
+class Gym(models.Model):
+    """A training venue that can be shared by one or more organizations."""
+
+    name = models.CharField(max_length=180)
+    location = models.CharField(max_length=240, blank=True, default="")
+    notes = models.TextField(blank=True, default="")
+    organizations = models.ManyToManyField(
+        Organization,
+        through="GymOrganization",
+        related_name="training_gyms",
+        blank=True,
+    )
+    created_by = models.ForeignKey(
+        CoachProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_gyms",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("name", "location", "id")
+        indexes = [models.Index(fields=("is_active", "name"), name="iatrain_gym_active_idx")]
+
+    def clean(self):
+        super().clean()
+        self.name = self.name.strip()
+        self.location = self.location.strip()
+        if not self.name:
+            raise ValidationError({"name": "El gimnàs necessita un nom."})
+
+    def __str__(self):
+        return self.name
+
+
+class GymOrganization(models.Model):
+    """Explicitly grants an organization access to a gym."""
+
+    gym = models.ForeignKey(Gym, on_delete=models.CASCADE, related_name="organization_links")
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="gym_links",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("organization__name", "gym__name", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("gym", "organization"),
+                name="iatrain_gym_org_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=("organization", "is_active"),
+                name="iatrain_gym_org_active_idx",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.gym} · {self.organization}"
+
+
+class GymEquipment(models.Model):
+    """A structured inventory row consumed by the training engine."""
+
+    class EquipmentType(models.TextChoices):
+        TRAMPOLINE = "trampoline", "Trampolí"
+        DOUBLE_MINI = "double_mini", "Doble minitrampolí"
+        TUMBLING_TRACK = "tumbling_track", "Pista de tumbling"
+        MAT = "mat", "Matalàs"
+        SPOTTING_PLATFORM = "spotting_platform", "Plataforma de seguretat"
+        HARNESS = "harness", "Cinturó o arnès"
+        CONDITIONING = "conditioning", "Preparació física"
+        OTHER = "other", "Altres"
+
+    class Availability(models.TextChoices):
+        AVAILABLE = "available", "Disponible"
+        LIMITED = "limited", "Ús limitat"
+        MAINTENANCE = "maintenance", "En manteniment"
+        UNAVAILABLE = "unavailable", "No disponible"
+
+    gym = models.ForeignKey(Gym, on_delete=models.CASCADE, related_name="equipment")
+    name = models.CharField(max_length=180)
+    equipment_type = models.CharField(
+        max_length=30,
+        choices=EquipmentType.choices,
+        default=EquipmentType.OTHER,
+    )
+    quantity = models.PositiveSmallIntegerField(
+        default=1,
+        validators=(MinValueValidator(1),),
+    )
+    availability = models.CharField(
+        max_length=20,
+        choices=Availability.choices,
+        default=Availability.AVAILABLE,
+    )
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("gym_id", "equipment_type", "name", "id")
+        constraints = [
+            models.UniqueConstraint(
+                Lower("name"),
+                "gym",
+                name="iatrain_gym_equipment_name_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=("gym", "availability"),
+                name="iatrain_gym_equipment_idx",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValidationError({"name": "El material necessita un nom."})
+
+    def __str__(self):
+        return f"{self.gym} · {self.name}"
+
+
 class TrainingContext(models.Model):
     """A bounded training workspace owned by a coach and shared by its athletes."""
 

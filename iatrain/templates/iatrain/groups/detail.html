@@ -1,0 +1,10 @@
+{% extends "iatrain/base.html" %}
+{% block iatrain_title %}{{ training_group.name }}{% endblock %}
+{% block iatrain_content %}
+<a class="iatrain-back-link" href="{% url 'iatrain_group_list' %}">← Grups</a>
+<section class="iatrain-detail-hero tone-group"><span class="iatrain-detail-avatar">G</span><div><span class="iatrain-eyebrow">{{ training_group.organization.name }}</span><h1>{{ training_group.name }}</h1><p>{{ training_group.description|default:"Grup d’entrenament actiu" }}</p></div><a class="iatrain-start-button" href="{% url 'iatrain_training_start' %}">▶ Entrenar grup</a></section>
+<div class="iatrain-dashboard-columns">
+  <section class="iatrain-panel tone-athlete"><div class="iatrain-panel-head"><div><span>Plantilla</span><h2>Membres actius</h2></div><span class="iatrain-count">{{ memberships|length }}</span></div>{% if memberships %}<ul class="iatrain-rows">{% for membership in memberships %}<li><span class="iatrain-static-row"><span class="iatrain-row-icon">{{ membership.athlete_profile.person.display_name|first|upper }}</span><span><strong>{{ membership.athlete_profile.person.display_name }}</strong><small>Des de {{ membership.start_date|date:'d/m/Y' }}</small></span><form method="post" action="{% url 'iatrain_group_member_remove' training_group.pk membership.pk %}">{% csrf_token %}<button class="iatrain-link-danger" type="submit">Retirar</button></form></span></li>{% endfor %}</ul>{% else %}<div class="iatrain-panel-empty">Aquest grup encara no té membres.</div>{% endif %}</section>
+  <section class="iatrain-panel tone-group"><div class="iatrain-panel-head"><div><span>Gestió</span><h2>Afegir gimnasta</h2></div></div><form method="post" class="iatrain-form iatrain-form--compact">{% csrf_token %}{% for field in form %}<div class="iatrain-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}<button class="iatrain-button iatrain-button--domain" type="submit">Afegir al grup</button></form></section>
+</div>
+{% endblock %}

@@ -1,0 +1,6 @@
+{% extends "iatrain/base.html" %}
+{% block iatrain_title %}{{ form_title }}{% endblock %}
+{% block iatrain_content %}
+<a class="iatrain-back-link" href="{% url 'iatrain_gym_detail' gym.pk %}">← {{ gym.name }}</a>
+<section class="iatrain-form-card tone-gym"><span class="iatrain-eyebrow">Inventari del gimnàs</span><h1>{{ form_title }}</h1><p>El motor només considerarà material disponible o d’ús limitat.</p><form method="post" class="iatrain-form">{% csrf_token %}{% for field in form %}<div class="iatrain-field{% if field.errors %} has-error{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</div>{% endfor %}<button class="iatrain-button iatrain-button--domain" type="submit">{{ submit_label }}</button></form></section>
+{% endblock %}

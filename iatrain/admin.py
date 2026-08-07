@@ -5,6 +5,9 @@ from .models import (
     AthleteProfile,
     CoachAthleteRelation,
     CoachProfile,
+    Gym,
+    GymEquipment,
+    GymOrganization,
     KnowledgeConcept,
     KnowledgeRelation,
     TrainingContext,
@@ -93,6 +96,37 @@ class TrainingGroupMembershipAdmin(admin.ModelAdmin):
         "notes",
     )
     autocomplete_fields = ("training_group", "athlete_profile")
+    readonly_fields = ("created_at", "updated_at")
+
+
+class GymOrganizationInline(admin.TabularInline):
+    model = GymOrganization
+    extra = 0
+    autocomplete_fields = ("organization",)
+
+
+class GymEquipmentInline(admin.TabularInline):
+    model = GymEquipment
+    extra = 0
+    fields = ("name", "equipment_type", "quantity", "availability", "notes")
+
+
+@admin.register(Gym)
+class GymAdmin(admin.ModelAdmin):
+    list_display = ("name", "location", "is_active", "updated_at")
+    list_filter = ("is_active", "organizations")
+    search_fields = ("name", "location", "notes", "organizations__name")
+    autocomplete_fields = ("created_by",)
+    readonly_fields = ("created_at", "updated_at")
+    inlines = (GymOrganizationInline, GymEquipmentInline)
+
+
+@admin.register(GymEquipment)
+class GymEquipmentAdmin(admin.ModelAdmin):
+    list_display = ("name", "gym", "equipment_type", "quantity", "availability")
+    list_filter = ("equipment_type", "availability", "gym")
+    search_fields = ("name", "gym__name", "notes")
+    autocomplete_fields = ("gym",)
     readonly_fields = ("created_at", "updated_at")
 
 

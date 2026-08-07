@@ -1,0 +1,7 @@
+{% extends "iatrain/base.html" %}
+{% block iatrain_title %}{{ athlete_profile.person.display_name }}{% endblock %}
+{% block iatrain_content %}
+<a class="iatrain-back-link" href="{% url 'iatrain_athlete_list' %}">← Gimnastes</a>
+<section class="iatrain-detail-hero tone-athlete"><span class="iatrain-detail-avatar">{{ athlete_profile.person.display_name|first|upper }}</span><div><span class="iatrain-eyebrow">Perfil esportiu</span><h1>{{ athlete_profile.person.display_name }}</h1><p>{% if athlete_profile.person.email %}{{ athlete_profile.person.email }}{% else %}Sense correu vinculat{% endif %}</p></div><span class="iatrain-status-badge">Actiu</span></section>
+<section class="iatrain-panel tone-group iatrain-panel--wide"><div class="iatrain-panel-head"><div><span>Organització</span><h2>Grups actius</h2></div></div>{% if athlete_memberships %}<ul class="iatrain-rows">{% for membership in athlete_memberships %}<li><a href="{% url 'iatrain_group_detail' membership.training_group.pk %}"><span class="iatrain-row-icon">G</span><span><strong>{{ membership.training_group.name }}</strong><small>{{ membership.training_group.organization.name }}</small></span><b>→</b></a></li>{% endfor %}</ul>{% else %}<div class="iatrain-panel-empty">Aquest gimnasta encara no forma part de cap grup que gestionis.</div>{% endif %}</section>
+{% endblock %}

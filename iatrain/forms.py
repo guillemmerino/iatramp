@@ -2,7 +2,7 @@ from django import forms
 
 from core.models import Organization
 
-from .models import AthleteProfile, CoachAthleteRelation
+from .models import AthleteProfile, CoachAthleteRelation, GymEquipment
 from .services import accessible_athletes, organizations_available_to_coach
 
 
@@ -64,3 +64,49 @@ class GroupMemberForm(forms.Form):
             person__in=accessible_athletes(user, permission="can_view_training", organization=organization),
             is_active=True,
         ).select_related("person")
+
+
+class GymForm(forms.Form):
+    name = forms.CharField(label="Nom del gimnàs", max_length=180)
+    location = forms.CharField(label="Ubicació", max_length=240, required=False)
+    organizations = forms.ModelMultipleChoiceField(
+        label="Organitzacions que hi entrenen",
+        queryset=Organization.objects.none(),
+    )
+    notes = forms.CharField(label="Observacions", widget=forms.Textarea, required=False)
+
+    def __init__(self, *args, user, gym=None, **kwargs):
+        initial = kwargs.setdefault("initial", {})
+        if gym is not None and not (args and args[0]):
+            initial.update(
+                {
+                    "name": gym.name,
+                    "location": gym.location,
+                    "organizations": gym.organizations.filter(gym_links__gym=gym, gym_links__is_active=True),
+                    "notes": gym.notes,
+                }
+            )
+        super().__init__(*args, **kwargs)
+        self.fields["organizations"].queryset = organizations_available_to_coach(user)
+
+
+class GymEquipmentForm(forms.Form):
+    name = forms.CharField(label="Nom del material", max_length=180)
+    equipment_type = forms.ChoiceField(label="Tipus", choices=GymEquipment.EquipmentType.choices)
+    quantity = forms.IntegerField(label="Quantitat", min_value=1, initial=1)
+    availability = forms.ChoiceField(label="Disponibilitat", choices=GymEquipment.Availability.choices)
+    notes = forms.CharField(label="Observacions", widget=forms.Textarea, required=False)
+
+    def __init__(self, *args, equipment=None, **kwargs):
+        initial = kwargs.setdefault("initial", {})
+        if equipment is not None and not (args and args[0]):
+            initial.update(
+                {
+                    "name": equipment.name,
+                    "equipment_type": equipment.equipment_type,
+                    "quantity": equipment.quantity,
+                    "availability": equipment.availability,
+                    "notes": equipment.notes,
+                }
+            )
+        super().__init__(*args, **kwargs)
