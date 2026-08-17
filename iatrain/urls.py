@@ -24,4 +24,16 @@ urlpatterns = [
     path("gimnasos/<int:pk>/material/<int:equipment_pk>/editar/", views.gym_equipment_edit, name="iatrain_gym_equipment_edit"),
     path("engine/comencar/", views.training_start, name="iatrain_training_start"),
     path("engine/context-options/", views.context_options, name="iatrain_engine_context_options"),
+    path("graf-coneixement/", views.knowledge_graph, name="iatrain_knowledge_graph"),
+    path("graf-coneixement/dades/", views.knowledge_graph_data, name="iatrain_knowledge_graph_data"),
+    path(
+        "graf-coneixement/conceptes/<int:pk>/estat/",
+        views.knowledge_concept_status,
+        name="iatrain_knowledge_concept_status",
+    ),
+    path(
+        "graf-coneixement/relacions/<int:pk>/estat/",
+        views.knowledge_relation_status,
+        name="iatrain_knowledge_relation_status",
+    ),
 ]

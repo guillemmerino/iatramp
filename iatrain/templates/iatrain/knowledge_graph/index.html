@@ -1,0 +1,82 @@
+{% extends "iatrain/base.html" %}
+{% load static_extras %}
+
+{% block iatrain_title %}Graf de coneixement 3D{% endblock %}
+{% block extra_head %}{{ block.super }}<link rel="stylesheet" href="{% staticv 'iatrain/knowledge_graph.css' %}">{% endblock %}
+
+{% block iatrain_content %}
+<section class="kg-page" id="knowledge-graph-app"
+  data-graph-url="{% url 'iatrain_knowledge_graph_data' %}"
+  data-node-status-url="{% url 'iatrain_knowledge_concept_status' 0 %}"
+  data-link-status-url="{% url 'iatrain_knowledge_relation_status' 0 %}"
+  data-csrf-token="{{ csrf_token }}">
+  <header class="kg-heading">
+    <div>
+      <span class="iatrain-eyebrow">Editor professional</span>
+      <h1>Graf de coneixement 3D</h1>
+      <p>Explora els conceptes, revisa'n la procedència i valida manualment nodes i arestes.</p>
+    </div>
+    <div class="kg-heading-stats" aria-label="Resum del graf">
+      <span><strong id="kg-node-count">{{ concept_count }}</strong> nodes</span>
+      <span><strong id="kg-link-count">{{ relation_count }}</strong> arestes</span>
+      <span><strong id="kg-draft-count">{{ draft_count }}</strong> esborranys</span>
+    </div>
+  </header>
+
+  <div class="kg-toolbar" aria-label="Controls del graf">
+    <label class="kg-search"><span>Cerca</span><input id="kg-search" type="search" placeholder="Nom, àlies o descripció"></label>
+    <label><span>Tipus</span><select id="kg-kind-filter"><option value="">Tots els tipus</option></select></label>
+    <label><span>Estat</span><select id="kg-status-filter"><option value="">Tots els estats</option><option value="draft">Esborrany</option><option value="validated">Validat</option><option value="retired">Retirat</option></select></label>
+    <label><span>Arestes</span><select id="kg-relation-filter"><option value="">Totes les relacions</option></select></label>
+    <div class="kg-toolbar-actions">
+      <button id="kg-group" type="button" aria-pressed="false" title="Agrupar els nodes per tipus">Agrupa</button>
+      <button id="kg-pause" type="button" aria-pressed="false" title="Pausar la disposició física">Pausa</button>
+      <button id="kg-zoom-out" type="button" aria-label="Allunyar">−</button>
+      <button id="kg-zoom-in" type="button" aria-label="Apropar">+</button>
+      <button id="kg-reset" type="button">Restableix</button>
+      <button id="kg-fullscreen" type="button">Pantalla completa</button>
+    </div>
+  </div>
+
+  <div class="kg-workbench" id="kg-workbench">
+    <div class="kg-stage" id="kg-stage">
+      <canvas id="kg-canvas" tabindex="0" aria-label="Graf tridimensional interactiu. Arrossega per traslladar i usa Control més arrossegar per rotar."></canvas>
+      <div class="kg-loading" id="kg-loading" role="status">Preparant el graf…</div>
+      <div class="kg-stage-help"><kbd>Arrossega</kbd> trasllada <span>·</span> <kbd>Ctrl</kbd> + <kbd>arrossega</kbd> gira <span>·</span> <kbd>Roda</kbd> zoom <span>·</span> <kbd>Doble clic</kbd> centra</div>
+      <div class="kg-legend" aria-label="Llegenda editorial">
+        <span><i class="is-draft"></i> Esborrany</span>
+        <span><i class="is-validated"></i> Validat</span>
+        <span><i class="is-retired"></i> Retirat</span>
+      </div>
+      <div class="kg-toast" id="kg-toast" role="status" aria-live="polite"></div>
+    </div>
+
+    <aside class="kg-inspector" id="kg-inspector" aria-live="polite">
+      <div class="kg-inspector-empty" id="kg-inspector-empty">
+        <span>◉</span><h2>Selecciona un node o una aresta</h2>
+        <p>Fes-hi clic per consultar-ne els detalls i prendre una decisió editorial.</p>
+      </div>
+      <div class="kg-inspector-content" id="kg-inspector-content" hidden>
+        <div class="kg-inspector-heading">
+          <span id="kg-detail-eyebrow"></span>
+          <button id="kg-close-detail" type="button" aria-label="Tancar detall">×</button>
+        </div>
+        <h2 id="kg-detail-title"></h2>
+        <span class="kg-status" id="kg-detail-status"></span>
+        <p id="kg-detail-description"></p>
+        <dl id="kg-detail-meta"></dl>
+        <section id="kg-detail-attributes"><h3>Atributs i procedència</h3><pre></pre></section>
+        <div class="kg-editorial-actions" id="kg-editorial-actions">
+          <h3>Decisió editorial</h3>
+          <div><button type="button" data-status="draft">Esborrany</button><button type="button" data-status="validated">Validar</button><button type="button" data-status="retired">Retirar</button></div>
+        </div>
+        <button class="kg-focus" id="kg-focus" type="button">Centrar a la vista</button>
+      </div>
+    </aside>
+  </div>
+
+  <noscript>Aquesta visualització necessita JavaScript. Pots continuar gestionant el coneixement des de l'administració Django.</noscript>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}{{ block.super }}<script src="{% staticv 'iatrain/knowledge_graph.js' %}"></script>{% endblock %}

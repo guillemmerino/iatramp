@@ -12,6 +12,12 @@ from .gyms import (
 )
 from .organizations import organization_detail, organization_list
 from .profiles import select_perspective, update_profile
+from .knowledge_graph import (
+    knowledge_concept_status,
+    knowledge_graph,
+    knowledge_graph_data,
+    knowledge_relation_status,
+)
 
 __all__ = (
     "athlete_create",
@@ -29,6 +35,10 @@ __all__ = (
     "gym_equipment_edit",
     "gym_list",
     "home",
+    "knowledge_concept_status",
+    "knowledge_graph",
+    "knowledge_graph_data",
+    "knowledge_relation_status",
     "organization_detail",
     "organization_list",
     "select_perspective",

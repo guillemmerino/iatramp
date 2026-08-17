@@ -560,6 +560,8 @@ class KnowledgeConcept(models.Model):
 
     class Kind:
         SKILL = "skill"
+        BODY_POSITION = "body_position"
+        CONTACT_POSITION = "contact_position"
         TECHNICAL_COMPONENT = "technical_component"
         ERROR = "error"
         EXERCISE = "exercise"
@@ -639,6 +641,9 @@ class KnowledgeRelation(models.Model):
     class RelationType:
         REQUIRES = "requires"
         PROGRESSES_TO = "progresses_to"
+        HAS_DEFINING_POSITION = "has_defining_position"
+        STARTS_FROM_CONTACT = "starts_from_contact"
+        ENDS_IN_CONTACT = "ends_in_contact"
         CORRECTS = "corrects"
         CONDITIONS = "conditions"
         TRAINS = "trains"
