@@ -35,7 +35,7 @@
 body:has(.iatrain-app) .avatar-helper:not(.is-open) .avatar-helper__image,
 body:has(.iatrain-app) .avatar-helper:not(.is-open) .avatar-helper__toggle,
 body:has(.iatrain-app) .avatar-helper:not(.is-open) .avatar-helper__hide { opacity: 0; pointer-events: none; visibility: hidden; }
-.iatrain-shell { width: min(1240px, calc(100% - 40px)); margin: 0 auto; padding-bottom: 72px; }
+.iatrain-shell { width: min(1600px, calc(100% - 32px)); margin: 0 auto; padding-bottom: 72px; }
 .iatrain-workspace { padding-top: 30px; }
 
 .tone-organization { --tone: var(--it-organization); --tone-soft: #ecfdf5; --tone-border: #99f6e4; }
@@ -272,7 +272,7 @@ body:has(.iatrain-app) .avatar-helper:not(.is-open) .avatar-helper__hide { opaci
 }
 
 @media (max-width: 720px) {
-  .iatrain-shell { width: min(100% - 24px,1240px); }
+  .iatrain-shell { width: min(100% - 24px,1600px); }
   .iatrain-workspace { padding-top: 20px; }
   .iatrain-header-assistant div { display: none; }
   .iatrain-coach-hero, .iatrain-athlete-hero, .iatrain-landing { grid-template-columns: 1fr; }
