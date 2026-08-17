@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
-from core.models import Organization, Person, PersonClaimInvitation, PersonMergeRecord
+from core.models import Person, PersonClaimInvitation, PersonMergeRecord
 from core.services import accept_person_claim_invitation
 from iatrain.models import (
     AthleteProfile,
@@ -11,6 +11,7 @@ from iatrain.models import (
     TrainingGroupMembership,
 )
 from iatrain.services import create_unclaimed_athlete
+from organizations.models import Organization
 
 
 class IdentityLifecycleTests(TestCase):

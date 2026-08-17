@@ -5,7 +5,8 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import timezone
 
-from core.models import Membership, MembershipRole, Organization, Person
+from core.models import Person
+from organizations.models import Membership, MembershipRole, Organization
 
 
 class CoreModelTests(TestCase):

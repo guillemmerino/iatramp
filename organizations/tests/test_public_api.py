@@ -1,15 +1,19 @@
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from core.models import Organization as CoreOrganization
 from organizations.models import MembershipRole, Organization
 from organizations.services import create_organization_for_user
 
 
 class OrganizationPublicApiTests(TestCase):
-    def test_phase_one_model_facade_preserves_core_model_identity(self):
-        self.assertIs(Organization, CoreOrganization)
-        self.assertEqual(Organization._meta.app_label, "core")
+    def test_phase_two_model_is_owned_by_organizations(self):
+        self.assertEqual(Organization._meta.app_label, "organizations")
+        self.assertEqual(Organization._meta.db_table, "core_organization")
+        self.assertEqual(
+            ContentType.objects.get_for_model(Organization).app_label,
+            "organizations",
+        )
 
     def test_core_service_import_is_a_compatibility_alias(self):
         from core.services import create_organization_for_user as legacy_service

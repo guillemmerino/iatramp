@@ -6,12 +6,7 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import timezone
 
-from core.models import (
-    Membership,
-    MembershipRole,
-    Organization,
-    Person,
-)
+from core.models import Person
 from core.services import (
     can_manage_organization,
     grant_membership,
@@ -19,6 +14,7 @@ from core.services import (
     link_person_to_user,
     set_coach_athlete_relation,
 )
+from organizations.models import Membership, MembershipRole, Organization
 
 
 class CoreServiceTests(TestCase):

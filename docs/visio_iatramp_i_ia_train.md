@@ -52,7 +52,7 @@ L'accés requereix una relació activa i vigent. Els serveis també reconeixen l
 
 ## Modularitat
 
-`core` és transversal i no depèn de `competicions_trampoli`. Els futurs mòduls poden dependre de `core`; cal evitar la dependència inversa si no hi ha una migració de dades explícita i planificada. La lògica d'altes, vinculació i permisos compartits viu en serveis petits, mentre que les regles estructurals es reforcen també amb restriccions de base de dades.
+`core` és propietari de la identitat i `organizations` del domini transversal de clubs, membresies i rols. Cap dels dos depèn de `competicions_trampoli`; els futurs mòduls poden consumir-los sense dependre d'IA Train. La lògica d'altes, vinculació i permisos compartits viu en serveis petits, mentre que les regles estructurals es reforcen també amb restriccions de base de dades.
 
 Una futura integració de competicions haurà de mapar explícitament les inscripcions i usuaris històrics a `Person` i `Organization`, amb previsualització, deduplicació i possibilitat de reversió.
 

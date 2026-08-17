@@ -25,7 +25,7 @@ No genera entrenaments, no consulta cap LLM, no conté encara un catàleg ampli 
 - `Person`: individu real, amb compte opcional;
 - `PersonClaimInvitation` i `PersonMergeRecord`: reclamació i consolidació traçable d'identitats.
 
-`Organization`, `Membership`, els seus rols, permisos i sol·licituds formen el domini transversal `organizations`. Durant la primera fase d'extracció els models encara conserven físicament l'`app_label` i les taules de `core`, però tota l'API nova s'ha de consumir des de `organizations`. El pla complet és a [migracio_domini_organizations.md](migracio_domini_organizations.md).
+`Organization`, `Membership`, els seus rols, permisos i sol·licituds formen el domini transversal `organizations`, que n'és el propietari real. Les taules conserven els noms físics històrics `core_*` per evitar una migració de dades innecessària. El detall de l'extracció és a [migracio_domini_organizations.md](migracio_domini_organizations.md).
 
 `iatrain` referencia aquests models; no els replica i no dedueix permisos a partir del nom d'un rol. Ser entrenador en una `Membership` no concedeix automàticament accés a cap gimnasta.
 
@@ -40,7 +40,7 @@ No genera entrenaments, no consulta cap LLM, no conté encara un catàleg ampli 
 - `KnowledgeRelation`: aresta dirigida entre nodes;
 - `AthleteObservation`: afirmació narrativa, datada i versionable sobre un gimnasta.
 
-Les dependències permeses són `iatrain -> organizations`, `iatrain -> core` i, mentre els models encara siguin físicament a Core, `organizations -> core`. No s'ha d'introduir la dependència inversa des de Core cap a IA Train. `competicions_trampoli` tampoc no s'ha de convertir en font d'identitat o de permisos d'entrenament sense un projecte de vinculació de dades explícit.
+Les dependències permeses són `organizations -> core`, `iatrain -> organizations` i `iatrain -> core`. No s'ha d'introduir la dependència inversa des de Core cap a IA Train. `competicions_trampoli` tampoc no s'ha de convertir en font d'identitat o de permisos d'entrenament sense un projecte de vinculació de dades explícit.
 
 ## 3. Autorització
 

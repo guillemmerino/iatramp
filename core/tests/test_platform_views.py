@@ -5,13 +5,13 @@ from django.contrib.staticfiles import finders
 from django.test import TestCase
 from django.urls import resolve, reverse
 
-from core.models import (
+from core.models import Person
+from organizations.models import (
     Membership,
     MembershipPermission,
     MembershipRole,
     Organization,
     OrganizationMembershipRequest,
-    Person,
 )
 
 

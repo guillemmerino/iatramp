@@ -323,9 +323,9 @@ def has_athlete_access(user, athlete, permission="can_view_profile", organizatio
     )
 
 
-# Phase 1 compatibility facade. Organization behavior is implemented by the
-# dedicated domain package; existing ``core.services`` imports remain valid
-# until callers have migrated and the physical models move in phase 2.
+# Temporary compatibility facade. Organization behavior and model ownership
+# belong to the dedicated domain package; legacy ``core.services`` imports
+# remain valid until all external callers have migrated.
 from organizations.policies import (  # noqa: E402,F401
     ORGANIZATION_PERMISSION_DEFAULTS,
     REQUESTABLE_ORGANIZATION_ROLES,
