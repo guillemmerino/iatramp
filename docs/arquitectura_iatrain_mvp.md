@@ -1,5 +1,7 @@
 # IA Train: arquitectura del primer MVP
 
+> **Nota d'evolució:** per a la base professional, les capes de coneixement, la rotació i notació, el coneixement propi de l'entrenador i la interacció prevista amb l'LLM, la font canònica actual és [`arquitectura_base_coneixement_iatrain.md`](arquitectura_base_coneixement_iatrain.md). En cas de conflicte, aquell document preval en aquest subsistema.
+
 Aquest document és la font principal de context per continuar el desenvolupament d'`iatrain`. Descriu què existeix, quines regles protegeixen el domini i com fer créixer el model sense confondre identitat, coneixement expert, observacions i futures funcions d'IA.
 
 ## 1. Propòsit i abast actual

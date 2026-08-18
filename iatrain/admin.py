@@ -5,6 +5,9 @@ from .models import (
     AthleteProfile,
     CoachAthleteRelation,
     CoachProfile,
+    ElementNotation,
+    ElementRotation,
+    ElementRotationSegment,
     Gym,
     GymEquipment,
     GymOrganization,
@@ -178,6 +181,60 @@ class KnowledgeRelationAdmin(admin.ModelAdmin):
     list_filter = ("editorial_status", "relation_type", "source__discipline")
     search_fields = ("source__name", "target__name", "relation_type", "rationale")
     autocomplete_fields = ("source", "target", "authored_by")
+    readonly_fields = ("created_at", "updated_at")
+
+
+class ElementRotationSegmentInline(admin.TabularInline):
+    model = ElementRotationSegment
+    extra = 0
+
+
+class ElementNotationInline(admin.TabularInline):
+    model = ElementNotation
+    fk_name = "rotation"
+    extra = 0
+    fields = (
+        "raw_notation",
+        "normalized_notation",
+        "parse_status",
+        "is_abbreviated",
+        "direction_source",
+        "position_source",
+    )
+    readonly_fields = fields
+    can_delete = False
+
+
+@admin.register(ElementRotation)
+class ElementRotationAdmin(admin.ModelAdmin):
+    list_display = (
+        "element",
+        "transverse_quarters",
+        "transverse_direction",
+        "editorial_status",
+        "authored_by",
+        "updated_at",
+    )
+    list_filter = ("editorial_status", "transverse_direction", "transverse_quarters")
+    search_fields = ("element__name",)
+    autocomplete_fields = ("element", "authored_by")
+    readonly_fields = ("created_at", "updated_at")
+    inlines = (ElementRotationSegmentInline, ElementNotationInline)
+
+
+@admin.register(ElementNotation)
+class ElementNotationAdmin(admin.ModelAdmin):
+    list_display = (
+        "element",
+        "raw_notation",
+        "normalized_notation",
+        "parse_status",
+        "scheme",
+        "updated_at",
+    )
+    list_filter = ("parse_status", "scheme", "direction_source", "position_source")
+    search_fields = ("element__name", "raw_notation", "normalized_notation")
+    autocomplete_fields = ("element", "rotation", "authored_by")
     readonly_fields = ("created_at", "updated_at")
 
 

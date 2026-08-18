@@ -5,7 +5,13 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from iatrain.models import KnowledgeConcept, KnowledgeRelation
+from iatrain.models import (
+    ElementNotation,
+    ElementRotation,
+    ElementRotationSegment,
+    KnowledgeConcept,
+    KnowledgeRelation,
+)
 
 
 class KnowledgeGraphViewTests(TestCase):
@@ -37,6 +43,27 @@ class KnowledgeGraphViewTests(TestCase):
             target=self.target,
             relation_type=KnowledgeRelation.RelationType.PROGRESSES_TO,
             rationale="Progressió tècnica de prova.",
+            authored_by=self.author,
+        )
+        self.rotation = ElementRotation.objects.create(
+            element=self.source,
+            transverse_quarters=4,
+            transverse_direction=ElementRotation.Direction.FORWARD,
+            authored_by=self.author,
+        )
+        ElementRotationSegment.objects.create(
+            rotation=self.rotation,
+            sequence_index=1,
+            longitudinal_half_turns=1,
+        )
+        ElementNotation.objects.create(
+            element=self.source,
+            rotation=self.rotation,
+            raw_notation=".41o",
+            normalized_notation=".41o",
+            direction_source=ElementNotation.ResolutionSource.EXPLICIT,
+            position_source=ElementNotation.ResolutionSource.EXPLICIT,
+            position_symbol="o",
             authored_by=self.author,
         )
 
@@ -91,6 +118,10 @@ class KnowledgeGraphViewTests(TestCase):
         self.assertEqual(len(payload["links"]), 1)
         source = next(node for node in payload["nodes"] if node["id"] == self.source.pk)
         self.assertEqual(source["attributes"]["legacy_sources"][0]["legacy_id"], 1)
+        self.assertEqual(source["rotation"]["transverseQuarters"], 4)
+        self.assertEqual(source["rotation"]["halfTurns"], [1])
+        self.assertEqual(source["rotation"]["normalizedNotation"], ".41o")
+        self.assertEqual(source["rotation"]["positionSymbol"], "o")
         self.assertEqual(payload["links"][0]["source"], self.source.pk)
         self.assertEqual(payload["links"][0]["target"], self.target.pk)
 

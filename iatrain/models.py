@@ -725,6 +725,215 @@ class KnowledgeRelation(models.Model):
         return f"{self.source} —{self.relation_type}→ {self.target}"
 
 
+class ElementRotation(models.Model):
+    """Canonical transverse rotation and ordered longitudinal components for a skill."""
+
+    class Direction(models.TextChoices):
+        UNKNOWN = "unknown", "No resolta"
+        NONE = "none", "Sense rotació transversal"
+        FORWARD = "forward", "Endavant"
+        BACKWARD = "backward", "Enrere"
+
+    element = models.OneToOneField(
+        KnowledgeConcept,
+        on_delete=models.CASCADE,
+        related_name="rotation_profile",
+    )
+    transverse_quarters = models.PositiveSmallIntegerField()
+    transverse_direction = models.CharField(
+        max_length=20,
+        choices=Direction.choices,
+        default=Direction.UNKNOWN,
+    )
+    editorial_status = models.CharField(
+        max_length=20,
+        choices=KnowledgeConcept.EditorialStatus.choices,
+        default=KnowledgeConcept.EditorialStatus.DRAFT,
+    )
+    authored_by = models.ForeignKey(
+        Person,
+        on_delete=models.PROTECT,
+        related_name="authored_element_rotations",
+    )
+    provenance = models.JSONField(blank=True, default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("element_id",)
+        indexes = [
+            models.Index(
+                fields=("editorial_status", "transverse_quarters"),
+                name="iatrain_rotation_scope_idx",
+            )
+        ]
+
+    @property
+    def expected_segment_count(self):
+        return max(1, (self.transverse_quarters + 3) // 4)
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.element_id and self.element.kind != KnowledgeConcept.Kind.SKILL:
+            errors["element"] = "El perfil de rotació només es pot associar a un element."
+        if self.transverse_quarters == 0 and self.transverse_direction not in {
+            self.Direction.NONE,
+            self.Direction.UNKNOWN,
+        }:
+            errors["transverse_direction"] = (
+                "Un element sense quarts transversals no pot indicar direcció endavant o enrere."
+            )
+        if self.transverse_quarters > 0 and self.transverse_direction == self.Direction.NONE:
+            errors["transverse_direction"] = (
+                "Una rotació transversal positiva necessita direcció o ha de quedar no resolta."
+            )
+        if not isinstance(self.provenance, dict):
+            errors["provenance"] = "La procedència ha de ser un objecte JSON."
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f"{self.element} · {self.transverse_quarters} quarts"
+
+
+class ElementRotationSegment(models.Model):
+    """Longitudinal half-turns assigned to one ordered somersault segment."""
+
+    rotation = models.ForeignKey(
+        ElementRotation,
+        on_delete=models.CASCADE,
+        related_name="segments",
+    )
+    sequence_index = models.PositiveSmallIntegerField()
+    longitudinal_half_turns = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("rotation_id", "sequence_index")
+        constraints = [
+            models.CheckConstraint(
+                check=Q(sequence_index__gte=1),
+                name="iatrain_rotation_segment_index",
+            ),
+            models.UniqueConstraint(
+                fields=("rotation", "sequence_index"),
+                name="iatrain_rotation_segment_uniq",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.rotation_id and self.sequence_index > self.rotation.expected_segment_count:
+            raise ValidationError(
+                {
+                    "sequence_index": (
+                        "L'índex supera els segments esperats pels quarts transversals."
+                    )
+                }
+            )
+
+    def __str__(self):
+        return (
+            f"{self.rotation.element} · segment {self.sequence_index}: "
+            f"{self.longitudinal_half_turns} mig girs"
+        )
+
+
+class ElementNotation(models.Model):
+    """Raw and normalized notation tied to an element and optionally to a parsed profile."""
+
+    class ParseStatus(models.TextChoices):
+        PARSED = "parsed", "Interpretada"
+        AMBIGUOUS = "ambiguous", "Ambigua"
+        INVALID = "invalid", "No vàlida"
+
+    class ResolutionSource(models.TextChoices):
+        EXPLICIT = "explicit", "Explícita"
+        INFERRED = "inferred", "Inferida"
+        UNKNOWN = "unknown", "No resolta"
+
+    element = models.ForeignKey(
+        KnowledgeConcept,
+        on_delete=models.CASCADE,
+        related_name="rotation_notations",
+    )
+    rotation = models.ForeignKey(
+        ElementRotation,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="notations",
+    )
+    scheme = models.CharField(max_length=40, default="fig_numeric")
+    scheme_version = models.CharField(max_length=40, blank=True, default="legacy")
+    raw_notation = models.CharField(max_length=80)
+    normalized_notation = models.CharField(max_length=80, blank=True, default="")
+    parse_status = models.CharField(
+        max_length=20,
+        choices=ParseStatus.choices,
+        default=ParseStatus.PARSED,
+    )
+    is_abbreviated = models.BooleanField(default=False)
+    direction_source = models.CharField(
+        max_length=20,
+        choices=ResolutionSource.choices,
+        default=ResolutionSource.UNKNOWN,
+    )
+    position_source = models.CharField(
+        max_length=20,
+        choices=ResolutionSource.choices,
+        default=ResolutionSource.UNKNOWN,
+    )
+    position_symbol = models.CharField(max_length=1, blank=True, default="")
+    parse_details = models.JSONField(blank=True, default=dict)
+    authored_by = models.ForeignKey(
+        Person,
+        on_delete=models.PROTECT,
+        related_name="authored_element_notations",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("element_id", "scheme", "raw_notation", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("element", "scheme", "raw_notation"),
+                name="iatrain_element_notation_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=("scheme", "parse_status"),
+                name="iatrain_notation_status_idx",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        self.raw_notation = self.raw_notation.strip()
+        if self.element_id and self.element.kind != KnowledgeConcept.Kind.SKILL:
+            errors["element"] = "La notació només es pot associar a un element."
+        if not self.raw_notation:
+            errors["raw_notation"] = "La notació original no pot quedar buida."
+        if self.rotation_id and self.element_id and self.rotation.element_id != self.element_id:
+            errors["rotation"] = "El perfil de rotació i la notació han de ser del mateix element."
+        if self.parse_status == self.ParseStatus.PARSED and not self.rotation_id:
+            errors["rotation"] = "Una notació interpretada necessita un perfil de rotació."
+        if self.position_symbol not in {"", "o", "<", "/"}:
+            errors["position_symbol"] = "Símbol de posició desconegut."
+        if not isinstance(self.parse_details, dict):
+            errors["parse_details"] = "Els detalls d'interpretació han de ser un objecte JSON."
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f"{self.element} · {self.raw_notation}"
+
+
 class AthleteObservation(models.Model):
     """A narrative, versionable assertion about an athlete at a point in time."""
 

@@ -9,7 +9,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_GET, require_POST
 
-from iatrain.models import KnowledgeConcept, KnowledgeRelation
+from iatrain.models import ElementNotation, ElementRotation, KnowledgeConcept, KnowledgeRelation
 from iatrain.views.common import base_context
 
 
@@ -26,6 +26,46 @@ def _require_superuser(request):
 
 
 def _concept_payload(concept):
+    try:
+        rotation = concept.rotation_profile
+    except ElementRotation.DoesNotExist:
+        rotation_payload = None
+    else:
+        notations = list(concept.rotation_notations.all())
+        primary_notation = next(
+            (
+                notation
+                for notation in notations
+                if notation.parse_status == ElementNotation.ParseStatus.PARSED
+            ),
+            notations[0] if notations else None,
+        )
+        rotation_payload = {
+            "transverseQuarters": rotation.transverse_quarters,
+            "transverseDirection": rotation.transverse_direction,
+            "halfTurns": [
+                segment.longitudinal_half_turns
+                for segment in rotation.segments.all()
+            ],
+            "status": rotation.editorial_status,
+            "rawNotation": primary_notation.raw_notation if primary_notation else "",
+            "normalizedNotation": (
+                primary_notation.normalized_notation if primary_notation else ""
+            ),
+            "parseStatus": primary_notation.parse_status if primary_notation else "",
+            "isAbbreviated": (
+                primary_notation.is_abbreviated if primary_notation else False
+            ),
+            "directionSource": (
+                primary_notation.direction_source if primary_notation else "unknown"
+            ),
+            "positionSource": (
+                primary_notation.position_source if primary_notation else "unknown"
+            ),
+            "positionSymbol": (
+                primary_notation.position_symbol if primary_notation else ""
+            ),
+        }
     return {
         "id": concept.pk,
         "name": concept.name,
@@ -35,6 +75,7 @@ def _concept_payload(concept):
         "status": concept.editorial_status,
         "author": concept.authored_by.display_name,
         "attributes": concept.attributes,
+        "rotation": rotation_payload,
         "createdAt": concept.created_at.isoformat(),
         "updatedAt": concept.updated_at.isoformat(),
     }
@@ -73,7 +114,11 @@ def knowledge_graph(request):
 @require_GET
 def knowledge_graph_data(request):
     _require_superuser(request)
-    concepts = KnowledgeConcept.objects.select_related("authored_by").order_by("id")
+    concepts = (
+        KnowledgeConcept.objects.select_related("authored_by", "rotation_profile")
+        .prefetch_related("rotation_profile__segments", "rotation_notations")
+        .order_by("id")
+    )
     relations = KnowledgeRelation.objects.select_related(
         "source", "target", "authored_by"
     ).order_by("id")
@@ -190,4 +235,3 @@ def knowledge_relation_status(request, pk):
     except ValidationError as exc:
         return _validation_error_response(exc)
     return JsonResponse({"link": _relation_payload(relation)})
-

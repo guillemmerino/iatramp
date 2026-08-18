@@ -28,6 +28,14 @@
   var draftCount = document.getElementById("kg-draft-count");
 
   var STATUS_LABELS = { draft: "Esborrany", validated: "Validat", retired: "Retirat" };
+  var DIRECTION_LABELS = {
+    unknown: "No resolta",
+    none: "Sense rotació transversal",
+    forward: "Endavant",
+    backward: "Enrere"
+  };
+  var RESOLUTION_LABELS = { explicit: "explícita", inferred: "inferida", unknown: "no resolta" };
+  var POSITION_SYMBOL_LABELS = { o: "Agrupada", "<": "Carpada", "/": "Planxada" };
   var KIND_LABELS = {
     skill: "Element o habilitat",
     body_position: "Posició corporal",
@@ -474,6 +482,25 @@
       addMeta("Disciplina", item.discipline);
       addMeta("Autoria", item.author);
       addMeta("Actualitzat", new Date(item.updatedAt).toLocaleString("ca-ES"));
+      if (item.rotation) {
+        addMeta("Notació original", item.rotation.rawNotation || "No disponible");
+        addMeta("Notació normalitzada", item.rotation.normalizedNotation || "No resolta");
+        addMeta(
+          "Rotació transversal",
+          item.rotation.transverseQuarters + " quarts · " +
+            (DIRECTION_LABELS[item.rotation.transverseDirection] || item.rotation.transverseDirection) +
+            " (" + (RESOLUTION_LABELS[item.rotation.directionSource] || item.rotation.directionSource) + ")"
+        );
+        addMeta("Mig girs longitudinals", "[" + item.rotation.halfTurns.join(", ") + "]");
+        addMeta(
+          "Posició a la notació",
+          item.rotation.positionSymbol
+            ? (POSITION_SYMBOL_LABELS[item.rotation.positionSymbol] || item.rotation.positionSymbol) +
+              " (" + (RESOLUTION_LABELS[item.rotation.positionSource] || item.rotation.positionSource) + ")"
+            : "No indicada"
+        );
+        addMeta("Estat de la rotació", STATUS_LABELS[item.rotation.status] || item.rotation.status);
+      }
       detailAttributes.parentElement.hidden = false;
       detailAttributes.textContent = JSON.stringify(item.attributes || {}, null, 2);
     } else {
