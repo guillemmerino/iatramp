@@ -12,6 +12,7 @@ Implementada el 4 d’agost de 2026 fins a la capa de domini dels punts 1–3. L
 - En acceptar-la, el compte reclama la identitat preexistent.
 - Si el compte ja té una altra `Person`, `merge_people` consolida les identitats i `PersonMergeRecord` en conserva la traça.
 - Diverses identitats creades per entrenadors diferents es poden fusionar successivament en una sola persona canònica.
+- La consolidació de dades és extensible per aplicació: Core executa els gestors registrats i IA Train és responsable de traslladar també autoria de rotacions i notacions, decisions editorials, gimnasos creats i gestió de grups.
 
 ## Perfils esportius
 

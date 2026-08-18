@@ -519,6 +519,10 @@ def create_knowledge_concept(
     editorial_status=KnowledgeConcept.EditorialStatus.DRAFT,
     attributes=None,
 ):
+    if editorial_status != KnowledgeConcept.EditorialStatus.DRAFT:
+        raise ValidationError(
+            "Els conceptes nous sempre entren com a esborrany; valida'ls amb el servei editorial."
+        )
     concept = KnowledgeConcept(
         name=name,
         description=description,
@@ -543,6 +547,10 @@ def create_knowledge_relation(
     rationale="",
     editorial_status=KnowledgeRelation.EditorialStatus.DRAFT,
 ):
+    if editorial_status != KnowledgeRelation.EditorialStatus.DRAFT:
+        raise ValidationError(
+            "Les relacions noves sempre entren com a esborrany; valida-les amb el servei editorial."
+        )
     relation = KnowledgeRelation(
         source=source,
         target=target,

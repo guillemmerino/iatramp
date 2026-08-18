@@ -1,3 +1,6 @@
+import re
+import unicodedata
+
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -7,6 +10,47 @@ from django.utils import timezone
 
 from core.models import Person
 from organizations.models import Organization
+
+
+def normalize_label(value):
+    """Normalize human labels without losing their display casing."""
+    return " ".join(unicodedata.normalize("NFKC", str(value or "")).split())
+
+
+def normalize_vocabulary_token(value):
+    """Return the canonical storage form for extensible vocabulary keys."""
+    normalized = unicodedata.normalize("NFKC", str(value or "")).strip().casefold()
+    return re.sub(r"[\s-]+", "_", normalized)
+
+
+def validated_content_changed(instance, field_names):
+    """Detect silent edits to content that is still marked as validated."""
+    if not instance.pk or instance.editorial_status != "validated":
+        return False
+    previous = type(instance).objects.filter(pk=instance.pk).values(
+        "editorial_status", *field_names
+    ).first()
+    if not previous or previous["editorial_status"] != "validated":
+        return False
+    return any(previous[field] != getattr(instance, field) for field in field_names)
+
+
+def validated_concept_attributes_changed(instance):
+    """Allow append-only legacy provenance while protecting validated semantics."""
+    if not instance.pk or instance.editorial_status != "validated":
+        return False
+    previous = type(instance).objects.filter(pk=instance.pk).values(
+        "editorial_status", "attributes"
+    ).first()
+    if not previous or previous["editorial_status"] != "validated":
+        return False
+    old_attributes = dict(previous["attributes"] or {})
+    new_attributes = dict(instance.attributes or {})
+    old_sources = old_attributes.pop("legacy_sources", [])
+    new_sources = new_attributes.pop("legacy_sources", [])
+    if old_attributes != new_attributes:
+        return True
+    return any(source not in new_sources for source in old_sources)
 
 
 def validate_extracted_facts(value):
@@ -591,6 +635,14 @@ class KnowledgeConcept(models.Model):
         on_delete=models.PROTECT,
         related_name="authored_knowledge_concepts",
     )
+    last_validated_by = models.ForeignKey(
+        Person,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="validated_knowledge_concepts",
+    )
+    last_validated_at = models.DateTimeField(null=True, blank=True)
     attributes = models.JSONField(
         blank=True,
         default=dict,
@@ -619,6 +671,9 @@ class KnowledgeConcept(models.Model):
 
     def clean(self):
         super().clean()
+        self.name = normalize_label(self.name)
+        self.kind = normalize_vocabulary_token(self.kind)
+        self.discipline = normalize_vocabulary_token(self.discipline)
         errors = {}
         if not self.name.strip():
             errors["name"] = "El concepte ha de tenir un nom."
@@ -628,11 +683,27 @@ class KnowledgeConcept(models.Model):
             errors["discipline"] = "L'àmbit o disciplina no pot quedar buit."
         if not isinstance(self.attributes, dict):
             errors["attributes"] = "Els atributs han de ser un objecte JSON."
+        if validated_content_changed(
+            self,
+            ("name", "description", "kind", "discipline"),
+        ) or validated_concept_attributes_changed(self):
+            errors["editorial_status"] = (
+                "Reobre el concepte com a esborrany abans de modificar contingut validat."
+            )
         if errors:
             raise ValidationError(errors)
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            "Els conceptes professionals no s'eliminen; retira'ls mitjançant el servei editorial."
+        )
 
 
 class KnowledgeRelation(models.Model):
@@ -678,6 +749,14 @@ class KnowledgeRelation(models.Model):
         on_delete=models.PROTECT,
         related_name="authored_knowledge_relations",
     )
+    last_validated_by = models.ForeignKey(
+        Person,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="validated_knowledge_relations",
+    )
+    last_validated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -703,26 +782,123 @@ class KnowledgeRelation(models.Model):
 
     def clean(self):
         super().clean()
+        self.relation_type = normalize_vocabulary_token(self.relation_type)
         errors = {}
         if self.source_id and self.source_id == self.target_id:
             errors["target"] = "Una relació de coneixement no pot apuntar al mateix concepte."
         if not self.relation_type.strip():
             errors["relation_type"] = "La relació ha de tenir un tipus."
+        endpoint_values = {}
+        endpoint_values_complete = False
+        if self.source_id and self.target_id:
+            endpoint_values = {
+                row["id"]: row
+                for row in KnowledgeConcept.objects.filter(
+                    pk__in=(self.source_id, self.target_id)
+                ).values("id", "kind", "editorial_status")
+            }
+            endpoint_values_complete = len(endpoint_values) == len(
+                {self.source_id, self.target_id}
+            )
         if (
             self.editorial_status == self.EditorialStatus.VALIDATED
-            and self.source_id
-            and self.target_id
-            and (
-                self.source.editorial_status == KnowledgeConcept.EditorialStatus.RETIRED
-                or self.target.editorial_status == KnowledgeConcept.EditorialStatus.RETIRED
-            )
+            and endpoint_values_complete
         ):
-            errors["editorial_status"] = "Una relació validada no pot connectar conceptes retirats."
+            if any(
+                endpoint_values[concept_id]["editorial_status"]
+                != KnowledgeConcept.EditorialStatus.VALIDATED
+                for concept_id in (self.source_id, self.target_id)
+            ):
+                errors["editorial_status"] = (
+                    "Una relació validada només pot connectar conceptes validats."
+                )
+        known_domains = {
+            self.RelationType.HAS_DEFINING_POSITION: (
+                KnowledgeConcept.Kind.SKILL,
+                KnowledgeConcept.Kind.BODY_POSITION,
+            ),
+            self.RelationType.STARTS_FROM_CONTACT: (
+                KnowledgeConcept.Kind.SKILL,
+                KnowledgeConcept.Kind.CONTACT_POSITION,
+            ),
+            self.RelationType.ENDS_IN_CONTACT: (
+                KnowledgeConcept.Kind.SKILL,
+                KnowledgeConcept.Kind.CONTACT_POSITION,
+            ),
+        }
+        expected_kinds = known_domains.get(self.relation_type)
+        if expected_kinds and endpoint_values_complete:
+            actual_kinds = (
+                endpoint_values[self.source_id]["kind"],
+                endpoint_values[self.target_id]["kind"],
+            )
+            if actual_kinds != expected_kinds:
+                errors["relation_type"] = (
+                    f"{self.relation_type} requereix origen {expected_kinds[0]} "
+                    f"i destí {expected_kinds[1]}."
+                )
+        if validated_content_changed(
+            self,
+            ("source_id", "target_id", "relation_type", "rationale"),
+        ):
+            errors["editorial_status"] = (
+                "Reobre la relació com a esborrany abans de modificar contingut validat."
+            )
         if errors:
             raise ValidationError(errors)
 
     def __str__(self):
         return f"{self.source} —{self.relation_type}→ {self.target}"
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            "Les relacions professionals no s'eliminen; retira-les mitjançant el servei editorial."
+        )
+
+
+class KnowledgeEditorialEvent(models.Model):
+    """Durable audit event for editorial transitions across knowledge models."""
+
+    target_model = models.CharField(max_length=100)
+    target_id = models.PositiveBigIntegerField()
+    target_repr = models.CharField(max_length=255)
+    from_status = models.CharField(max_length=20)
+    to_status = models.CharField(max_length=20)
+    decided_by = models.ForeignKey(
+        Person,
+        on_delete=models.PROTECT,
+        related_name="knowledge_editorial_decisions",
+    )
+    reason = models.TextField(blank=True, default="")
+    snapshot = models.JSONField(blank=True, default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+        indexes = [
+            models.Index(
+                fields=("target_model", "target_id", "created_at"),
+                name="iatrain_editorial_target_idx",
+            ),
+            models.Index(
+                fields=("decided_by", "created_at"),
+                name="iatrain_editorial_actor_idx",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.target_model = normalize_label(self.target_model).casefold()
+        self.target_repr = normalize_label(self.target_repr)
+        if not isinstance(self.snapshot, dict):
+            raise ValidationError({"snapshot": "La captura editorial ha de ser un objecte JSON."})
+
+    def __str__(self):
+        return f"{self.target_repr}: {self.from_status} → {self.to_status}"
 
 
 class ElementRotation(models.Model):
@@ -736,7 +912,7 @@ class ElementRotation(models.Model):
 
     element = models.OneToOneField(
         KnowledgeConcept,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="rotation_profile",
     )
     transverse_quarters = models.PositiveSmallIntegerField()
@@ -755,6 +931,14 @@ class ElementRotation(models.Model):
         on_delete=models.PROTECT,
         related_name="authored_element_rotations",
     )
+    last_validated_by = models.ForeignKey(
+        Person,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="validated_element_rotations",
+    )
+    last_validated_at = models.DateTimeField(null=True, blank=True)
     provenance = models.JSONField(blank=True, default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -790,11 +974,35 @@ class ElementRotation(models.Model):
             )
         if not isinstance(self.provenance, dict):
             errors["provenance"] = "La procedència ha de ser un objecte JSON."
+        if (
+            self.editorial_status == KnowledgeConcept.EditorialStatus.VALIDATED
+            and self.element_id
+            and self.element.editorial_status != KnowledgeConcept.EditorialStatus.VALIDATED
+        ):
+            errors["editorial_status"] = (
+                "Un perfil de rotació validat necessita un element validat."
+            )
+        if validated_content_changed(
+            self,
+            ("element_id", "transverse_quarters", "transverse_direction", "provenance"),
+        ):
+            errors["editorial_status"] = (
+                "Reobre el perfil com a esborrany abans de modificar contingut validat."
+            )
         if errors:
             raise ValidationError(errors)
 
     def __str__(self):
         return f"{self.element} · {self.transverse_quarters} quarts"
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            "Els perfils de rotació no s'eliminen; retira'ls mitjançant el servei editorial."
+        )
 
 
 class ElementRotationSegment(models.Model):
@@ -825,6 +1033,20 @@ class ElementRotationSegment(models.Model):
 
     def clean(self):
         super().clean()
+        if (
+            self.rotation_id
+            and self.rotation.editorial_status == KnowledgeConcept.EditorialStatus.VALIDATED
+        ):
+            previous = type(self).objects.filter(pk=self.pk).values(
+                "sequence_index", "longitudinal_half_turns"
+            ).first()
+            if previous is None or any(
+                previous[field] != getattr(self, field)
+                for field in ("sequence_index", "longitudinal_half_turns")
+            ):
+                raise ValidationError(
+                    "Reobre el perfil de rotació abans de modificar-ne els segments."
+                )
         if self.rotation_id and self.sequence_index > self.rotation.expected_segment_count:
             raise ValidationError(
                 {
@@ -839,6 +1061,10 @@ class ElementRotationSegment(models.Model):
             f"{self.rotation.element} · segment {self.sequence_index}: "
             f"{self.longitudinal_half_turns} mig girs"
         )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class ElementNotation(models.Model):
@@ -856,12 +1082,12 @@ class ElementNotation(models.Model):
 
     element = models.ForeignKey(
         KnowledgeConcept,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="rotation_notations",
     )
     rotation = models.ForeignKey(
         ElementRotation,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name="notations",
@@ -913,6 +1139,8 @@ class ElementNotation(models.Model):
 
     def clean(self):
         super().clean()
+        self.scheme = normalize_vocabulary_token(self.scheme)
+        self.scheme_version = normalize_vocabulary_token(self.scheme_version)
         errors = {}
         self.raw_notation = self.raw_notation.strip()
         if self.element_id and self.element.kind != KnowledgeConcept.Kind.SKILL:
@@ -927,11 +1155,45 @@ class ElementNotation(models.Model):
             errors["position_symbol"] = "Símbol de posició desconegut."
         if not isinstance(self.parse_details, dict):
             errors["parse_details"] = "Els detalls d'interpretació han de ser un objecte JSON."
+        if (
+            self.rotation_id
+            and self.rotation.editorial_status == KnowledgeConcept.EditorialStatus.VALIDATED
+        ):
+            protected_fields = (
+                "element_id",
+                "rotation_id",
+                "scheme",
+                "scheme_version",
+                "raw_notation",
+                "normalized_notation",
+                "parse_status",
+                "is_abbreviated",
+                "direction_source",
+                "position_source",
+                "position_symbol",
+                "parse_details",
+            )
+            previous = type(self).objects.filter(pk=self.pk).values(*protected_fields).first()
+            if previous is None or any(
+                previous[field] != getattr(self, field) for field in protected_fields
+            ):
+                errors["rotation"] = (
+                    "Reobre el perfil de rotació abans de modificar-ne les notacions."
+                )
         if errors:
             raise ValidationError(errors)
 
     def __str__(self):
         return f"{self.element} · {self.raw_notation}"
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            "Les notacions professionals es conserven com a evidència i no s'eliminen."
+        )
 
 
 class AthleteObservation(models.Model):
@@ -966,7 +1228,7 @@ class AthleteObservation(models.Model):
     )
     concept = models.ForeignKey(
         KnowledgeConcept,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name="athlete_observations",

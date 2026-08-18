@@ -26,6 +26,8 @@
   var nodeCount = document.getElementById("kg-node-count");
   var linkCount = document.getElementById("kg-link-count");
   var draftCount = document.getElementById("kg-draft-count");
+  var domainDescription = document.getElementById("kg-domain-description");
+  var domainButtons = document.querySelectorAll("[data-domain]");
 
   var STATUS_LABELS = { draft: "Esborrany", validated: "Validat", retired: "Retirat" };
   var DIRECTION_LABELS = {
@@ -45,7 +47,14 @@
     exercise: "Exercici professional",
     quality: "Qualitat",
     risk: "Risc",
-    goal: "Objectiu"
+    goal: "Objectiu",
+    segment: "Segment corporal",
+    joint: "Articulació",
+    joint_action: "Acció articular",
+    plane: "Pla anatòmic",
+    axis: "Eix anatòmic",
+    body_configuration: "Configuració corporal",
+    kinematic_event: "Esdeveniment cinemàtic"
   };
   var KIND_COLORS = {
     skill: "#60a5fa",
@@ -56,7 +65,14 @@
     exercise: "#34d399",
     quality: "#22d3ee",
     risk: "#f97316",
-    goal: "#facc15"
+    goal: "#facc15",
+    segment: "#38bdf8",
+    joint: "#f472b6",
+    joint_action: "#a78bfa",
+    plane: "#34d399",
+    axis: "#fbbf24",
+    body_configuration: "#22d3ee",
+    kinematic_event: "#fb7185"
   };
   var STATUS_COLORS = { draft: "#f59e0b", validated: "#10b981", retired: "#64748b" };
   var LINK_COLORS = {
@@ -67,7 +83,14 @@
     ends_in_contact: "#2dd4bf",
     corrects: "#34d399",
     conditions: "#fb7185",
-    trains: "#a78bfa"
+    trains: "#a78bfa",
+    part_of: "#38bdf8",
+    proximal_segment: "#2dd4bf",
+    distal_segment: "#22d3ee",
+    action_at_joint: "#f472b6",
+    primary_plane: "#34d399",
+    primary_axis: "#fbbf24",
+    opposite_of: "#fb7185"
   };
   var RELATION_LABELS = {
     requires: "requereix",
@@ -77,7 +100,21 @@
     ends_in_contact: "acaba en el contacte",
     corrects: "corregeix",
     conditions: "condiciona",
-    trains: "entrena"
+    trains: "entrena",
+    part_of: "forma part de",
+    proximal_segment: "té com a segment proximal",
+    distal_segment: "té com a segment distal",
+    action_at_joint: "es produeix a l'articulació",
+    primary_plane: "té com a pla principal",
+    primary_axis: "té com a eix principal",
+    opposite_of: "és oposada a"
+  };
+
+  var LATERALITY_LABELS = {
+    not_applicable: "No aplicable",
+    unpaired: "Estructura no parella",
+    midline: "Estructura medial",
+    paired: "Estructura parella"
   };
 
   var graph = { nodes: [], links: [], nodeById: new Map() };
@@ -90,6 +127,9 @@
   var layoutEnergy = 1;
   var drag = null;
   var toastTimer = null;
+  var graphDomain = "technical";
+  var loadSequence = 0;
+  var animationStarted = false;
 
   function clamp(value, minimum, maximum) {
     return Math.max(minimum, Math.min(maximum, value));
@@ -204,6 +244,7 @@
   }
 
   function populateKindFilter() {
+    while (kindFilter.options.length > 1) kindFilter.remove(1);
     var kinds = Array.from(new Set(graph.nodes.map(function (node) { return node.kind; }))).sort();
     kinds.forEach(function (kind) {
       var option = document.createElement("option");
@@ -214,6 +255,7 @@
   }
 
   function populateRelationFilter() {
+    while (relationFilter.options.length > 1) relationFilter.remove(1);
     var relationTypes = Array.from(new Set(graph.links.map(function (link) {
       return link.relationType;
     }))).sort();
@@ -479,7 +521,9 @@
       detailEyebrow.textContent = KIND_LABELS[item.kind] || item.kind;
       detailTitle.textContent = item.name;
       detailDescription.textContent = item.description || "Sense descripció editorial.";
-      addMeta("Disciplina", item.discipline);
+      if (item.code) addMeta("Codi estable", item.code);
+      if (item.laterality) addMeta("Lateralitat", LATERALITY_LABELS[item.laterality] || item.laterality);
+      addMeta("Àmbit", item.discipline);
       addMeta("Autoria", item.author);
       addMeta("Actualitzat", new Date(item.updatedAt).toLocaleString("ca-ES"));
       if (item.rotation) {
@@ -552,7 +596,10 @@
   async function updateEditorialStatus(status) {
     if (!selected) return;
     var item = selected.item;
-    var template = selected.type === "node" ? app.dataset.nodeStatusUrl : app.dataset.linkStatusUrl;
+    var domainPrefix = graphDomain === "motion" ? "motion" : "technical";
+    var template = selected.type === "node"
+      ? app.dataset[domainPrefix + "NodeStatusUrl"]
+      : app.dataset[domainPrefix + "LinkStatusUrl"];
     var url = template.replace(/\/0\/estat\/$/, "/" + item.id + "/estat/");
     var buttons = editorialActions.querySelectorAll("button[data-status]");
     buttons.forEach(function (button) { button.disabled = true; });
@@ -671,17 +718,43 @@
     var button = event.target.closest("button[data-status]");
     if (button) updateEditorialStatus(button.dataset.status);
   });
+  domainButtons.forEach(function (button) {
+    button.addEventListener("click", function () {
+      if (button.dataset.domain !== graphDomain) loadGraph(button.dataset.domain);
+    });
+  });
 
   var resizeObserver = new ResizeObserver(resizeCanvas);
   resizeObserver.observe(stage);
   resizeCanvas();
 
-  window.fetch(app.dataset.graphUrl, { credentials: "same-origin" })
-    .then(function (response) {
+  async function loadGraph(domain) {
+    var sequence = ++loadSequence;
+    graphDomain = domain === "motion" ? "motion" : "technical";
+    clearSelection();
+    hovered = null;
+    searchInput.value = "";
+    kindFilter.value = "";
+    statusFilter.value = "";
+    relationFilter.value = "";
+    loading.hidden = false;
+    loading.style.color = "";
+    loading.textContent = graphDomain === "motion"
+      ? "Preparant el graf anatòmic-cinemàtic…"
+      : "Preparant el graf tècnic…";
+    domainDescription.textContent = graphDomain === "motion"
+      ? "Explora segments, articulacions, accions, plans i eixos, i revisa com es relacionen anatòmicament."
+      : "Explora la identitat tècnica dels elements, revisa'n la procedència i valida manualment nodes i arestes.";
+    domainButtons.forEach(function (button) {
+      button.setAttribute("aria-pressed", String(button.dataset.domain === graphDomain));
+    });
+    resetCamera();
+    try {
+      var url = graphDomain === "motion" ? app.dataset.motionGraphUrl : app.dataset.technicalGraphUrl;
+      var response = await window.fetch(url, { credentials: "same-origin" });
       if (!response.ok) throw new Error("No s'han pogut carregar les dades del graf.");
-      return response.json();
-    })
-    .then(function (payload) {
+      var payload = await response.json();
+      if (sequence !== loadSequence) return;
       graph.nodes = payload.nodes || [];
       graph.links = payload.links || [];
       graph.nodeById = new Map(graph.nodes.map(function (node) { return [Number(node.id), node]; }));
@@ -690,10 +763,16 @@
       populateRelationFilter();
       refreshVisibility();
       loading.hidden = true;
-      animationFrame();
-    })
-    .catch(function (error) {
+      if (!animationStarted) {
+        animationStarted = true;
+        animationFrame();
+      }
+    } catch (error) {
+      if (sequence !== loadSequence) return;
       loading.textContent = error.message;
       loading.style.color = "#fecaca";
-    });
+    }
+  }
+
+  loadGraph("technical");
 }());

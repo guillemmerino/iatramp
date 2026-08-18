@@ -17,7 +17,7 @@ Aquest document explica de manera autosuficient com s'està construint la base d
 
 Quan aquest document entri en conflicte amb descripcions més antigues de `KnowledgeConcept`, `KnowledgeRelation`, `TrainingContext` o del graf dins de `docs/arquitectura_iatrain_mvp.md`, aquest document preval per al subsistema de coneixement d'IA Train.
 
-El disseny futur del subgraf anatòmic-cinemàtic, el corpus multivídeo i la separació entre identitat de l'element i qualitat d'execució es desenvolupa a [`arquitectura_coneixement_anatomic_cinematic_iatrain.md`](arquitectura_coneixement_anatomic_cinematic_iatrain.md).
+L'arquitectura del subgraf anatòmic-cinemàtic, el corpus multivídeo i la separació entre identitat de l'element i qualitat d'execució es desenvolupa a [`arquitectura_coneixement_anatomic_cinematic_iatrain.md`](arquitectura_coneixement_anatomic_cinematic_iatrain.md). L'inventari de la primera implementació —vocabulari, esquelet canònic, govern, límits i passos següents— viu a [`implementacio_graf_anatomic_esquelet_cinematic_iatrain.md`](implementacio_graf_anatomic_esquelet_cinematic_iatrain.md).
 
 Les afirmacions s'han de llegir amb tres estats diferents:
 
@@ -299,7 +299,13 @@ stateDiagram-v2
     retired --> draft: recuperació per nova revisió
 ```
 
-La validació és manual ara mateix. Els superusuaris poden governar nodes i arestes des de la pantalla del graf; els perfils de rotació es mantenen des de l'administració Django. Per validar una aresta, primer han d'estar validats els dos nodes. No es pot retirar un node mentre tingui arestes validades connectades. Els canvis fets des de la pantalla queden registrats a l'auditoria administrativa de Django.
+La validació és manual ara mateix. Totes les transicions operatives passen per `iatrain.editorial`, que aplica permisos, bloqueig transaccional, regles de transició i auditoria persistent. Els superusuaris governen nodes i arestes des de la pantalla del graf; els perfils de rotació es governen mitjançant accions de l'administració Django.
+
+Per validar una aresta, primer han d'estar validats els dos nodes. Per validar un perfil de rotació, l'element ha d'estar validat i han d'existir exactament tots els segments esperats, ordenats i sense buits. Un node validat no es pot reobrir ni retirar mentre conservi arestes o un perfil de rotació validats connectats: primer s'han de reobrir o retirar les dependències.
+
+`last_validated_by` i `last_validated_at` permeten consultar l'última validació de nodes, arestes i perfils. Cada canvi d'estat crea un `KnowledgeEditorialEvent` immutable amb actor, motiu i una captura del contingut revisat. L'auditoria de Django continua registrant també les accions fetes des del visor.
+
+El contingut validat no es pot modificar silenciosament: primer s'ha de reobrir com a `draft`. L'única excepció és afegir procedència legacy de manera additiva, sense eliminar ni canviar procedència anterior ni modificar atributs professionals. Els models governats no es poden eliminar amb l'operativa ordinària; es retiren i es conserven per historial. Les observacions, rotacions i notacions protegeixen les seves referències professionals amb `PROTECT`.
 
 `draft` no significa fals; significa que encara no ha superat la revisió. `retired` tampoc significa «prohibit en competició». L'estat editorial i la validesa segons reglament són dimensions diferents.
 
@@ -443,7 +449,7 @@ L'ordre recomanat és guiat pels casos d'ús de generació de sessions, no per l
 - contrastar contactes amb les regles de quarts de rotació;
 - afegir relacions de prerequisit i progressió útils;
 - començar components tècnics, errors freqüents, correccions i riscos;
-- preparar el subgraf anatòmic-cinemàtic i un primer tall vertical multivídeo segons [`arquitectura_coneixement_anatomic_cinematic_iatrain.md`](arquitectura_coneixement_anatomic_cinematic_iatrain.md);
+- revisar la primera base anatòmica i l'esquelet canònic, mapar-hi el tracker real i preparar un primer tall vertical segons [`implementacio_graf_anatomic_esquelet_cinematic_iatrain.md`](implementacio_graf_anatomic_esquelet_cinematic_iatrain.md);
 - normalitzar fonts, justificacions i procedència;
 - separar legalitat competitiva i versions de reglament de l'estat editorial.
 
@@ -494,6 +500,8 @@ Abans de crear o modificar coneixement, un agent ha de seguir aquest ordre:
 ## 13. Mapa del codi rellevant
 
 - `iatrain/models.py`: models del graf, rotació, notació, observacions i `TrainingContext` heretat.
+- `iatrain/editorial.py`: transicions editorials, bloquejos, regles de dependència i auditoria durable.
+- `iatrain/identity.py`: consolidació de totes les dades d'IA Train quan Core fusiona dues persones.
 - `iatrain/services.py`: creació validada de conceptes i relacions, permisos i revisions d'observacions.
 - `iatrain/rotation_notation.py`: parser determinista i normalització de la notació.
 - `iatrain/legacy_imports/`: transformacions conservadores des de Tramponline.
@@ -504,7 +512,8 @@ Abans de crear o modificar coneixement, un agent ha de seguir aquest ordre:
 - `iatrain/tests/test_knowledge_graph.py`: permisos, serialització i transicions editorials.
 - `iatrain/tests/test_rotation_notation.py`: regles i casos límit del parser.
 - `iatrain/tests/test_rotation_notation_import.py`: importació, idempotència i conflictes de notació.
-- `docs/arquitectura_coneixement_anatomic_cinematic_iatrain.md`: disseny futur del coneixement anatòmic, cinemàtic, normatiu i del corpus de vídeo.
+- `docs/arquitectura_coneixement_anatomic_cinematic_iatrain.md`: arquitectura canònica del coneixement anatòmic, cinemàtic, normatiu i del corpus de vídeo.
+- `docs/implementacio_graf_anatomic_esquelet_cinematic_iatrain.md`: estat real del subgraf i de l'esquelet canònic, fronteres dels models i full de ruta immediat.
 
 ## 14. Resum de decisions no negociables actuals
 
@@ -523,3 +532,4 @@ Abans de crear o modificar coneixement, un agent ha de seguir aquest ordre:
 - Tramponline aporta dades i intenció, però no determina el nou disseny.
 - L'LLM raona i conversa; el codi valida, estructura, controla permisos i conserva la veritat persistent.
 - El feedback refina primer l'experiència contextual; només una revisió editorial modifica la base professional validada.
+- Cada aplicació és responsable de registrar com consolida les seves dades quan Core fusiona identitats; afegir un model amb referències a `Person`, `AthleteProfile` o `CoachProfile` obliga a ampliar i provar el gestor del mateix domini.

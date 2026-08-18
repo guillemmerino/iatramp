@@ -3,14 +3,18 @@ import json
 from django.contrib.admin.models import CHANGE, LogEntry
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
-from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_GET, require_POST
 
 from iatrain.models import ElementNotation, ElementRotation, KnowledgeConcept, KnowledgeRelation
+from iatrain.editorial import (
+    transition_knowledge_concept,
+    transition_knowledge_relation,
+)
 from iatrain.views.common import base_context
+from iatrain_motion.editorial import transition_motion_concept, transition_motion_relation
+from iatrain_motion.models import MotionConcept, MotionRelation
 
 
 EDITORIAL_STATUSES = {
@@ -48,6 +52,16 @@ def _concept_payload(concept):
                 for segment in rotation.segments.all()
             ],
             "status": rotation.editorial_status,
+            "lastValidatedBy": (
+                rotation.last_validated_by.display_name
+                if rotation.last_validated_by_id
+                else ""
+            ),
+            "lastValidatedAt": (
+                rotation.last_validated_at.isoformat()
+                if rotation.last_validated_at
+                else ""
+            ),
             "rawNotation": primary_notation.raw_notation if primary_notation else "",
             "normalizedNotation": (
                 primary_notation.normalized_notation if primary_notation else ""
@@ -73,6 +87,12 @@ def _concept_payload(concept):
         "kind": concept.kind,
         "discipline": concept.discipline,
         "status": concept.editorial_status,
+        "lastValidatedBy": (
+            concept.last_validated_by.display_name if concept.last_validated_by_id else ""
+        ),
+        "lastValidatedAt": (
+            concept.last_validated_at.isoformat() if concept.last_validated_at else ""
+        ),
         "author": concept.authored_by.display_name,
         "attributes": concept.attributes,
         "rotation": rotation_payload,
@@ -89,7 +109,57 @@ def _relation_payload(relation):
         "relationType": relation.relation_type,
         "rationale": relation.rationale,
         "status": relation.editorial_status,
+        "lastValidatedBy": (
+            relation.last_validated_by.display_name if relation.last_validated_by_id else ""
+        ),
+        "lastValidatedAt": (
+            relation.last_validated_at.isoformat() if relation.last_validated_at else ""
+        ),
         "author": relation.authored_by.display_name,
+        "createdAt": relation.created_at.isoformat(),
+        "updatedAt": relation.updated_at.isoformat(),
+    }
+
+
+def _motion_concept_payload(concept):
+    return {
+        "id": concept.pk,
+        "code": concept.code,
+        "name": concept.name,
+        "description": concept.definition,
+        "kind": concept.kind,
+        "laterality": concept.laterality,
+        "discipline": "anatomia funcional",
+        "status": concept.editorial_status,
+        "lastValidatedBy": (
+            concept.last_validated_by.display_name if concept.last_validated_by_id else ""
+        ),
+        "lastValidatedAt": (
+            concept.last_validated_at.isoformat() if concept.last_validated_at else ""
+        ),
+        "author": concept.authored_by.display_name,
+        "attributes": {"provenance": concept.provenance},
+        "createdAt": concept.created_at.isoformat(),
+        "updatedAt": concept.updated_at.isoformat(),
+    }
+
+
+def _motion_relation_payload(relation):
+    return {
+        "id": relation.pk,
+        "source": relation.source_id,
+        "target": relation.target_id,
+        "relationType": relation.relation_type,
+        "rationale": relation.rationale,
+        "status": relation.editorial_status,
+        "lastValidatedBy": (
+            relation.last_validated_by.display_name if relation.last_validated_by_id else ""
+        ),
+        "lastValidatedAt": (
+            relation.last_validated_at.isoformat() if relation.last_validated_at else ""
+        ),
+        "author": relation.authored_by.display_name,
+        "attributes": {"provenance": relation.provenance},
         "createdAt": relation.created_at.isoformat(),
         "updatedAt": relation.updated_at.isoformat(),
     }
@@ -106,6 +176,8 @@ def knowledge_graph(request):
             "draft_count": KnowledgeConcept.objects.filter(
                 editorial_status=KnowledgeConcept.EditorialStatus.DRAFT
             ).count(),
+            "motion_concept_count": MotionConcept.objects.count(),
+            "motion_relation_count": MotionRelation.objects.count(),
         }
     )
     return render(request, "iatrain/knowledge_graph/index.html", context)
@@ -114,16 +186,36 @@ def knowledge_graph(request):
 @require_GET
 def knowledge_graph_data(request):
     _require_superuser(request)
+    domain = request.GET.get("domain", "technical")
+    if domain == "motion":
+        concepts = MotionConcept.objects.select_related(
+            "authored_by", "last_validated_by"
+        ).order_by("id")
+        relations = MotionRelation.objects.select_related(
+            "source", "target", "authored_by", "last_validated_by"
+        ).order_by("id")
+        return JsonResponse(
+            {
+                "domain": "motion",
+                "nodes": [_motion_concept_payload(concept) for concept in concepts],
+                "links": [_motion_relation_payload(relation) for relation in relations],
+            }
+        )
+    if domain != "technical":
+        return JsonResponse({"error": "Domini de graf desconegut."}, status=400)
     concepts = (
-        KnowledgeConcept.objects.select_related("authored_by", "rotation_profile")
+        KnowledgeConcept.objects.select_related(
+            "authored_by", "last_validated_by", "rotation_profile__last_validated_by"
+        )
         .prefetch_related("rotation_profile__segments", "rotation_notations")
         .order_by("id")
     )
     relations = KnowledgeRelation.objects.select_related(
-        "source", "target", "authored_by"
+        "source", "target", "authored_by", "last_validated_by"
     ).order_by("id")
     return JsonResponse(
         {
+            "domain": "technical",
             "nodes": [_concept_payload(concept) for concept in concepts],
             "links": [_relation_payload(relation) for relation in relations],
         }
@@ -168,33 +260,22 @@ def _log_status_change(*, request, instance, previous_status):
 
 
 @require_POST
-@transaction.atomic
 def knowledge_concept_status(request, pk):
     _require_superuser(request)
-    concept = get_object_or_404(
-        KnowledgeConcept.objects.select_for_update().select_related("authored_by"),
-        pk=pk,
-    )
+    concept = get_object_or_404(KnowledgeConcept, pk=pk)
     try:
         status = _requested_status(request)
-        if status == KnowledgeConcept.EditorialStatus.RETIRED:
-            has_validated_relations = KnowledgeRelation.objects.filter(
-                Q(source=concept) | Q(target=concept),
-                editorial_status=KnowledgeRelation.EditorialStatus.VALIDATED,
-            ).exists()
-            if has_validated_relations:
-                raise ValidationError(
-                    "Retira primer les relacions validades connectades a aquest concepte."
-                )
-        previous_status = concept.editorial_status
-        if previous_status != status:
-            concept.editorial_status = status
-            concept.full_clean()
-            concept.save(update_fields=("editorial_status", "updated_at"))
+        transition = transition_knowledge_concept(
+            user=request.user,
+            concept=concept,
+            target_status=status,
+        )
+        concept = transition.instance
+        if transition.previous_status != status:
             _log_status_change(
                 request=request,
                 instance=concept,
-                previous_status=previous_status,
+                previous_status=transition.previous_status,
             )
     except ValidationError as exc:
         return _validation_error_response(exc)
@@ -202,36 +283,69 @@ def knowledge_concept_status(request, pk):
 
 
 @require_POST
-@transaction.atomic
 def knowledge_relation_status(request, pk):
     _require_superuser(request)
-    relation = get_object_or_404(
-        KnowledgeRelation.objects.select_for_update().select_related(
-            "source", "target", "authored_by"
-        ),
-        pk=pk,
-    )
+    relation = get_object_or_404(KnowledgeRelation, pk=pk)
     try:
         status = _requested_status(request)
-        if status == KnowledgeRelation.EditorialStatus.VALIDATED and (
-            relation.source.editorial_status
-            != KnowledgeConcept.EditorialStatus.VALIDATED
-            or relation.target.editorial_status
-            != KnowledgeConcept.EditorialStatus.VALIDATED
-        ):
-            raise ValidationError(
-                "Valida primer els dos conceptes connectats per aquesta relació."
-            )
-        previous_status = relation.editorial_status
-        if previous_status != status:
-            relation.editorial_status = status
-            relation.full_clean()
-            relation.save(update_fields=("editorial_status", "updated_at"))
+        transition = transition_knowledge_relation(
+            user=request.user,
+            relation=relation,
+            target_status=status,
+        )
+        relation = transition.instance
+        if transition.previous_status != status:
             _log_status_change(
                 request=request,
                 instance=relation,
-                previous_status=previous_status,
+                previous_status=transition.previous_status,
             )
     except ValidationError as exc:
         return _validation_error_response(exc)
     return JsonResponse({"link": _relation_payload(relation)})
+
+
+@require_POST
+def motion_concept_status(request, pk):
+    _require_superuser(request)
+    concept = get_object_or_404(MotionConcept, pk=pk)
+    try:
+        status = _requested_status(request)
+        transition = transition_motion_concept(
+            user=request.user,
+            concept=concept,
+            target_status=status,
+        )
+        concept = transition.instance
+        if transition.previous_status != status:
+            _log_status_change(
+                request=request,
+                instance=concept,
+                previous_status=transition.previous_status,
+            )
+    except ValidationError as exc:
+        return _validation_error_response(exc)
+    return JsonResponse({"node": _motion_concept_payload(concept)})
+
+
+@require_POST
+def motion_relation_status(request, pk):
+    _require_superuser(request)
+    relation = get_object_or_404(MotionRelation, pk=pk)
+    try:
+        status = _requested_status(request)
+        transition = transition_motion_relation(
+            user=request.user,
+            relation=relation,
+            target_status=status,
+        )
+        relation = transition.instance
+        if transition.previous_status != status:
+            _log_status_change(
+                request=request,
+                instance=relation,
+                previous_status=transition.previous_status,
+            )
+    except ValidationError as exc:
+        return _validation_error_response(exc)
+    return JsonResponse({"link": _motion_relation_payload(relation)})

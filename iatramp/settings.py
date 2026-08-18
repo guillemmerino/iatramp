@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "core.apps.CoreConfig",
     "organizations.apps.OrganizationsConfig",
     "iatrain.apps.IatrainConfig",
+    "iatrain_motion.apps.IatrainMotionConfig",
     "competicions_trampoli",
 ]
 if importlib.util.find_spec("django_celery_results") is not None:

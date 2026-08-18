@@ -186,7 +186,7 @@ class IatrainModelTests(TestCase):
         self.assertEqual(concept.kind, "biomechanical_cue")
         self.assertEqual(concept.attributes["plane"], "sagittal")
 
-        with self.assertRaises(IntegrityError), transaction.atomic():
+        with self.assertRaises(ValidationError):
             self.concept(name="RECEPCIÓ ESTABLE", kind="biomechanical_cue")
 
     def test_knowledge_relation_is_directed_unique_and_cannot_loop(self):
@@ -209,7 +209,7 @@ class IatrainModelTests(TestCase):
         with self.assertRaises(ValidationError):
             loop.full_clean()
 
-        with self.assertRaises(IntegrityError), transaction.atomic():
+        with self.assertRaises(ValidationError):
             KnowledgeRelation.objects.create(
                 source=source,
                 target=target,

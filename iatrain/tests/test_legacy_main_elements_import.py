@@ -48,7 +48,8 @@ class LegacyMainElementsImportTests(TestCase):
         self.assertEqual(existing.editorial_status, KnowledgeConcept.EditorialStatus.VALIDATED)
         self.assertFalse(existing.attributes["needs_review"])
         self.assertEqual(existing.attributes["custom"], "preserve")
-        self.assertEqual(existing.attributes["aliases"], ["Agrupado"])
+        self.assertNotIn("aliases", existing.attributes)
+        self.assertEqual(existing.attributes["legacy_sources"][0]["original_name"], "Agrupado")
 
     def test_import_is_idempotent(self):
         import_main_elements(author=self.author)

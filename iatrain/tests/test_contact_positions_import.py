@@ -114,6 +114,9 @@ class ContactPositionImportTests(TestCase):
             authored_by=self.author,
         )
         element = KnowledgeConcept.objects.get(name="Caiguda assegut")
+        KnowledgeConcept.objects.filter(pk__in=(alternate.pk, element.pk)).update(
+            editorial_status=KnowledgeConcept.EditorialStatus.VALIDATED
+        )
         existing = KnowledgeRelation.objects.create(
             source=element,
             target=alternate,
@@ -158,4 +161,3 @@ class ContactPositionImportTests(TestCase):
             ).exists()
         )
         self.assertIn("Simulació completada: 5 contactes creats", output.getvalue())
-

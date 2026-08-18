@@ -36,4 +36,14 @@ urlpatterns = [
         views.knowledge_relation_status,
         name="iatrain_knowledge_relation_status",
     ),
+    path(
+        "graf-coneixement/anatomia/conceptes/<int:pk>/estat/",
+        views.motion_concept_status,
+        name="iatrain_motion_concept_status",
+    ),
+    path(
+        "graf-coneixement/anatomia/relacions/<int:pk>/estat/",
+        views.motion_relation_status,
+        name="iatrain_motion_relation_status",
+    ),
 ]

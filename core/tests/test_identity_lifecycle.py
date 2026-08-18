@@ -1,16 +1,26 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.utils import timezone
 
 from core.models import Person, PersonClaimInvitation, PersonMergeRecord
-from core.services import accept_person_claim_invitation
+from core.identity_merge import registered_person_merge_handlers
+from core.services import accept_person_claim_invitation, merge_people
 from iatrain.models import (
     AthleteProfile,
     CoachAthleteRelation,
+    CoachProfile,
+    ElementNotation,
+    ElementRotation,
+    ElementRotationSegment,
+    Gym,
+    KnowledgeConcept,
+    KnowledgeEditorialEvent,
     TrainingGroup,
     TrainingGroupMembership,
 )
 from iatrain.services import create_unclaimed_athlete
+from iatrain_motion.models import MotionConcept
 from organizations.models import Organization
 
 
@@ -32,6 +42,12 @@ class IdentityLifecycleTests(TestCase):
         self.assertEqual(user.person.user, user)
         self.assertTrue(user.person.is_provisional)
         self.assertEqual(user.person.email, "new@example.com")
+
+    def test_domain_merge_handlers_are_registered_by_their_own_apps(self):
+        registered = registered_person_merge_handlers()
+        self.assertIn("organizations", registered)
+        self.assertIn("iatrain", registered)
+        self.assertIn("iatrain_motion", registered)
 
     def test_coach_can_create_an_unclaimed_athlete_with_profile_and_relation(self):
         coach_user = get_user_model().objects.create_user(username="coach-create")
@@ -160,3 +176,82 @@ class IdentityLifecycleTests(TestCase):
 
         with self.assertRaises(ValidationError):
             accept_person_claim_invitation(user=wrong_user, token=raw_token)
+
+    def test_merge_preserves_knowledge_authorship_and_coach_owned_data(self):
+        canonical = Person.objects.create(first_name="Joan", last_name="Canònic")
+        duplicate = Person.objects.create(first_name="Joan", last_name="Duplicat")
+        canonical_coach = CoachProfile.objects.create(person=canonical)
+        duplicate_coach = CoachProfile.objects.create(person=duplicate)
+        organization = Organization.objects.create(name="Club Fusió", slug="club-fusio")
+        group = TrainingGroup.objects.create(organization=organization, name="Tecnificació")
+        group.managing_coaches.add(duplicate_coach)
+        gym = Gym.objects.create(name="Sala principal", created_by=duplicate_coach)
+        element = KnowledgeConcept.objects.create(
+            name="Element de fusió",
+            kind=KnowledgeConcept.Kind.SKILL,
+            authored_by=duplicate,
+            last_validated_by=duplicate,
+            last_validated_at=timezone.now(),
+        )
+        rotation = ElementRotation.objects.create(
+            element=element,
+            transverse_quarters=4,
+            transverse_direction=ElementRotation.Direction.FORWARD,
+            authored_by=duplicate,
+            last_validated_by=duplicate,
+            last_validated_at=timezone.now(),
+        )
+        ElementRotationSegment.objects.create(
+            rotation=rotation,
+            sequence_index=1,
+            longitudinal_half_turns=0,
+        )
+        notation = ElementNotation.objects.create(
+            element=element,
+            rotation=rotation,
+            raw_notation=".40o",
+            normalized_notation=".40o",
+            direction_source=ElementNotation.ResolutionSource.EXPLICIT,
+            position_source=ElementNotation.ResolutionSource.EXPLICIT,
+            position_symbol="o",
+            authored_by=duplicate,
+        )
+        editorial_event = KnowledgeEditorialEvent.objects.create(
+            target_model="iatrain.knowledgeconcept",
+            target_id=element.pk,
+            target_repr=str(element),
+            from_status="draft",
+            to_status="validated",
+            decided_by=duplicate,
+            snapshot={"name": element.name},
+        )
+        motion_concept = MotionConcept.objects.create(
+            code="merge_test_plane",
+            name="Pla de prova de fusió",
+            definition="Concepte anatòmic utilitzat per comprovar la fusió d'identitats.",
+            kind=MotionConcept.Kind.PLANE,
+            authored_by=duplicate,
+            last_validated_by=duplicate,
+            last_validated_at=timezone.now(),
+        )
+
+        merged = merge_people(canonical=canonical, duplicate=duplicate)
+
+        element.refresh_from_db()
+        rotation.refresh_from_db()
+        notation.refresh_from_db()
+        editorial_event.refresh_from_db()
+        motion_concept.refresh_from_db()
+        gym.refresh_from_db()
+        self.assertEqual(merged, canonical)
+        self.assertFalse(Person.objects.filter(pk=duplicate.pk).exists())
+        self.assertEqual(element.authored_by, canonical)
+        self.assertEqual(element.last_validated_by, canonical)
+        self.assertEqual(rotation.authored_by, canonical)
+        self.assertEqual(rotation.last_validated_by, canonical)
+        self.assertEqual(notation.authored_by, canonical)
+        self.assertEqual(editorial_event.decided_by, canonical)
+        self.assertEqual(motion_concept.authored_by, canonical)
+        self.assertEqual(motion_concept.last_validated_by, canonical)
+        self.assertEqual(gym.created_by, canonical_coach)
+        self.assertEqual(list(group.managing_coaches.all()), [canonical_coach])

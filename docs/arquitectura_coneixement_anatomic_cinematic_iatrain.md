@@ -1,9 +1,9 @@
 # Arquitectura del coneixement anatòmic, cinemàtic i d'execució d'IA Train
 
-> **Estat del document:** disseny canònic proposat per a l'extensió anatòmica i de vídeo de la base professional  
+> **Estat del document:** arquitectura canònica; primera fase del subgraf anatòmic-cinemàtic implementada
 > **Actualitzat:** 18 d'agost de 2026  
 > **Abast:** anatomia funcional, descripció cinemàtica dels elements, corpus professional multivídeo, criteris d'execució i reconeixement futur.  
-> **Implementació actual:** aquest subsistema encara no està implementat.
+> **Implementació actual:** vocabulari anatòmic-cinemàtic, relacions tipades, esquelet canònic mesurable versionat, govern editorial i llavors funcionals. Encara no hi ha mapatge de trackers, especificacions d'elements, corpus ni capa normativa.
 
 ## 1. Propòsit
 
@@ -21,7 +21,9 @@ Aquest document defineix com IA Train haurà d'incorporar coneixement anatòmic 
 
 Tot el que es descriu aquí forma part de la **base professional comuna**. Encara no és personalització. Les preferències d'un entrenador, les adaptacions per a un gimnasta o els patrons particulars d'un club s'afegiran posteriorment com a capes privades o organitzatives connectades a aquesta base.
 
-Aquest document amplia [`arquitectura_base_coneixement_iatrain.md`](arquitectura_base_coneixement_iatrain.md). En cas de conflicte, aquell document continua sent l'autoritat sobre l'arquitectura general i aquest ho és sobre el futur subsistema anatòmic-cinemàtic.
+Aquest document amplia [`arquitectura_base_coneixement_iatrain.md`](arquitectura_base_coneixement_iatrain.md). En cas de conflicte, aquell document continua sent l'autoritat sobre l'arquitectura general i aquest ho és sobre el subsistema anatòmic-cinemàtic.
+
+L'estat exacte del que ja s'ha construït, les fronteres entre models i l'ordre operatiu dels passos següents es documenten a [`implementacio_graf_anatomic_esquelet_cinematic_iatrain.md`](implementacio_graf_anatomic_esquelet_cinematic_iatrain.md). Aquest document d'arquitectura governa la direcció; el document d'implementació governa l'inventari actual.
 
 ## 2. Decisió principal
 
@@ -87,7 +89,7 @@ Respon principalment: **quin element és i quina estructura esportiva el definei
 
 ### 3.2. Subgraf anatòmic-cinemàtic
 
-**Estat: dissenyat, no implementat.**
+**Estat: primera base implementada a l'app `iatrain_motion`.**
 
 Contindrà conceptes reutilitzables, independents d'un element concret:
 
@@ -99,6 +101,12 @@ Contindrà conceptes reutilitzables, independents d'un element concret:
 - esdeveniments cinemàtics reutilitzables que tinguin significat independent d'un element.
 
 Respon: **quines parts del cos es mouen, com es mouen i com es relacionen?**
+
+La implementació separa un codi semàntic estable del nom visible i diferencia els tipus `segment`, `joint`, `joint_action`, `plane`, `axis`, `body_configuration` i `kinematic_event`. Les arestes permeses tenen domini i rang controlats: jerarquia segmentària, segments proximal i distal d'una articulació, articulació d'una acció, pla i eix principals i oposició entre accions.
+
+La lateralitat no duplica els conceptes genèrics. `hip_joint` és una estructura parella i `hip_flexion` una acció reutilitzable; els costats esquerre i dret s'instancien a l'esquelet canònic o al registre futur que apliqui l'acció. Això evita mantenir dues ontologies paral·leles que només difereixen pel costat.
+
+La llavor inicial crea coneixement en estat `draft` i és idempotent. Inclou plans i eixos anatòmics, jerarquia funcional dels principals segments, articulacions de tronc i extremitats i accions articulars bàsiques. No es valida automàticament: cada node i relació conserva autoria i procedència i passa pel mateix govern editorial auditat de la base professional.
 
 ### 3.3. Especificació professional de moviment
 
@@ -146,6 +154,20 @@ No s'han de crear nodes per a cada frame, articulació observada o angle calcula
 Tampoc s'han de crear automàticament nodes per a les fases. `ElementMotionSpecification` serà un model professional estructurat amb una relació directa al `KnowledgeConcept` de l'element. Les seves fases seran registres fills ordenats. Podran referenciar conceptes anatòmics o errors, però no necessiten ser nodes per fer-ho.
 
 ## 5. Esquema anatòmic canònic
+
+**Estat: primera versió funcional implementada a `iatrain_motion`.**
+
+El vocabulari defineix què és un maluc o una flexió; `SkeletonSchema` en crea una instanciació mesurable, versionada i independent del tracker. La llavor `iatrain_functional_skeleton_1.0.0-draft` conté:
+
+- 27 punts canònics observables, estimats o derivats;
+- 17 segments concrets amb lateralitat i eix primari;
+- 13 articulacions connectades als segments proximal i distal;
+- 13 definicions angulars funcionals amb acció positiva i negativa, pla, eix, mètode i signe;
+- sistema global dretà, metre i radiant com a unitats internes i una posició neutra documentada.
+
+Les instàncies `left_hip_joint` o `left_thigh` referencien directament els nodes genèrics `hip_joint` i `thigh`. Abans de validar un esquema, l'auditoria exigeix que la topologia i les accions coincideixin amb les `MotionRelation` validades.
+
+Cada segment declara la capacitat real d'orientació. `long_axis_only` només permet mesurar l'eix entre dos punts i no autoritza a inferir rotació axial. `full_3d` exigeix un tercer punt per definir un pla i construir un marc ortonormal. Aquesta distinció evita atribuir al tracker graus de llibertat que no observa.
 
 Abans d'importar seqüències s'ha de definir un esquema corporal canònic independent de qualsevol detector. El sistema de tracking actual i els futurs models de visió s'hi hauran de mapar.
 
@@ -568,15 +590,15 @@ Documentar abans de modelar:
 - volum esperat;
 - dades i anotacions ja disponibles.
 
-### Pas 2. Definir l'esquelet canònic
+### Pas 2. Definir l'esquelet canònic — primera versió implementada
 
-Crear una especificació versionada i els mapatges des del tracker actual. Validar que permet calcular els angles i orientacions necessaris per al trampolí.
+La primera especificació versionada ja existeix. El pas pendent és mapar-hi el tracker real i validar experimentalment quins angles i orientacions permet calcular amb fiabilitat.
 
 ### Pas 3. Escollir un tall vertical
 
 Començar amb un element ben conegut —per exemple, una variant concreta de Barani— i un conjunt petit però divers de vídeos validats. No intentar modelar tot el catàleg alhora.
 
-### Pas 4. Definir el vocabulari mínim
+### Pas 4. Definir el vocabulari mínim — implementat
 
 Introduir només els segments, articulacions, accions i eixos necessaris per descriure aquell tall vertical. Definir les fases com a parts ordenades de l'especificació de l'element i evitar construir una ontologia anatòmica completa sense casos d'ús.
 
@@ -624,11 +646,11 @@ Mesurar per separat:
 
 Afegir elements veïns i reutilitzar el vocabulari existent. Crear nous nodes anatòmics només quan aparegui un concepte realment nou.
 
-## 16. Decisions que s'han de resoldre abans d'implementar
+## 16. Decisions que s'han de resoldre abans de les fases següents
 
 - format exacte del tracker i qualitat real de les coordenades;
 - necessitat de dades 3D o ús acceptable de 2D;
-- esquema canònic d'articulacions i segments;
+- mapatge exacte entre l'esquelet canònic i els punts disponibles al tracker real;
 - criteri professional de divisió en fases;
 - unitat d'una especificació: element, variant de posició o combinació més concreta;
 - nombre mínim i diversitat requerida de vídeos;

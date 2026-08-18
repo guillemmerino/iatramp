@@ -12,6 +12,7 @@ from iatrain.models import (
     KnowledgeConcept,
     KnowledgeRelation,
 )
+from iatrain_motion.models import EditorialStatus, MotionConcept, MotionRelation
 
 
 class KnowledgeGraphViewTests(TestCase):
@@ -66,6 +67,28 @@ class KnowledgeGraphViewTests(TestCase):
             position_symbol="o",
             authored_by=self.author,
         )
+        self.motion_segment = MotionConcept.objects.create(
+            code="thigh",
+            name="Cuixa",
+            definition="Segment entre el maluc i el genoll.",
+            kind=MotionConcept.Kind.SEGMENT,
+            laterality=MotionConcept.Laterality.PAIRED,
+            authored_by=self.author,
+        )
+        self.motion_joint = MotionConcept.objects.create(
+            code="knee_joint",
+            name="Articulació del genoll",
+            definition="Complex articular entre la cuixa i la cama.",
+            kind=MotionConcept.Kind.JOINT,
+            laterality=MotionConcept.Laterality.PAIRED,
+            authored_by=self.author,
+        )
+        self.motion_relation = MotionRelation.objects.create(
+            source=self.motion_joint,
+            target=self.motion_segment,
+            relation_type=MotionRelation.RelationType.PROXIMAL_SEGMENT,
+            authored_by=self.author,
+        )
 
     def post_status(self, url_name, object_id, status):
         return self.client.post(
@@ -103,6 +126,9 @@ class KnowledgeGraphViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="kg-canvas"')
         self.assertContains(response, 'id="kg-relation-filter"')
+        self.assertContains(response, 'data-domain="technical"')
+        self.assertContains(response, 'data-domain="motion"')
+        self.assertContains(response, "Graf anatòmic-cinemàtic")
         self.assertContains(response, "Ctrl")
         self.assertContains(response, "Graf 3D")
         self.assertContains(response, 'data-status="validated"')
@@ -124,6 +150,34 @@ class KnowledgeGraphViewTests(TestCase):
         self.assertEqual(source["rotation"]["positionSymbol"], "o")
         self.assertEqual(payload["links"][0]["source"], self.source.pk)
         self.assertEqual(payload["links"][0]["target"], self.target.pk)
+
+    def test_motion_domain_serializes_anatomical_nodes_and_relations(self):
+        self.client.force_login(self.superuser)
+
+        response = self.client.get(
+            reverse("iatrain_knowledge_graph_data"),
+            {"domain": "motion"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["domain"], "motion")
+        self.assertEqual(len(payload["nodes"]), 2)
+        self.assertEqual(len(payload["links"]), 1)
+        joint = next(node for node in payload["nodes"] if node["code"] == "knee_joint")
+        self.assertEqual(joint["kind"], MotionConcept.Kind.JOINT)
+        self.assertEqual(joint["laterality"], MotionConcept.Laterality.PAIRED)
+        self.assertEqual(payload["links"][0]["relationType"], "proximal_segment")
+
+    def test_unknown_graph_domain_is_rejected(self):
+        self.client.force_login(self.superuser)
+
+        response = self.client.get(
+            reverse("iatrain_knowledge_graph_data"),
+            {"domain": "unknown"},
+        )
+
+        self.assertEqual(response.status_code, 400)
 
     def test_superuser_can_validate_a_concept_and_action_is_audited(self):
         self.client.force_login(self.superuser)
@@ -171,6 +225,20 @@ class KnowledgeGraphViewTests(TestCase):
             self.relation.editorial_status,
             KnowledgeRelation.EditorialStatus.VALIDATED,
         )
+
+    def test_superuser_can_validate_an_anatomical_concept_from_the_graph(self):
+        self.client.force_login(self.superuser)
+
+        response = self.post_status(
+            "iatrain_motion_concept_status",
+            self.motion_joint.pk,
+            EditorialStatus.VALIDATED,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.motion_joint.refresh_from_db()
+        self.assertEqual(self.motion_joint.editorial_status, EditorialStatus.VALIDATED)
+        self.assertEqual(response.json()["node"]["code"], "knee_joint")
 
     def test_concept_with_validated_relation_cannot_be_retired(self):
         KnowledgeConcept.objects.filter(pk__in=(self.source.pk, self.target.pk)).update(

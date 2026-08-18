@@ -86,7 +86,7 @@ class ImportSummary:
     unchanged: int = 0
 
 
-def _merged_attributes(concept, row):
+def _merged_attributes(concept, row, *, provenance_only=False):
     (
         legacy_id,
         legacy_name,
@@ -99,21 +99,22 @@ def _merged_attributes(concept, row):
     ) = row
     attributes = dict(concept.attributes or {})
 
-    aliases = list(attributes.get("aliases") or [])
-    if legacy_name.casefold() != canonical_name.casefold() and not any(
-        alias.casefold() == legacy_name.casefold() for alias in aliases
-    ):
-        aliases.append(legacy_name)
-    if aliases:
-        attributes["aliases"] = aliases
+    if not provenance_only:
+        aliases = list(attributes.get("aliases") or [])
+        if legacy_name.casefold() != canonical_name.casefold() and not any(
+            alias.casefold() == legacy_name.casefold() for alias in aliases
+        ):
+            aliases.append(legacy_name)
+        if aliases:
+            attributes["aliases"] = aliases
 
-    attributes.setdefault("legacy_level", legacy_level)
-    attributes.setdefault("legacy_numeric_notation", legacy_notation)
-    attributes.setdefault("start_position", CONTACT_POSITIONS[legacy_start])
-    attributes.setdefault("end_position", CONTACT_POSITIONS[legacy_end])
-    if legacy_position:
-        attributes.setdefault("body_shape", BODY_SHAPES[legacy_position])
-    attributes.setdefault("needs_review", True)
+        attributes.setdefault("legacy_level", legacy_level)
+        attributes.setdefault("legacy_numeric_notation", legacy_notation)
+        attributes.setdefault("start_position", CONTACT_POSITIONS[legacy_start])
+        attributes.setdefault("end_position", CONTACT_POSITIONS[legacy_end])
+        if legacy_position:
+            attributes.setdefault("body_shape", BODY_SHAPES[legacy_position])
+        attributes.setdefault("needs_review", True)
 
     source = {
         "project": LEGACY_PROJECT,
@@ -175,7 +176,13 @@ def import_main_elements(*, author):
             created += 1
             continue
 
-        merged_attributes = _merged_attributes(concept, row)
+        merged_attributes = _merged_attributes(
+            concept,
+            row,
+            provenance_only=(
+                concept.editorial_status == KnowledgeConcept.EditorialStatus.VALIDATED
+            ),
+        )
         if merged_attributes == concept.attributes:
             unchanged += 1
             continue
@@ -185,4 +192,3 @@ def import_main_elements(*, author):
         updated += 1
 
     return ImportSummary(created=created, updated=updated, unchanged=unchanged)
-

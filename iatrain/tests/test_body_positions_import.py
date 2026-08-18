@@ -93,6 +93,9 @@ class BodyPositionImportTests(TestCase):
             authored_by=self.author,
         )
         barani = KnowledgeConcept.objects.get(name="Barani agrupat")
+        KnowledgeConcept.objects.filter(pk__in=(alternate.pk, barani.pk)).update(
+            editorial_status=KnowledgeConcept.EditorialStatus.VALIDATED
+        )
         existing = KnowledgeRelation.objects.create(
             source=barani,
             target=alternate,
@@ -134,4 +137,3 @@ class BodyPositionImportTests(TestCase):
             ).exists()
         )
         self.assertIn("Simulació completada: 3 posicions creades", output.getvalue())
-

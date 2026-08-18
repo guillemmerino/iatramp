@@ -1,4 +1,8 @@
 from django.contrib import admin
+from django.contrib import messages
+from django.core.exceptions import ValidationError
+
+from .editorial import transition_element_rotation
 
 from .models import (
     AthleteObservation,
@@ -12,6 +16,7 @@ from .models import (
     GymEquipment,
     GymOrganization,
     KnowledgeConcept,
+    KnowledgeEditorialEvent,
     KnowledgeRelation,
     TrainingContext,
     TrainingGroup,
@@ -137,8 +142,14 @@ class OutgoingKnowledgeRelationInline(admin.TabularInline):
     model = KnowledgeRelation
     fk_name = "source"
     extra = 0
+    can_delete = False
+    show_change_link = True
     autocomplete_fields = ("target", "authored_by")
     fields = ("relation_type", "target", "editorial_status", "authored_by", "rationale")
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(TrainingContext)
@@ -171,8 +182,23 @@ class KnowledgeConceptAdmin(admin.ModelAdmin):
     list_filter = ("editorial_status", "kind", "discipline")
     search_fields = ("name", "description", "kind", "discipline")
     autocomplete_fields = ("authored_by",)
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = (
+        "editorial_status",
+        "last_validated_by",
+        "last_validated_at",
+        "created_at",
+        "updated_at",
+    )
     inlines = (OutgoingKnowledgeRelationInline,)
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(super().get_readonly_fields(request, obj))
+        if obj and obj.editorial_status != KnowledgeConcept.EditorialStatus.DRAFT:
+            fields.extend(("name", "description", "kind", "discipline", "authored_by", "attributes"))
+        return tuple(dict.fromkeys(fields))
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(KnowledgeRelation)
@@ -181,12 +207,72 @@ class KnowledgeRelationAdmin(admin.ModelAdmin):
     list_filter = ("editorial_status", "relation_type", "source__discipline")
     search_fields = ("source__name", "target__name", "relation_type", "rationale")
     autocomplete_fields = ("source", "target", "authored_by")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = (
+        "editorial_status",
+        "last_validated_by",
+        "last_validated_at",
+        "created_at",
+        "updated_at",
+    )
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(super().get_readonly_fields(request, obj))
+        if obj and obj.editorial_status != KnowledgeRelation.EditorialStatus.DRAFT:
+            fields.extend(("source", "target", "relation_type", "rationale", "authored_by"))
+        return tuple(dict.fromkeys(fields))
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(KnowledgeEditorialEvent)
+class KnowledgeEditorialEventAdmin(admin.ModelAdmin):
+    list_display = (
+        "target_repr",
+        "target_model",
+        "from_status",
+        "to_status",
+        "decided_by",
+        "created_at",
+    )
+    list_filter = ("target_model", "from_status", "to_status")
+    search_fields = ("target_repr", "reason", "decided_by__first_name", "decided_by__last_name")
+    readonly_fields = (
+        "target_model",
+        "target_id",
+        "target_repr",
+        "from_status",
+        "to_status",
+        "decided_by",
+        "reason",
+        "snapshot",
+        "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_active and request.user.is_staff
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class ElementRotationSegmentInline(admin.TabularInline):
     model = ElementRotationSegment
     extra = 0
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.editorial_status != KnowledgeConcept.EditorialStatus.DRAFT:
+            return ("sequence_index", "longitudinal_half_turns")
+        return ()
+
+    def has_add_permission(self, request, obj=None):
+        return not obj or obj.editorial_status == KnowledgeConcept.EditorialStatus.DRAFT
+
+    def has_delete_permission(self, request, obj=None):
+        return not obj or obj.editorial_status == KnowledgeConcept.EditorialStatus.DRAFT
 
 
 class ElementNotationInline(admin.TabularInline):
@@ -218,8 +304,60 @@ class ElementRotationAdmin(admin.ModelAdmin):
     list_filter = ("editorial_status", "transverse_direction", "transverse_quarters")
     search_fields = ("element__name",)
     autocomplete_fields = ("element", "authored_by")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = (
+        "editorial_status",
+        "last_validated_by",
+        "last_validated_at",
+        "created_at",
+        "updated_at",
+    )
     inlines = (ElementRotationSegmentInline, ElementNotationInline)
+    actions = ("validate_rotations", "reopen_rotations", "retire_rotations")
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(super().get_readonly_fields(request, obj))
+        if obj and obj.editorial_status != KnowledgeConcept.EditorialStatus.DRAFT:
+            fields.extend(
+                (
+                    "element",
+                    "transverse_quarters",
+                    "transverse_direction",
+                    "authored_by",
+                    "provenance",
+                )
+            )
+        return tuple(dict.fromkeys(fields))
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def _transition_selected(self, request, queryset, target_status):
+        changed = 0
+        for rotation in queryset:
+            try:
+                transition = transition_element_rotation(
+                    user=request.user,
+                    rotation=rotation,
+                    target_status=target_status,
+                )
+            except ValidationError as exc:
+                self.message_user(request, f"{rotation}: {exc}", level=messages.ERROR)
+                continue
+            changed += transition.previous_status != target_status
+        if changed:
+            self.message_user(request, f"Perfils actualitzats: {changed}.", level=messages.SUCCESS)
+
+    @admin.action(description="Validar els perfils seleccionats")
+    def validate_rotations(self, request, queryset):
+        self._transition_selected(request, queryset, KnowledgeConcept.EditorialStatus.VALIDATED)
+
+    @admin.action(description="Reobrir com a esborrany")
+    def reopen_rotations(self, request, queryset):
+        self._transition_selected(request, queryset, KnowledgeConcept.EditorialStatus.DRAFT)
+
+    @admin.action(description="Retirar els perfils seleccionats")
+    def retire_rotations(self, request, queryset):
+        self._transition_selected(request, queryset, KnowledgeConcept.EditorialStatus.RETIRED)
 
 
 @admin.register(ElementNotation)
@@ -236,6 +374,9 @@ class ElementNotationAdmin(admin.ModelAdmin):
     search_fields = ("element__name", "raw_notation", "normalized_notation")
     autocomplete_fields = ("element", "rotation", "authored_by")
     readonly_fields = ("created_at", "updated_at")
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(AthleteObservation)

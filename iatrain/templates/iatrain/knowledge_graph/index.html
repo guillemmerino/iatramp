@@ -6,15 +6,18 @@
 
 {% block iatrain_content %}
 <section class="kg-page" id="knowledge-graph-app"
-  data-graph-url="{% url 'iatrain_knowledge_graph_data' %}"
-  data-node-status-url="{% url 'iatrain_knowledge_concept_status' 0 %}"
-  data-link-status-url="{% url 'iatrain_knowledge_relation_status' 0 %}"
+  data-technical-graph-url="{% url 'iatrain_knowledge_graph_data' %}?domain=technical"
+  data-motion-graph-url="{% url 'iatrain_knowledge_graph_data' %}?domain=motion"
+  data-technical-node-status-url="{% url 'iatrain_knowledge_concept_status' 0 %}"
+  data-technical-link-status-url="{% url 'iatrain_knowledge_relation_status' 0 %}"
+  data-motion-node-status-url="{% url 'iatrain_motion_concept_status' 0 %}"
+  data-motion-link-status-url="{% url 'iatrain_motion_relation_status' 0 %}"
   data-csrf-token="{{ csrf_token }}">
   <header class="kg-heading">
     <div>
       <span class="iatrain-eyebrow">Editor professional</span>
       <h1>Graf de coneixement 3D</h1>
-      <p>Explora els conceptes, revisa'n la procedència i valida manualment nodes i arestes.</p>
+      <p id="kg-domain-description">Explora la identitat tècnica dels elements, revisa'n la procedència i valida manualment nodes i arestes.</p>
     </div>
     <div class="kg-heading-stats" aria-label="Resum del graf">
       <span><strong id="kg-node-count">{{ concept_count }}</strong> nodes</span>
@@ -22,6 +25,17 @@
       <span><strong id="kg-draft-count">{{ draft_count }}</strong> esborranys</span>
     </div>
   </header>
+
+  <nav class="kg-domain-switch" aria-label="Domini del graf">
+    <button type="button" data-domain="technical" aria-pressed="true">
+      <span>Graf tècnic</span>
+      <small>Elements, posicions, contactes i progressions</small>
+    </button>
+    <button type="button" data-domain="motion" aria-pressed="false">
+      <span>Graf anatòmic-cinemàtic</span>
+      <small>{{ motion_concept_count }} conceptes · {{ motion_relation_count }} relacions</small>
+    </button>
+  </nav>
 
   <div class="kg-toolbar" aria-label="Controls del graf">
     <label class="kg-search"><span>Cerca</span><input id="kg-search" type="search" placeholder="Nom, àlies o descripció"></label>

@@ -35,6 +35,8 @@ El compte respon **qui pot iniciar sessió**. La persona respon **qui és l'indi
 
 Una persona creada prèviament per un entrenador es pot reclamar mitjançant una invitació. Si el compte ja té una identitat, el servei fusiona les dues `Person`, trasllada les referències conegudes i conserva una traça de la fusió. Una mateixa persona humana no es duplica per entrenador.
 
+Core coordina la fusió, però no coneix els models interns de tots els productes. Cada aplicació registra un gestor propi de consolidació: `organizations` trasllada membresies, rols i sol·licituds, i `iatrain` consolida perfils, relacions esportives, grups, gimnasos, observacions, autoria i decisions editorials. Qualsevol aplicació futura que referenciï `Person` ha de registrar i provar el seu gestor abans d'incorporar aquestes relacions a producció.
+
 ### Organització i rols
 
 `Organization` representa principalment un club o una federació. `Membership` vincula una persona amb una organització i hi assigna un rol contextual. Una mateixa persona pot tenir diversos rols dins d'una organització i membresies diferents en organitzacions diferents. Les dates i `is_active` permeten conservar historial sense haver d'esborrar vincles.

@@ -17,6 +17,8 @@ from .knowledge_graph import (
     knowledge_graph,
     knowledge_graph_data,
     knowledge_relation_status,
+    motion_concept_status,
+    motion_relation_status,
 )
 
 __all__ = (
@@ -39,6 +41,8 @@ __all__ = (
     "knowledge_graph",
     "knowledge_graph_data",
     "knowledge_relation_status",
+    "motion_concept_status",
+    "motion_relation_status",
     "organization_detail",
     "organization_list",
     "select_perspective",
