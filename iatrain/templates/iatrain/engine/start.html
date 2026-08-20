@@ -1,26 +1,20 @@
 {% extends "iatrain/base.html" %}
 {% load static_extras %}
-{% block iatrain_title %}Començar entrenament{% endblock %}
+{% block iatrain_title %}Nova sessió{% endblock %}
 {% block iatrain_content %}
-<section class="iatrain-engine-head"><div><span class="iatrain-eyebrow">Pipeline d’entrenament</span><h1>Defineix el context de la sessió</h1><p>Aquesta selecció serà l’entrada estable del paquet <code>iatrain.engine</code>.</p></div><span class="iatrain-engine-step">Pas 1 · Context</span></section>
+<section class="iatrain-engine-head"><div><span class="iatrain-eyebrow">Planificació</span><h1>Nova sessió</h1></div></section>
 <div class="iatrain-engine-layout">
   <section class="iatrain-engine-form-card">
-    <div class="iatrain-engine-progress"><span class="is-active">1</span><i></i><span>2</span><i></i><span>3</span></div>
     <form method="post" class="iatrain-form" data-engine-start-form data-options-url="{% url 'iatrain_engine_context_options' %}">
       {% csrf_token %}
       {% for field in form %}<div class="iatrain-field{% if field.errors %} has-error{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</div>{% endfor %}
-      <button class="iatrain-start-button iatrain-start-button--large" type="submit"><span>✓</span> Preparar context</button>
+      <button class="iatrain-start-button iatrain-start-button--large" type="submit"><span>＋</span> Crear esborrany</button>
     </form>
   </section>
   <aside class="iatrain-engine-aside">
-    {% if training_selection %}
-      <span class="iatrain-eyebrow">Context preparat</span><h2>{{ training_selection.organization.name }}</h2>
-      <dl><div><dt>Grup</dt><dd>{% if training_selection.training_group %}{{ training_selection.training_group.name }}{% else %}Selecció individual{% endif %}</dd></div><div><dt>Gimnàs</dt><dd>{% if training_selection.gym %}{{ training_selection.gym.name }}{% else %}No assignat{% endif %}</dd></div><div><dt>Gimnastes</dt><dd>{{ training_selection.athletes|length }}</dd></div><div><dt>Material útil</dt><dd>{{ training_selection.equipment|length }}</dd></div></dl>
-      {% if training_selection.athletes %}<div class="iatrain-engine-people">{% for athlete in training_selection.athletes %}<span>{{ athlete.person.display_name }}</span>{% endfor %}</div>{% endif %}
-      <button class="iatrain-button iatrain-button--disabled" type="button" disabled>Continuar al motor · Properament</button>
-    {% else %}
-      <span class="iatrain-eyebrow">Abans de generar</span><h2>Una entrada clara i verificable</h2><p>Els membres del grup s’afegiran automàticament. També pots incorporar gimnastes independents sense modificar la plantilla.</p><ul><li>Organització autoritzada</li><li>Grup opcional</li><li>Gimnastes addicionals</li><li>Inventari real del gimnàs</li></ul>
-    {% endif %}
+    <span class="iatrain-eyebrow">Esborrany editable</span><h2>Context de treball</h2>
+    <dl><div><dt>Participants</dt><dd>Grup o gimnasta</dd></div><div><dt>Espai</dt><dd>Gimnàs i material</dd></div><div><dt>Intenció</dt><dd>Objectiu principal</dd></div></dl>
+    <p>Després podràs ordenar blocs, afegir exercicis i ajustar la dosi.</p>
   </aside>
 </div>
 {% endblock %}

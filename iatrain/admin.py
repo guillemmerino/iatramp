@@ -5,8 +5,13 @@ from django.core.exceptions import ValidationError
 from .editorial import transition_element_rotation
 
 from .models import (
+    AthleteCondition,
+    AthleteInsight,
+    AthleteInsightEvidence,
+    AthleteMeasurement,
     AthleteObservation,
     AthleteProfile,
+    AthleteSportProfile,
     CoachAthleteRelation,
     CoachProfile,
     ElementNotation,
@@ -19,9 +24,178 @@ from .models import (
     KnowledgeEditorialEvent,
     KnowledgeRelation,
     TrainingContext,
+    TrainingBlock,
     TrainingGroup,
     TrainingGroupMembership,
+    TrainingItemResult,
+    TrainingSession,
+    TrainingSessionExecution,
+    TrainingSessionItem,
+    TrainingSessionRevision,
+    SessionAttendance,
+    SessionGoal,
+    SessionItemAlternative,
+    SessionItemAthleteAdjustment,
+    SessionParticipantPlan,
+    PhysicalExercisePrescription,
 )
+
+
+class SessionParticipantPlanInline(admin.TabularInline):
+    model = SessionParticipantPlan
+    extra = 0
+    autocomplete_fields = ("athlete_profile",)
+
+
+class SessionGoalInline(admin.TabularInline):
+    model = SessionGoal
+    extra = 0
+
+
+@admin.register(SessionParticipantPlan)
+class SessionParticipantPlanAdmin(admin.ModelAdmin):
+    list_display = ("session_revision", "athlete_profile", "expected_participation")
+    search_fields = (
+        "session_revision__title",
+        "athlete_profile__person__first_name",
+        "athlete_profile__person__last_name",
+    )
+    autocomplete_fields = ("session_revision", "athlete_profile")
+
+
+@admin.register(SessionGoal)
+class SessionGoalAdmin(admin.ModelAdmin):
+    list_display = ("session_revision", "domain", "code", "priority")
+    list_filter = ("domain", "priority", "source")
+    search_fields = ("code", "description", "session_revision__title")
+    autocomplete_fields = ("session_revision",)
+
+
+class TrainingBlockInline(admin.TabularInline):
+    model = TrainingBlock
+    extra = 0
+    fields = (
+        "sequence_index",
+        "name",
+        "block_role",
+        "domain",
+        "execution_mode",
+        "planned_duration_minutes",
+    )
+
+
+@admin.register(TrainingSession)
+class TrainingSessionAdmin(admin.ModelAdmin):
+    list_display = (
+        "scheduled_start",
+        "organization",
+        "discipline",
+        "session_scope",
+        "responsible_coach",
+        "lifecycle_status",
+    )
+    list_filter = ("lifecycle_status", "discipline", "session_scope", "organization")
+    search_fields = ("organization__name", "training_group__name")
+    autocomplete_fields = (
+        "organization",
+        "gym",
+        "training_group",
+        "responsible_coach",
+        "created_by",
+    )
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(TrainingSessionRevision)
+class TrainingSessionRevisionAdmin(admin.ModelAdmin):
+    list_display = ("title", "session", "revision_number", "status", "updated_at")
+    list_filter = ("status", "creation_origin")
+    search_fields = ("title", "general_objective", "session__organization__name")
+    autocomplete_fields = ("session", "supersedes", "created_by", "approved_by")
+    readonly_fields = ("approved_by", "approved_at", "created_at", "updated_at")
+    inlines = (SessionParticipantPlanInline, SessionGoalInline, TrainingBlockInline)
+
+
+@admin.register(TrainingBlock)
+class TrainingBlockAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "session_revision",
+        "sequence_index",
+        "block_role",
+        "domain",
+        "planned_duration_minutes",
+    )
+    list_filter = ("block_role", "domain", "execution_mode")
+    search_fields = ("name", "objective", "session_revision__title")
+    autocomplete_fields = ("session_revision",)
+
+
+@admin.register(TrainingSessionItem)
+class TrainingSessionItemAdmin(admin.ModelAdmin):
+    list_display = ("title", "block", "sequence_index", "item_type", "is_optional")
+    list_filter = ("item_type", "is_optional")
+    search_fields = ("title", "instructions", "block__name")
+    autocomplete_fields = ("block",)
+
+
+@admin.register(PhysicalExercisePrescription)
+class PhysicalExercisePrescriptionAdmin(admin.ModelAdmin):
+    list_display = ("session_item", "exercise_revision", "dose_mode", "sets")
+    list_filter = ("dose_mode", "intensity_metric")
+    autocomplete_fields = ("session_item", "exercise_revision")
+
+
+@admin.register(SessionItemAlternative)
+class SessionItemAlternativeAdmin(admin.ModelAdmin):
+    list_display = ("session_item", "exercise_revision", "priority", "trigger")
+    list_filter = ("trigger",)
+    autocomplete_fields = ("session_item", "exercise_revision")
+
+
+@admin.register(SessionItemAthleteAdjustment)
+class SessionItemAthleteAdjustmentAdmin(admin.ModelAdmin):
+    list_display = ("session_item", "participant_plan", "replacement_exercise_revision")
+    autocomplete_fields = (
+        "session_item",
+        "participant_plan",
+        "replacement_exercise_revision",
+    )
+
+
+class SessionAttendanceInline(admin.TabularInline):
+    model = SessionAttendance
+    extra = 0
+    autocomplete_fields = ("athlete_profile",)
+
+
+@admin.register(TrainingSessionExecution)
+class TrainingSessionExecutionAdmin(admin.ModelAdmin):
+    list_display = ("session", "approved_revision", "status", "started_at", "finished_at")
+    list_filter = ("status",)
+    search_fields = ("session__organization__name", "approved_revision__title")
+    autocomplete_fields = ("session", "approved_revision", "supervised_by")
+    readonly_fields = ("created_at", "updated_at")
+    inlines = (SessionAttendanceInline,)
+
+
+@admin.register(TrainingItemResult)
+class TrainingItemResultAdmin(admin.ModelAdmin):
+    list_display = (
+        "execution",
+        "session_item",
+        "athlete_profile",
+        "completion_status",
+        "recorded_at",
+    )
+    list_filter = ("completion_status", "pain_response")
+    autocomplete_fields = (
+        "execution",
+        "session_item",
+        "athlete_profile",
+        "exercise_revision_performed",
+        "recorded_by",
+    )
 
 
 @admin.register(AthleteProfile)
@@ -31,6 +205,122 @@ class AthleteProfileAdmin(admin.ModelAdmin):
     search_fields = ("person__first_name", "person__last_name", "person__preferred_name")
     autocomplete_fields = ("person",)
     readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(AthleteSportProfile)
+class AthleteSportProfileAdmin(admin.ModelAdmin):
+    list_display = (
+        "athlete_profile",
+        "discipline",
+        "level_code",
+        "preferred_laterality",
+        "is_active",
+    )
+    list_filter = ("discipline", "preferred_laterality", "is_active")
+    search_fields = (
+        "athlete_profile__person__first_name",
+        "athlete_profile__person__last_name",
+        "level_code",
+    )
+    autocomplete_fields = ("athlete_profile", "updated_by")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(AthleteMeasurement)
+class AthleteMeasurementAdmin(admin.ModelAdmin):
+    list_display = (
+        "athlete_profile",
+        "metric_label",
+        "value",
+        "unit",
+        "side",
+        "measured_at",
+        "status",
+    )
+    list_filter = ("domain", "source", "status", "side", "organization")
+    search_fields = (
+        "athlete_profile__person__first_name",
+        "athlete_profile__person__last_name",
+        "metric_code",
+        "metric_label",
+    )
+    autocomplete_fields = (
+        "athlete_profile",
+        "organization",
+        "recorded_by",
+        "supersedes",
+    )
+    readonly_fields = ("created_at", "updated_at")
+    date_hierarchy = "measured_at"
+
+
+@admin.register(AthleteCondition)
+class AthleteConditionAdmin(admin.ModelAdmin):
+    list_display = (
+        "athlete_profile",
+        "title",
+        "category",
+        "training_impact",
+        "status",
+        "started_at",
+    )
+    list_filter = ("category", "training_impact", "status", "organization")
+    search_fields = (
+        "athlete_profile__person__first_name",
+        "athlete_profile__person__last_name",
+        "title",
+        "narrative",
+        "evidence",
+    )
+    autocomplete_fields = (
+        "athlete_profile",
+        "organization",
+        "body_region",
+        "recorded_by",
+        "confirmed_by",
+        "supersedes",
+    )
+    readonly_fields = ("confirmed_by", "confirmed_at", "created_at", "updated_at")
+    date_hierarchy = "started_at"
+
+
+class AthleteInsightEvidenceInline(admin.TabularInline):
+    model = AthleteInsightEvidence
+    extra = 0
+    fields = (
+        "observation",
+        "measurement",
+        "condition",
+        "training_item_result",
+        "contribution",
+    )
+
+
+@admin.register(AthleteInsight)
+class AthleteInsightAdmin(admin.ModelAdmin):
+    list_display = (
+        "athlete_profile",
+        "kind",
+        "status",
+        "confidence",
+        "model_name",
+        "created_at",
+    )
+    list_filter = ("kind", "status", "organization", "model_name")
+    search_fields = (
+        "athlete_profile__person__first_name",
+        "athlete_profile__person__last_name",
+        "statement",
+        "rationale",
+    )
+    autocomplete_fields = (
+        "athlete_profile",
+        "organization",
+        "triggered_by",
+        "confirmed_by",
+    )
+    readonly_fields = ("confirmed_by", "confirmed_at", "created_at", "updated_at")
+    inlines = (AthleteInsightEvidenceInline,)
 
 
 @admin.register(CoachProfile)
@@ -383,6 +673,7 @@ class ElementNotationAdmin(admin.ModelAdmin):
 class AthleteObservationAdmin(admin.ModelAdmin):
     list_display = (
         "athlete",
+        "organization",
         "category",
         "status",
         "concept",
@@ -390,7 +681,13 @@ class AthleteObservationAdmin(admin.ModelAdmin):
         "authored_by",
         "observed_at",
     )
-    list_filter = ("category", "status", "training_context", "concept__discipline")
+    list_filter = (
+        "category",
+        "status",
+        "organization",
+        "training_context",
+        "concept__discipline",
+    )
     search_fields = (
         "athlete__first_name",
         "athlete__last_name",
@@ -402,6 +699,7 @@ class AthleteObservationAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = (
         "athlete",
+        "organization",
         "training_context",
         "concept",
         "authored_by",

@@ -1,0 +1,58 @@
+{% extends "iatrain/base.html" %}
+{% block iatrain_title %}{{ revision.title }}{% endblock %}
+{% block iatrain_content %}
+<a class="iatrain-back-link" href="{% url 'iatrain_session_list' %}">← Sessions</a>
+
+<section class="iatrain-session-hero tone-training">
+  <div>
+    <span class="iatrain-eyebrow">{{ training_session.organization.name }}</span>
+    <h1>{{ revision.title }}</h1>
+    <div class="iatrain-session-meta"><span>{{ training_session.scheduled_start|date:"d/m/Y · H:i" }}</span><span>{{ revision.planned_duration_minutes }} min</span><span>{{ training_session.get_discipline_display }}</span>{% if training_session.gym %}<span>{{ training_session.gym.name }}</span>{% endif %}</div>
+  </div>
+  <div class="iatrain-session-state"><span class="is-{{ revision.status }}">{{ revision.get_status_display }}</span><small>Versió {{ revision.revision_number }}</small></div>
+</section>
+
+<div class="iatrain-session-toolbar">
+  <nav aria-label="Versions">{% for item in session_revisions %}<a href="?revision={{ item.pk }}"{% if item.pk == revision.pk %} aria-current="page"{% endif %}>v{{ item.revision_number }}</a>{% endfor %}</nav>
+  <div class="iatrain-inline-actions">
+    {% if revision.status == 'draft' %}<form method="post" action="{% url 'iatrain_session_revision_transition' training_session.pk revision.pk %}">{% csrf_token %}<input type="hidden" name="action" value="propose"><button class="iatrain-button iatrain-button--primary" type="submit">Enviar a revisió</button></form>{% elif revision.status == 'proposed' %}<form method="post" action="{% url 'iatrain_session_revision_transition' training_session.pk revision.pk %}">{% csrf_token %}<input type="hidden" name="action" value="reopen"><button class="iatrain-button iatrain-button--ghost" type="submit">Reobrir</button></form><form method="post" action="{% url 'iatrain_session_revision_transition' training_session.pk revision.pk %}">{% csrf_token %}<input type="hidden" name="action" value="approve"><button class="iatrain-button iatrain-button--primary" type="submit">Aprovar</button></form>{% endif %}
+  </div>
+</div>
+
+<section class="iatrain-session-overview">
+  <article><span>Participants</span><strong>{{ revision.participant_plans.count }}</strong><div>{% for participant in revision.participant_plans.all %}<span class="iatrain-removable-chip"><a href="{% url 'iatrain_athlete_detail' participant.athlete_profile.pk %}">{{ participant.athlete_profile.person.display_name }}</a>{% if can_edit_revision %}<form method="post" action="{% url 'iatrain_session_participant_delete' training_session.pk participant.pk %}">{% csrf_token %}<button type="submit" aria-label="Retirar {{ participant.athlete_profile.person.display_name }}">×</button></form>{% endif %}</span>{% endfor %}</div></article>
+  <article><span>Objectius</span><strong>{{ revision.goals.count }}</strong><div>{% for goal in revision.goals.all %}<p><b>{{ goal.get_priority_display }}</b><span>{{ goal.description }}</span>{% if can_edit_revision %}<form method="post" action="{% url 'iatrain_session_goal_delete' training_session.pk goal.pk %}">{% csrf_token %}<button type="submit" aria-label="Retirar objectiu">×</button></form>{% endif %}</p>{% endfor %}</div></article>
+</section>
+
+<div class="iatrain-section-head"><div><span class="iatrain-eyebrow">Estructura</span><h2>Blocs</h2></div></div>
+{% if revision.blocks.all %}
+  <div class="iatrain-block-list">
+    {% for block in revision.blocks.all %}
+      <section class="iatrain-block-card domain-{{ block.domain }}">
+        <header><span class="iatrain-block-order">{{ block.sequence_index }}</span><div><span>{{ block.get_block_role_display }} · {{ block.get_domain_display }}</span><h2>{{ block.name }}</h2>{% if block.objective %}<p>{{ block.objective }}</p>{% endif %}</div><dl><dt>{{ block.planned_duration_minutes }} min</dt><dd>{{ block.get_execution_mode_display }}{% if block.rounds > 1 %} · {{ block.rounds }} rondes{% endif %}</dd></dl>{% if can_edit_revision %}<div class="iatrain-block-actions"><a href="{% url 'iatrain_session_block_edit' training_session.pk block.pk %}">Editar</a>{% if not block.items.all %}<form method="post" action="{% url 'iatrain_session_block_delete' training_session.pk block.pk %}">{% csrf_token %}<button type="submit">Eliminar</button></form>{% endif %}</div>{% endif %}</header>
+        {% if block.items.all %}
+          <div class="iatrain-item-list">
+            {% for item in block.items.all %}
+              <article>
+                <span class="iatrain-item-order">{{ item.sequence_index }}</span>
+                <div class="iatrain-item-copy"><small>{{ item.get_item_type_display }}</small><h3>{{ item.title }}</h3>{% if item.instructions %}<p>{{ item.instructions }}</p>{% endif %}{% if item.selection_rationale %}<blockquote>{{ item.selection_rationale }}</blockquote>{% endif %}</div>
+                {% if item.item_type == 'physical_exercise' %}{% with dose=item.physical_prescription %}<div class="iatrain-dose"><strong>{{ dose.sets }} × {% if dose.repetitions %}{{ dose.repetitions }}{% elif dose.duration_seconds %}{{ dose.duration_seconds }} s{% else %}—{% endif %}</strong><span>{{ dose.exercise_revision.exercise.name }}</span>{% if dose.intensity_metric != 'none' %}<em>{{ dose.intensity_metric|upper }} {{ dose.intensity_value }}</em>{% endif %}</div>{% endwith %}{% elif item.planned_duration_seconds %}<div class="iatrain-dose"><strong>{{ item.planned_duration_seconds }} s</strong></div>{% endif %}
+                {% if can_edit_revision %}<div class="iatrain-item-actions"><a href="{% url 'iatrain_session_item_edit' training_session.pk item.pk %}">Editar</a><form method="post" action="{% url 'iatrain_session_item_delete' training_session.pk item.pk %}">{% csrf_token %}<button type="submit">Eliminar</button></form></div>{% endif %}
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}<div class="iatrain-block-empty">Bloc buit</div>{% endif %}
+        {% if can_edit_revision %}<footer><a href="{% url 'iatrain_session_item_create' training_session.pk block.pk %}">＋ Afegir ítem</a></footer>{% endif %}
+      </section>
+    {% endfor %}
+  </div>
+{% else %}<div class="iatrain-compact-empty">Afegeix el primer bloc.</div>{% endif %}
+
+{% if can_edit_revision %}
+  <section class="iatrain-session-add-grid tone-training">
+    {% if training_session.session_scope != 'individual' or not revision.participant_plans.all %}<details{% if participant_form.errors %} open{% endif %}><summary>Afegir participant</summary>{% include "iatrain/components/inline_form.html" with form=participant_form action="participant" active_tab="" submit_label="Afegir" %}</details>{% endif %}
+    <details{% if goal_form.errors %} open{% endif %}><summary>Afegir objectiu</summary>{% include "iatrain/components/inline_form.html" with form=goal_form action="goal" active_tab="" submit_label="Afegir" %}</details>
+    <details{% if block_form.errors %} open{% endif %}><summary>Afegir bloc</summary>{% include "iatrain/components/inline_form.html" with form=block_form action="block" active_tab="" submit_label="Crear bloc" %}</details>
+  </section>
+{% endif %}
+{% endblock %}

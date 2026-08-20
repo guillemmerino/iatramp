@@ -3,8 +3,12 @@
 from django.db.models import Q
 
 from .models import (
+    AthleteCondition,
+    AthleteInsight,
+    AthleteMeasurement,
     AthleteObservation,
     AthleteProfile,
+    AthleteSportProfile,
     CoachAthleteRelation,
     CoachProfile,
     ElementNotation,
@@ -14,8 +18,15 @@ from .models import (
     KnowledgeEditorialEvent,
     KnowledgeRelation,
     TrainingContext,
+    TrainingItemResult,
+    TrainingSession,
+    TrainingSessionExecution,
+    TrainingSessionRevision,
     TrainingGroup,
     TrainingGroupMembership,
+    SessionAttendance,
+    SessionItemAthleteAdjustment,
+    SessionParticipantPlan,
 )
 
 
@@ -116,6 +127,172 @@ def _merge_coach_owned_data(*, canonical_coach, duplicate_coach):
         group.managing_coaches.remove(duplicate_coach)
 
 
+def _joined_notes(*values):
+    result = []
+    for value in values:
+        value = str(value or "").strip()
+        if value and value not in result:
+            result.append(value)
+    return "\n\n".join(result)
+
+
+def _merge_training_participant_plans(*, canonical_athlete, duplicate_athlete):
+    """Retarget immutable plans without losing per-athlete adjustments."""
+
+    for source in list(
+        SessionParticipantPlan.objects.select_for_update().filter(
+            athlete_profile=duplicate_athlete
+        )
+    ):
+        target = (
+            SessionParticipantPlan.objects.select_for_update()
+            .filter(
+                session_revision=source.session_revision,
+                athlete_profile=canonical_athlete,
+            )
+            .exclude(pk=source.pk)
+            .first()
+        )
+        if target is None:
+            SessionParticipantPlan.objects.filter(pk=source.pk).update(
+                athlete_profile=canonical_athlete
+            )
+            continue
+
+        for adjustment in list(
+            SessionItemAthleteAdjustment.objects.select_for_update().filter(
+                participant_plan=source
+            )
+        ):
+            existing = (
+                SessionItemAthleteAdjustment.objects.select_for_update()
+                .filter(session_item=adjustment.session_item, participant_plan=target)
+                .exclude(pk=adjustment.pk)
+                .first()
+            )
+            if existing is None:
+                SessionItemAthleteAdjustment.objects.filter(pk=adjustment.pk).update(
+                    participant_plan=target
+                )
+                continue
+            SessionItemAthleteAdjustment.objects.filter(pk=existing.pk).update(
+                adaptation_notes=_joined_notes(
+                    existing.adaptation_notes, adjustment.adaptation_notes
+                ),
+                rationale=_joined_notes(existing.rationale, adjustment.rationale),
+            )
+            SessionItemAthleteAdjustment.objects.filter(pk=adjustment.pk).delete()
+
+        SessionParticipantPlan.objects.filter(pk=target.pk).update(
+            individual_objective=_joined_notes(
+                target.individual_objective, source.individual_objective
+            ),
+            planning_notes=_joined_notes(target.planning_notes, source.planning_notes),
+        )
+        SessionParticipantPlan.objects.filter(pk=source.pk).delete()
+
+
+def _merge_training_attendance(*, canonical_athlete, duplicate_athlete):
+    status_priority = {"absent": 0, "excused": 1, "partial": 2, "present": 3}
+    for source in list(
+        SessionAttendance.objects.select_for_update().filter(
+            athlete_profile=duplicate_athlete
+        )
+    ):
+        target = (
+            SessionAttendance.objects.select_for_update()
+            .filter(execution=source.execution, athlete_profile=canonical_athlete)
+            .exclude(pk=source.pk)
+            .first()
+        )
+        if target is None:
+            SessionAttendance.objects.filter(pk=source.pk).update(
+                athlete_profile=canonical_athlete
+            )
+            continue
+        status = max(
+            (target.status, source.status), key=lambda value: status_priority.get(value, 0)
+        )
+        joined_values = [value for value in (target.joined_at, source.joined_at) if value]
+        left_values = [value for value in (target.left_at, source.left_at) if value]
+        SessionAttendance.objects.filter(pk=target.pk).update(
+            status=status,
+            joined_at=min(joined_values) if joined_values else None,
+            left_at=max(left_values) if left_values else None,
+            notes=_joined_notes(target.notes, source.notes),
+        )
+        SessionAttendance.objects.filter(pk=source.pk).delete()
+
+
+def _merge_training_results(*, canonical_athlete, duplicate_athlete):
+    for source in list(
+        TrainingItemResult.objects.select_for_update().filter(
+            athlete_profile=duplicate_athlete
+        )
+    ):
+        target = (
+            TrainingItemResult.objects.select_for_update()
+            .filter(
+                execution=source.execution,
+                session_item=source.session_item,
+                athlete_profile=canonical_athlete,
+            )
+            .exclude(pk=source.pk)
+            .first()
+        )
+        if target is None:
+            TrainingItemResult.objects.filter(pk=source.pk).update(
+                athlete_profile=canonical_athlete
+            )
+            continue
+        TrainingItemResult.objects.filter(pk=target.pk).update(
+            athlete_feedback=_joined_notes(
+                target.athlete_feedback, source.athlete_feedback
+            ),
+            coach_feedback=_joined_notes(target.coach_feedback, source.coach_feedback),
+        )
+        TrainingItemResult.objects.filter(pk=source.pk).delete()
+
+
+def _merge_athlete_sport_profiles(*, canonical_athlete, duplicate_athlete):
+    for source in list(
+        AthleteSportProfile.objects.select_for_update().filter(
+            athlete_profile=duplicate_athlete
+        )
+    ):
+        target = (
+            AthleteSportProfile.objects.select_for_update()
+            .filter(
+                athlete_profile=canonical_athlete,
+                discipline=source.discipline,
+            )
+            .exclude(pk=source.pk)
+            .first()
+        )
+        if target is None:
+            AthleteSportProfile.objects.filter(pk=source.pk).update(
+                athlete_profile=canonical_athlete
+            )
+            continue
+        start_dates = [
+            value
+            for value in (target.training_started_on, source.training_started_on)
+            if value
+        ]
+        AthleteSportProfile.objects.filter(pk=target.pk).update(
+            level_code=target.level_code or source.level_code,
+            training_started_on=min(start_dates) if start_dates else None,
+            preferred_laterality=(
+                source.preferred_laterality
+                if target.preferred_laterality == AthleteSportProfile.Laterality.UNKNOWN
+                else target.preferred_laterality
+            ),
+            notes=_joined_notes(target.notes, source.notes),
+            is_active=target.is_active or source.is_active,
+        )
+        AthleteSportProfile.objects.filter(pk=source.pk).delete()
+
+
 def merge_iatrain_identity(*, canonical, duplicate):
     """Retarget all IA Train data before Core removes the duplicate person."""
     canonical_athlete = AthleteProfile.objects.select_for_update().filter(
@@ -148,6 +325,31 @@ def merge_iatrain_identity(*, canonical, duplicate):
             canonical_athlete=canonical_athlete,
             duplicate_athlete=duplicate_athlete,
         )
+        _merge_training_participant_plans(
+            canonical_athlete=canonical_athlete,
+            duplicate_athlete=duplicate_athlete,
+        )
+        _merge_training_attendance(
+            canonical_athlete=canonical_athlete,
+            duplicate_athlete=duplicate_athlete,
+        )
+        _merge_training_results(
+            canonical_athlete=canonical_athlete,
+            duplicate_athlete=duplicate_athlete,
+        )
+        _merge_athlete_sport_profiles(
+            canonical_athlete=canonical_athlete,
+            duplicate_athlete=duplicate_athlete,
+        )
+        AthleteMeasurement.objects.filter(athlete_profile=duplicate_athlete).update(
+            athlete_profile=canonical_athlete
+        )
+        AthleteCondition.objects.filter(athlete_profile=duplicate_athlete).update(
+            athlete_profile=canonical_athlete
+        )
+        AthleteInsight.objects.filter(athlete_profile=duplicate_athlete).update(
+            athlete_profile=canonical_athlete
+        )
         canonical_athlete.settings = {
             **duplicate_athlete.settings,
             **canonical_athlete.settings,
@@ -166,6 +368,12 @@ def merge_iatrain_identity(*, canonical, duplicate):
         _merge_coach_owned_data(
             canonical_coach=canonical_coach,
             duplicate_coach=duplicate_coach,
+        )
+        TrainingSession.objects.filter(responsible_coach=duplicate_coach).update(
+            responsible_coach=canonical_coach
+        )
+        TrainingSessionExecution.objects.filter(supervised_by=duplicate_coach).update(
+            supervised_by=canonical_coach
         )
         canonical_coach.settings = {
             **duplicate_coach.settings,
@@ -195,3 +403,13 @@ def merge_iatrain_identity(*, canonical, duplicate):
     KnowledgeEditorialEvent.objects.filter(decided_by=duplicate).update(decided_by=canonical)
     AthleteObservation.objects.filter(athlete=duplicate).update(athlete=canonical)
     AthleteObservation.objects.filter(authored_by=duplicate).update(authored_by=canonical)
+    AthleteSportProfile.objects.filter(updated_by=duplicate).update(updated_by=canonical)
+    AthleteMeasurement.objects.filter(recorded_by=duplicate).update(recorded_by=canonical)
+    AthleteCondition.objects.filter(recorded_by=duplicate).update(recorded_by=canonical)
+    AthleteCondition.objects.filter(confirmed_by=duplicate).update(confirmed_by=canonical)
+    AthleteInsight.objects.filter(triggered_by=duplicate).update(triggered_by=canonical)
+    AthleteInsight.objects.filter(confirmed_by=duplicate).update(confirmed_by=canonical)
+    TrainingSession.objects.filter(created_by=duplicate).update(created_by=canonical)
+    TrainingSessionRevision.objects.filter(created_by=duplicate).update(created_by=canonical)
+    TrainingSessionRevision.objects.filter(approved_by=duplicate).update(approved_by=canonical)
+    TrainingItemResult.objects.filter(recorded_by=duplicate).update(recorded_by=canonical)

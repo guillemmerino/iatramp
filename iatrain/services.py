@@ -456,6 +456,7 @@ def record_athlete_observation(
     category=AthleteObservation.Category.NOTE,
     status=AthleteObservation.Status.OBSERVED,
     training_context=None,
+    organization=None,
     concept=None,
     evidence="",
     confidence=None,
@@ -463,12 +464,17 @@ def record_athlete_observation(
     observed_at=None,
     supersedes=None,
 ):
-    organization = training_context.organization if training_context else None
+    context_organization = training_context.organization if training_context else None
+    if organization is not None and context_organization is not None:
+        if organization.pk != context_organization.pk:
+            raise ValidationError("L'organització no coincideix amb el context d'entrenament.")
+    organization = organization or context_organization
     if not can_record_observations(user, athlete, organization=organization):
         raise PermissionDenied("No tens una relació activa amb permís d'edició per a aquest gimnasta.")
 
     observation = AthleteObservation(
         athlete=athlete,
+        organization=organization,
         training_context=training_context,
         concept=concept,
         category=category,
@@ -492,6 +498,7 @@ def revise_athlete_observation(*, user, observation, **changes):
         raise ValidationError("Una revisió no pot canviar de gimnasta.")
     values = {
         "athlete": observation.athlete,
+        "organization": observation.organization,
         "training_context": observation.training_context,
         "concept": observation.concept,
         "category": observation.category,

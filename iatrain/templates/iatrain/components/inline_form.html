@@ -1,0 +1,18 @@
+<form method="post" class="iatrain-form iatrain-profile-form">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="{{ action }}">
+  <input type="hidden" name="active_tab" value="{{ active_tab }}">
+  {% if selected_organization %}<input type="hidden" name="organization_scope" value="{{ selected_organization.pk }}">{% endif %}
+  {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+  {% if form.non_field_errors %}<div class="iatrain-form-alert">{{ form.non_field_errors }}</div>{% endif %}
+  <div class="iatrain-form-grid">
+    {% for field in form.visible_fields %}
+      <div class="iatrain-field{% if field.errors %} has-error{% endif %}{% if field.name == 'notes' or field.name == 'narrative' or field.name == 'evidence' or field.name == 'protocol' %} is-wide{% endif %}">
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {{ field.errors }}
+      </div>
+    {% endfor %}
+  </div>
+  <button class="iatrain-button iatrain-button--domain" type="submit">{{ submit_label }}</button>
+</form>

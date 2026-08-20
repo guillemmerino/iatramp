@@ -2,6 +2,139 @@
 {% block iatrain_title %}{{ athlete_profile.person.display_name }}{% endblock %}
 {% block iatrain_content %}
 <a class="iatrain-back-link" href="{% url 'iatrain_athlete_list' %}">← Gimnastes</a>
-<section class="iatrain-detail-hero tone-athlete"><span class="iatrain-detail-avatar">{{ athlete_profile.person.display_name|first|upper }}</span><div><span class="iatrain-eyebrow">Perfil esportiu</span><h1>{{ athlete_profile.person.display_name }}</h1><p>{% if athlete_profile.person.email %}{{ athlete_profile.person.email }}{% else %}Sense correu vinculat{% endif %}</p></div><span class="iatrain-status-badge">Actiu</span></section>
-<section class="iatrain-panel tone-group iatrain-panel--wide"><div class="iatrain-panel-head"><div><span>Organització</span><h2>Grups actius</h2></div></div>{% if athlete_memberships %}<ul class="iatrain-rows">{% for membership in athlete_memberships %}<li><a href="{% url 'iatrain_group_detail' membership.training_group.pk %}"><span class="iatrain-row-icon">G</span><span><strong>{{ membership.training_group.name }}</strong><small>{{ membership.training_group.organization.name }}</small></span><b>→</b></a></li>{% endfor %}</ul>{% else %}<div class="iatrain-panel-empty">Aquest gimnasta encara no forma part de cap grup que gestionis.</div>{% endif %}</section>
+
+<section class="iatrain-profile-hero tone-athlete">
+  <div class="iatrain-profile-identity">
+    <span class="iatrain-detail-avatar">{{ athlete_profile.person.display_name|first|upper }}</span>
+    <div>
+      <span class="iatrain-eyebrow">Gimnasta</span>
+      <h1>{{ athlete_profile.person.display_name }}</h1>
+      <div class="iatrain-profile-meta">
+        {% if profile_context.athlete.age_years %}<span>{{ profile_context.athlete.age_years }} anys</span>{% endif %}
+        {% for sport in sport_records %}<span>{{ sport.get_discipline_display }}{% if sport.level_code %} · {{ sport.level_label }}{% endif %}</span>{% endfor %}
+        {% if profile_context and not profile_context.scope.health_data_available %}<span class="is-warning">Salut no disponible</span>{% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="iatrain-inline-actions">
+    <a class="iatrain-button iatrain-button--secondary" href="{% url 'iatrain_training_start' %}?athlete={{ athlete_profile.pk }}{% if selected_organization %}&organization={{ selected_organization.pk }}{% endif %}">Nova sessió</a>
+    <a class="iatrain-button iatrain-button--domain" href="{% url 'iatrain_profile_review' %}?athlete={{ athlete_profile.pk }}">Revisions</a>
+  </div>
+</section>
+
+{% if organization_options|length > 1 %}
+  <form class="iatrain-scope-switch" method="get">
+    <input type="hidden" name="tab" value="{{ active_tab }}">
+    <label for="profile-organization">Organització</label>
+    <select id="profile-organization" name="organization" onchange="this.form.submit()">
+      {% for organization in organization_options %}<option value="{{ organization.pk }}"{% if selected_organization.pk == organization.pk %} selected{% endif %}>{{ organization.name }}</option>{% endfor %}
+    </select>
+  </form>
+{% endif %}
+
+<nav class="iatrain-tabs" aria-label="Perfil del gimnasta">
+  <a href="?tab=overview{% if selected_organization %}&organization={{ selected_organization.pk }}{% endif %}"{% if active_tab == 'overview' %} aria-current="page"{% endif %}>Resum</a>
+  <a href="?tab=profile{% if selected_organization %}&organization={{ selected_organization.pk }}{% endif %}"{% if active_tab == 'profile' %} aria-current="page"{% endif %}>Perfil</a>
+  <a href="?tab=measurements{% if selected_organization %}&organization={{ selected_organization.pk }}{% endif %}"{% if active_tab == 'measurements' %} aria-current="page"{% endif %}>Mesures</a>
+  <a href="?tab=conditions{% if selected_organization %}&organization={{ selected_organization.pk }}{% endif %}"{% if active_tab == 'conditions' %} aria-current="page"{% endif %}>Condicions</a>
+  <a href="?tab=observations{% if selected_organization %}&organization={{ selected_organization.pk }}{% endif %}"{% if active_tab == 'observations' %} aria-current="page"{% endif %}>Observacions</a>
+  <a href="?tab=training{% if selected_organization %}&organization={{ selected_organization.pk }}{% endif %}"{% if active_tab == 'training' %} aria-current="page"{% endif %}>Entrenaments</a>
+  <a href="?tab=insights{% if selected_organization %}&organization={{ selected_organization.pk }}{% endif %}"{% if active_tab == 'insights' %} aria-current="page"{% endif %}>Interpretacions</a>
+</nav>
+
+{% if active_tab == 'overview' %}
+  {% if profile_context %}
+    <div class="iatrain-profile-summary">
+      <section class="iatrain-profile-main">
+        {% if profile_context.active_conditions %}
+          <div class="iatrain-section-head"><div><span class="iatrain-eyebrow">Ara</span><h2>Condicions actives</h2></div></div>
+          <div class="iatrain-guardrail-list">
+            {% for condition in profile_context.active_conditions %}
+              <article class="is-{{ condition.training_impact }}"><span>{{ condition.training_impact_label }}</span><div><strong>{{ condition.title }}</strong><p>{{ condition.narrative }}</p></div>{% if condition.severity %}<b>{{ condition.severity }}/5</b>{% endif %}</article>
+            {% endfor %}
+          </div>
+        {% elif profile_context.selection_guardrails.requires_health_review %}
+          <div class="iatrain-context-notice">No tens accés a les dades de salut. El selector ho tractarà com informació desconeguda.</div>
+        {% endif %}
+
+        <div class="iatrain-section-head"><div><span class="iatrain-eyebrow">Seguiment</span><h2>Mesures recents</h2></div><a href="?tab=measurements{% if selected_organization %}&organization={{ selected_organization.pk }}{% endif %}">Veure historial</a></div>
+        {% if profile_context.latest_measurements %}
+          <div class="iatrain-stat-grid">
+            {% for measurement in profile_context.latest_measurements|slice:":6" %}
+              <article><span>{{ measurement.metric_label }}</span><strong>{{ measurement.display_value }} <small>{{ measurement.unit }}</small></strong><em>{{ measurement.measured_at|slice:":10" }}</em></article>
+            {% endfor %}
+          </div>
+        {% else %}<div class="iatrain-compact-empty">Encara no hi ha mesures.</div>{% endif %}
+
+        <div class="iatrain-section-head"><div><span class="iatrain-eyebrow">Evidència</span><h2>Activitat recent</h2></div></div>
+        {% if training_responses %}
+          <div class="iatrain-response-list">
+            {% for response in training_responses|slice:":5" %}
+              <article><div><strong>{{ response.exercise|default:response.item_title }}</strong><span>{{ response.recorded_at|slice:":10" }} · {{ response.completion_status }}</span></div><div class="iatrain-response-values">{% if response.actual_sets %}<b>{{ response.actual_sets }}×{{ response.actual_repetitions|default:"—" }}</b>{% endif %}{% if response.perceived_exertion %}<em>RPE {{ response.perceived_exertion }}</em>{% endif %}</div></article>
+            {% endfor %}
+          </div>
+        {% else %}<div class="iatrain-compact-empty">Cap resultat recent.</div>{% endif %}
+      </section>
+
+      <aside class="iatrain-profile-side">
+        <section class="iatrain-mini-panel tone-group">
+          <div class="iatrain-panel-head"><div><span>Organització</span><h2>Grups</h2></div></div>
+          {% if athlete_memberships %}<ul class="iatrain-rows">{% for membership in athlete_memberships %}<li><a href="{% url 'iatrain_group_detail' membership.training_group.pk %}"><span class="iatrain-row-icon">G</span><span><strong>{{ membership.training_group.name }}</strong><small>{{ membership.training_group.organization.name }}</small></span><b>→</b></a></li>{% endfor %}</ul>{% else %}<div class="iatrain-panel-empty">Sense grup actiu.</div>{% endif %}
+        </section>
+        <section class="iatrain-mini-panel tone-athlete">
+          <div class="iatrain-panel-head"><div><span>Entrenador</span><h2>Observacions</h2></div></div>
+          {% if observation_records %}<div class="iatrain-mini-feed">{% for observation in observation_records|slice:":4" %}<article><strong>{{ observation.get_category_display }}</strong><p>{{ observation.narrative|truncatechars:110 }}</p><span>{{ observation.observed_at|date:"d/m/Y" }}</span></article>{% endfor %}</div>{% else %}<div class="iatrain-panel-empty">Sense observacions.</div>{% endif %}
+        </section>
+      </aside>
+    </div>
+  {% else %}<div class="iatrain-empty-inline"><strong>Perfil limitat</strong><p>No tens accés al context d’entrenament d’aquest gimnasta.</p></div>{% endif %}
+
+{% elif active_tab == 'profile' %}
+  <section class="iatrain-tab-layout tone-athlete">
+    <div class="iatrain-tab-content">
+      <div class="iatrain-section-head"><div><span class="iatrain-eyebrow">Disciplines</span><h2>Perfil esportiu</h2></div></div>
+      {% if sport_records %}<div class="iatrain-record-grid">{% for sport in sport_records %}<article><span>{{ sport.get_discipline_display }}</span><h3>{{ sport.level_label|default:"Nivell no indicat" }}</h3><dl><div><dt>Inici</dt><dd>{{ sport.training_started_on|date:"Y"|default:"—" }}</dd></div><div><dt>Lateralitat</dt><dd>{{ sport.get_preferred_laterality_display }}</dd></div></dl>{% if sport.notes %}<p>{{ sport.notes }}</p>{% endif %}</article>{% endfor %}</div>{% else %}<div class="iatrain-compact-empty">Afegeix la primera disciplina.</div>{% endif %}
+    </div>
+    {% if can_edit_profile %}<details class="iatrain-action-drawer"{% if sport_form.errors %} open{% endif %}><summary>Afegir o actualitzar disciplina</summary>{% include "iatrain/components/inline_form.html" with form=sport_form action="sport_profile" active_tab="profile" submit_label="Desar perfil" %}</details>{% endif %}
+  </section>
+
+{% elif active_tab == 'measurements' %}
+  <section class="iatrain-tab-layout tone-group">
+    <div class="iatrain-tab-content">
+      <div class="iatrain-section-head"><div><span class="iatrain-eyebrow">Historial</span><h2>Mesures</h2></div></div>
+      {% if measurement_records %}<div class="iatrain-data-table"><div class="iatrain-data-head"><span>Mètrica</span><span>Valor</span><span>Data</span><span>Font</span></div>{% for measurement in measurement_records %}<article{% if measurement.status == 'invalidated' %} class="is-muted"{% endif %}><div><strong>{{ measurement.metric_label }}</strong><small>{{ measurement.get_domain_display }}{% if measurement.side != 'not_applicable' %} · {{ measurement.get_side_display }}{% endif %}</small></div><b>{{ measurement.value|floatformat:"-4" }} {{ measurement.unit }}</b><span>{{ measurement.measured_at|date:"d/m/Y" }}</span><em>{{ measurement.get_source_display }}</em></article>{% endfor %}</div>{% else %}<div class="iatrain-compact-empty">Encara no hi ha mesures.</div>{% endif %}
+    </div>
+    {% if can_edit_profile %}<details class="iatrain-action-drawer"{% if measurement_form.errors %} open{% endif %}><summary>Registrar mesura</summary>{% include "iatrain/components/inline_form.html" with form=measurement_form action="measurement" active_tab="measurements" submit_label="Registrar" %}</details>{% endif %}
+  </section>
+
+{% elif active_tab == 'conditions' %}
+  <section class="iatrain-tab-layout tone-athlete">
+    <div class="iatrain-tab-content">
+      <div class="iatrain-section-head"><div><span class="iatrain-eyebrow">Salut i disponibilitat</span><h2>Condicions</h2></div></div>
+      {% if not health_access %}<div class="iatrain-context-notice">No tens permís per consultar dades de salut.</div>{% elif condition_records %}<div class="iatrain-condition-list">{% for condition in condition_records %}<article class="is-{{ condition.status }} impact-{{ condition.training_impact }}"><div class="iatrain-record-top"><span>{{ condition.get_status_display }}</span><em>{{ condition.get_training_impact_display }}</em></div><h3>{{ condition.title }}</h3><p>{{ condition.narrative }}</p><small>{{ condition.get_source_display }} · {{ condition.started_at|date:"d/m/Y" }}</small>{% if condition.status == 'proposed' %}<div class="iatrain-review-actions"><form method="post" action="{% url 'iatrain_condition_review' condition.pk %}">{% csrf_token %}<input type="hidden" name="decision" value="accept"><input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="iatrain-button iatrain-button--primary" type="submit">Confirmar</button></form><form method="post" action="{% url 'iatrain_condition_review' condition.pk %}">{% csrf_token %}<input type="hidden" name="decision" value="reject"><input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="iatrain-button iatrain-button--ghost" type="submit">Descartar</button></form></div>{% elif condition.status == 'confirmed' %}<form method="post" action="{% url 'iatrain_condition_resolve' condition.pk %}" class="iatrain-record-action">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button type="submit">Marcar com a resolta</button></form>{% endif %}</article>{% endfor %}</div>{% else %}<div class="iatrain-compact-empty">No hi ha condicions registrades.</div>{% endif %}
+    </div>
+    {% if can_edit_profile and health_access %}<details class="iatrain-action-drawer"{% if condition_form.errors %} open{% endif %}><summary>Afegir condició</summary>{% include "iatrain/components/inline_form.html" with form=condition_form action="condition" active_tab="conditions" submit_label="Enviar a revisió" %}</details>{% endif %}
+  </section>
+
+{% elif active_tab == 'observations' %}
+  <section class="iatrain-tab-layout tone-athlete">
+    <div class="iatrain-tab-content">
+      <div class="iatrain-section-head"><div><span class="iatrain-eyebrow">Criteri professional</span><h2>Observacions</h2></div></div>
+      {% if observation_records %}<div class="iatrain-timeline">{% for observation in observation_records %}<article><time>{{ observation.observed_at|date:"d M Y" }}</time><div><span>{{ observation.get_category_display }}</span><h3>{{ observation.narrative }}</h3>{% if observation.evidence %}<p>{{ observation.evidence }}</p>{% endif %}<small>{{ observation.authored_by.display_name }}{% if observation.confidence %} · Confiança {{ observation.confidence }}{% endif %}</small></div></article>{% endfor %}</div>{% else %}<div class="iatrain-compact-empty">Encara no hi ha observacions.</div>{% endif %}
+    </div>
+    {% if can_edit_profile %}<details class="iatrain-action-drawer"{% if observation_form.errors %} open{% endif %}><summary>Afegir observació</summary>{% include "iatrain/components/inline_form.html" with form=observation_form action="observation" active_tab="observations" submit_label="Registrar" %}</details>{% endif %}
+  </section>
+
+{% elif active_tab == 'training' %}
+  <section class="iatrain-tab-content">
+    <div class="iatrain-section-head"><div><span class="iatrain-eyebrow">Últims 42 dies</span><h2>Resposta als entrenaments</h2></div><a href="{% url 'iatrain_training_start' %}?athlete={{ athlete_profile.pk }}{% if selected_organization %}&organization={{ selected_organization.pk }}{% endif %}">Nova sessió</a></div>
+    {% if training_responses %}<div class="iatrain-training-history">{% for response in training_responses %}<article><div><span>{{ response.recorded_at|slice:":10" }}</span><h3>{{ response.exercise|default:response.item_title }}</h3><small>{{ response.completion_status }}{% if response.execution_quality %} · Qualitat {{ response.execution_quality }}/5{% endif %}</small></div><dl><div><dt>Volum</dt><dd>{% if response.actual_sets %}{{ response.actual_sets }}×{{ response.actual_repetitions|default:"—" }}{% elif response.actual_duration_seconds %}{{ response.actual_duration_seconds }} s{% else %}—{% endif %}</dd></div><div><dt>RPE</dt><dd>{{ response.perceived_exertion|default:"—" }}</dd></div>{% if health_access %}<div><dt>Dolor</dt><dd>{{ response.pain_response|default:"—" }}</dd></div>{% endif %}</dl></article>{% endfor %}</div>{% else %}<div class="iatrain-compact-empty">Encara no hi ha resultats registrats.</div>{% endif %}
+  </section>
+
+{% elif active_tab == 'insights' %}
+  <section class="iatrain-tab-content">
+    <div class="iatrain-section-head"><div><span class="iatrain-eyebrow">Interpretació</span><h2>Tendències i hipòtesis</h2></div></div>
+    {% if insight_records %}<div class="iatrain-insight-list">{% for insight in insight_records %}<article class="is-{{ insight.status }}"><div class="iatrain-record-top"><span>{{ insight.get_kind_display }}</span><em>{{ insight.get_status_display }}</em></div><h3>{{ insight.statement }}</h3><p>{{ insight.rationale }}</p><footer><span>Confiança {{ insight.confidence }}</span><span>{{ insight.evidence_links.count }} evidències</span></footer>{% if insight.status == 'proposed' %}<div class="iatrain-review-actions"><form method="post" action="{% url 'iatrain_insight_review' insight.pk %}">{% csrf_token %}<input type="hidden" name="decision" value="accept"><input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="iatrain-button iatrain-button--primary" type="submit">Confirmar</button></form><form method="post" action="{% url 'iatrain_insight_review' insight.pk %}">{% csrf_token %}<input type="hidden" name="decision" value="reject"><input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="iatrain-button iatrain-button--ghost" type="submit">Descartar</button></form></div>{% endif %}</article>{% endfor %}</div>{% else %}<div class="iatrain-compact-empty">No hi ha interpretacions.</div>{% endif %}
+  </section>
+{% endif %}
 {% endblock %}

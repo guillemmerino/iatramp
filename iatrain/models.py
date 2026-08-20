@@ -1219,6 +1219,14 @@ class AthleteObservation(models.Model):
         on_delete=models.PROTECT,
         related_name="training_observations",
     )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="athlete_observations",
+        help_text="Abast de privacitat; buit només per a observacions personals globals.",
+    )
     training_context = models.ForeignKey(
         TrainingContext,
         on_delete=models.SET_NULL,
@@ -1298,6 +1306,9 @@ class AthleteObservation(models.Model):
         if self.training_context_id and self.athlete_id:
             if not self.training_context.athletes.filter(pk=self.athlete_id).exists():
                 errors["training_context"] = "El gimnasta no està associat a aquest context."
+        if self.training_context_id and self.organization_id:
+            if self.training_context.organization_id != self.organization_id:
+                errors["organization"] = "L'organització ha de coincidir amb el context."
         if self.training_context_id and self.concept_id:
             context_scope = self.training_context.discipline.strip().lower()
             concept_scope = self.concept.discipline.strip().lower()
@@ -1315,3 +1326,29 @@ class AthleteObservation(models.Model):
 
     def __str__(self):
         return f"{self.athlete} · {self.get_category_display()} · {self.observed_at:%Y-%m-%d}"
+
+
+# Training is split by domain internally while preserving the conventional
+# ``iatrain.models`` import surface used by Django and the rest of the project.
+from .training.models import (  # noqa: E402,F401
+    PhysicalExercisePrescription,
+    SessionAttendance,
+    SessionGoal,
+    SessionItemAlternative,
+    SessionItemAthleteAdjustment,
+    SessionParticipantPlan,
+    TrainingBlock,
+    TrainingItemResult,
+    TrainingSession,
+    TrainingSessionExecution,
+    TrainingSessionItem,
+    TrainingSessionRevision,
+)
+
+from .athletes.models import (  # noqa: E402,F401
+    AthleteCondition,
+    AthleteInsight,
+    AthleteInsightEvidence,
+    AthleteMeasurement,
+    AthleteSportProfile,
+)

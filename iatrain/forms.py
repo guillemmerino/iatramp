@@ -2,7 +2,15 @@ from django import forms
 
 from organizations.models import Organization
 
-from .models import AthleteProfile, CoachAthleteRelation, GymEquipment
+from .models import (
+    AthleteCondition,
+    AthleteMeasurement,
+    AthleteObservation,
+    AthleteProfile,
+    AthleteSportProfile,
+    CoachAthleteRelation,
+    GymEquipment,
+)
 from .services import accessible_athletes, organizations_available_to_coach
 
 
@@ -38,11 +46,116 @@ class UnclaimedAthleteForm(forms.Form):
     organization = forms.ModelChoiceField(
         label="Organització", queryset=Organization.objects.none(), required=False
     )
-    function = forms.ChoiceField(label="Funció", choices=CoachAthleteRelation.Function.choices)
+    function = forms.ChoiceField(
+        label="Relació amb el gimnasta",
+        choices=CoachAthleteRelation.Function.choices,
+    )
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["organization"].queryset = organizations_available_to_coach(user)
+
+
+class AthleteSportProfileForm(forms.Form):
+    discipline = forms.ChoiceField(label="Disciplina", choices=AthleteSportProfile.Discipline.choices)
+    level_code = forms.CharField(label="Nivell", max_length=80, required=False)
+    training_started_on = forms.DateField(
+        label="Inici de la pràctica",
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    preferred_laterality = forms.ChoiceField(
+        label="Lateralitat preferent",
+        choices=AthleteSportProfile.Laterality.choices,
+    )
+    notes = forms.CharField(
+        label="Notes",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+
+
+class AthleteMeasurementForm(forms.Form):
+    domain = forms.ChoiceField(label="Àrea", choices=AthleteMeasurement.Domain.choices)
+    metric_code = forms.CharField(required=False, widget=forms.HiddenInput())
+    metric_label = forms.CharField(label="Nom visible", max_length=180)
+    value = forms.DecimalField(label="Valor", max_digits=12, decimal_places=4)
+    unit = forms.CharField(label="Unitat", max_length=40)
+    side = forms.ChoiceField(label="Costat", choices=AthleteMeasurement.Side.choices)
+    protocol = forms.CharField(
+        label="Protocol",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 2}),
+    )
+    source = forms.ChoiceField(label="Font", choices=AthleteMeasurement.Source.choices)
+    measured_at = forms.DateTimeField(
+        label="Data i hora",
+        required=False,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
+    )
+    notes = forms.CharField(
+        label="Notes",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 2}),
+    )
+
+
+class AthleteObservationForm(forms.Form):
+    category = forms.ChoiceField(label="Tipus", choices=AthleteObservation.Category.choices)
+    narrative = forms.CharField(
+        label="Observació",
+        widget=forms.Textarea(attrs={"rows": 4}),
+    )
+    evidence = forms.CharField(
+        label="Evidència observable",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+    confidence = forms.DecimalField(
+        label="Confiança",
+        required=False,
+        min_value=0,
+        max_value=1,
+        decimal_places=3,
+        max_digits=4,
+    )
+    intensity = forms.IntegerField(
+        label="Intensitat",
+        required=False,
+        min_value=1,
+        max_value=5,
+    )
+
+
+class AthleteConditionForm(forms.Form):
+    category = forms.ChoiceField(label="Tipus", choices=AthleteCondition.Category.choices)
+    title = forms.CharField(label="Títol", max_length=180)
+    narrative = forms.CharField(
+        label="Descripció",
+        widget=forms.Textarea(attrs={"rows": 4}),
+    )
+    evidence = forms.CharField(
+        label="Evidència",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+    laterality = forms.ChoiceField(label="Costat", choices=AthleteCondition.Laterality.choices)
+    severity = forms.IntegerField(
+        label="Severitat",
+        required=False,
+        min_value=1,
+        max_value=5,
+    )
+    training_impact = forms.ChoiceField(
+        label="Impacte sobre l'entrenament",
+        choices=AthleteCondition.TrainingImpact.choices,
+    )
+    source = forms.ChoiceField(label="Font", choices=AthleteCondition.Source.choices)
+    valid_until = forms.DateTimeField(
+        label="Vigent fins a",
+        required=False,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
+    )
 
 
 class TrainingGroupForm(forms.Form):

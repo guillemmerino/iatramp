@@ -1,0 +1,28 @@
+{% extends "iatrain/base.html" %}
+{% block iatrain_title %}Revisions{% endblock %}
+{% block iatrain_content %}
+<section class="iatrain-page-head tone-athlete">
+  <div><span class="iatrain-eyebrow">Criteri professional</span><h1>Revisions</h1><p>{{ review_count }} pendents</p></div>
+</section>
+
+{% if review_count %}
+  <div class="iatrain-review-queue">
+    {% for condition in review_conditions %}
+      <article class="iatrain-review-card is-condition">
+        <header><a href="{% url 'iatrain_athlete_detail' condition.athlete_profile.pk %}?tab=conditions{% if condition.organization %}&organization={{ condition.organization.pk }}{% endif %}"><span class="iatrain-row-icon">{{ condition.athlete_profile.person.display_name|first|upper }}</span><div><strong>{{ condition.athlete_profile.person.display_name }}</strong><small>{% if condition.organization %}{{ condition.organization.name }}{% else %}Perfil global{% endif %}</small></div></a><em>{{ condition.get_training_impact_display }}</em></header>
+        <div class="iatrain-review-body"><span>{{ condition.get_category_display }}</span><h2>{{ condition.title }}</h2><p>{{ condition.narrative }}</p>{% if condition.evidence %}<blockquote>{{ condition.evidence }}</blockquote>{% endif %}</div>
+        <footer class="iatrain-review-actions"><form method="post" action="{% url 'iatrain_condition_review' condition.pk %}">{% csrf_token %}<input type="hidden" name="decision" value="accept"><input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="iatrain-button iatrain-button--primary" type="submit">Confirmar</button></form><form method="post" action="{% url 'iatrain_condition_review' condition.pk %}">{% csrf_token %}<input type="hidden" name="decision" value="reject"><input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="iatrain-button iatrain-button--ghost" type="submit">Descartar</button></form></footer>
+      </article>
+    {% endfor %}
+    {% for insight in review_insights %}
+      <article class="iatrain-review-card is-insight">
+        <header><a href="{% url 'iatrain_athlete_detail' insight.athlete_profile.pk %}?tab=insights{% if insight.organization %}&organization={{ insight.organization.pk }}{% endif %}"><span class="iatrain-row-icon">{{ insight.athlete_profile.person.display_name|first|upper }}</span><div><strong>{{ insight.athlete_profile.person.display_name }}</strong><small>{% if insight.organization %}{{ insight.organization.name }}{% else %}Perfil global{% endif %}</small></div></a><em>Confiança {{ insight.confidence }}</em></header>
+        <div class="iatrain-review-body"><span>{{ insight.get_kind_display }}</span><h2>{{ insight.statement }}</h2><p>{{ insight.rationale }}</p><small>{{ insight.evidence_links.count }} evidències</small></div>
+        <footer class="iatrain-review-actions"><form method="post" action="{% url 'iatrain_insight_review' insight.pk %}">{% csrf_token %}<input type="hidden" name="decision" value="accept"><input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="iatrain-button iatrain-button--primary" type="submit">Confirmar</button></form><form method="post" action="{% url 'iatrain_insight_review' insight.pk %}">{% csrf_token %}<input type="hidden" name="decision" value="reject"><input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="iatrain-button iatrain-button--ghost" type="submit">Descartar</button></form></footer>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="iatrain-empty-state tone-athlete"><span class="iatrain-eyebrow">Al dia</span><h1>No hi ha revisions pendents</h1></div>
+{% endif %}
+{% endblock %}

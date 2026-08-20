@@ -29,9 +29,11 @@
       <a class="tone-organization" href="{% url 'iatrain_organization_list' %}" {% if 'organization' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Organitzacions</a>
       <a class="tone-group" href="{% url 'iatrain_group_list' %}" {% if 'group' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Grups</a>
       <a class="tone-athlete" href="{% url 'iatrain_athlete_list' %}" {% if 'athlete' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Gimnastes</a>
+      <a class="tone-athlete" href="{% url 'iatrain_profile_review' %}" {% if 'review' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Revisions</a>
+      <a class="tone-training" href="{% url 'iatrain_session_list' %}" {% if 'session' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Sessions</a>
       <a class="tone-gym" href="{% url 'iatrain_gym_list' %}" {% if 'gym' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Gimnasos</a>
       {% if request.user.is_superuser %}<a class="tone-knowledge" href="{% url 'iatrain_knowledge_graph' %}" {% if 'knowledge_graph' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Graf 3D</a>{% endif %}
     </nav>
-    <a class="iatrain-start-button" href="{% url 'iatrain_training_start' %}"><span>▶</span> Començar entrenament</a>
+    <a class="iatrain-start-button" href="{% url 'iatrain_training_start' %}" aria-label="Començar entrenament: nova sessió"><span>＋</span> Nova sessió</a>
   </div>
 {% endif %}

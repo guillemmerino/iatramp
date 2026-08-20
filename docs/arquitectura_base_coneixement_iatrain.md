@@ -143,7 +143,9 @@ La capa de l'entrenador podrà formar un **overlay o subgraf d'ús**, però no s
 
 ### 3.4. Capa operativa i temporal
 
-**Estat: dissenyada conceptualment, pendent dels models principals.**
+**Estat: base de sessions implementada.** La definició operativa actual, els models,
+les transicions i les regles de govern es documenten a
+[`estructura_i_govern_sessions_iatrain.md`](estructura_i_govern_sessions_iatrain.md).
 
 La unitat operativa inicial ha de ser `TrainingSession`. Una sessió contindrà `TrainingSessionItem` ordenats. Un ítem no s'ha de limitar necessàriament a «un exercici»: és una entrada executable de la sessió que podrà referenciar una tasca, un element, una seqüència, un bloc o una indicació, i afegir volum, durada, repeticions, descans, objectiu i adaptacions.
 
@@ -160,7 +162,7 @@ El model `TrainingContext` existeix al codi, però actualment està en desús i 
 
 ### 3.5. Estat temporal del gimnasta
 
-**Estat: suport parcial construït; interpretació completa pendent.**
+**Estat: capa de perfil viu implementada; motor d'interpretació automàtica pendent.**
 
 L'estat del gimnasta no ha de ser un conjunt rígid de caselles. Depèn de la sessió, el punt de la temporada, l'objectiu, la fatiga, la confiança, el treball recent i les observacions del moment. L'LLM haurà de construir una interpretació temporal a partir d'evidència, casos semblants i historial.
 
@@ -174,7 +176,16 @@ El model actual `AthleteObservation` permet conservar afirmacions narratives ver
 - moment d'observació, autoria i concepte professional relacionat;
 - revisió no destructiva mitjançant `supersedes`.
 
-Aquest registre històric ha de permetre explicar en el futur per què es va generar una sessió i comparar la decisió amb els resultats posteriors. No s'ha de confondre una observació datada amb una propietat permanent del gimnasta.
+Aquest registre es combina ara amb `AthleteSportProfile`, `AthleteMeasurement`,
+`AthleteCondition`, els resultats de sessió i les interpretacions explicables
+`AthleteInsight`. `build_athlete_profile_context` construeix una fotografia
+temporal sense convertir-la en una nova font de veritat. El model complet, els
+permisos i el flux d'actualització es documenten a
+[`entrega_2_identitat_i_perfils_iatrain.md`](entrega_2_identitat_i_perfils_iatrain.md#perfil-viu-del-gimnasta).
+
+Aquest registre històric permet explicar per què es va generar una sessió i
+comparar la decisió amb els resultats posteriors. No s'ha de confondre una
+observació datada amb una propietat permanent del gimnasta.
 
 ## 4. Model professional actual
 

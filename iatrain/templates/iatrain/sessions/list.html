@@ -1,0 +1,29 @@
+{% extends "iatrain/base.html" %}
+{% block iatrain_title %}Sessions{% endblock %}
+{% block iatrain_content %}
+<section class="iatrain-page-head tone-training">
+  <div><span class="iatrain-eyebrow">Planificació</span><h1>Sessions</h1></div>
+  <a class="iatrain-start-button" href="{% url 'iatrain_training_start' %}"><span>＋</span> Nova sessió</a>
+</section>
+
+<nav class="iatrain-filter-chips" aria-label="Filtrar sessions">
+  <a href="{% url 'iatrain_session_list' %}"{% if not selected_status %} aria-current="page"{% endif %}>Totes</a>
+  {% for value, label in session_statuses %}<a href="?status={{ value }}"{% if selected_status == value %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+</nav>
+
+{% if training_sessions %}
+  <div class="iatrain-session-grid">
+    {% for session in training_sessions %}
+      {% with revision=session.revisions.first %}
+        <a class="iatrain-session-card tone-training" href="{% url 'iatrain_session_detail' session.pk %}">
+          <header><time datetime="{{ session.scheduled_start|date:'c' }}"><strong>{{ session.scheduled_start|date:"d" }}</strong><span>{{ session.scheduled_start|date:"M" }}</span></time><div><span>{{ session.organization.name }}</span><h2>{% if revision %}{{ revision.title }}{% else %}Sessió sense versió{% endif %}</h2></div><em class="is-{{ session.lifecycle_status }}">{{ session.get_lifecycle_status_display }}</em></header>
+          <dl><div><dt>Hora</dt><dd>{{ session.scheduled_start|date:"H:i" }}</dd></div><div><dt>Durada</dt><dd>{{ session.expected_duration_minutes }} min</dd></div><div><dt>Disciplina</dt><dd>{{ session.get_discipline_display }}</dd></div><div><dt>Versió</dt><dd>{% if revision %}v{{ revision.revision_number }} · {{ revision.get_status_display }}{% else %}—{% endif %}</dd></div></dl>
+          <footer>{% if session.training_group %}<span>{{ session.training_group.name }}</span>{% else %}<span>Individual</span>{% endif %}<b>Obrir →</b></footer>
+        </a>
+      {% endwith %}
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="iatrain-empty-state tone-training"><span class="iatrain-eyebrow">Planificació</span><h1>No hi ha sessions en aquest estat</h1><a class="iatrain-start-button" href="{% url 'iatrain_training_start' %}">Crear sessió</a></div>
+{% endif %}
+{% endblock %}
