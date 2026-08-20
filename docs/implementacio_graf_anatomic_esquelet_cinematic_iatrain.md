@@ -298,7 +298,8 @@ L'ordre recomanat és el següent:
 7. **Construir un tall vertical.** Descriure una variant exacta i ben delimitada de Barani de cap a cap abans d'expandir el catàleg.
 8. **Afegir seqüències i corpus.** Conservar fora del graf les sèries massives i mantenir a PostgreSQL metadades, versions, permisos, anotacions i procedència.
 9. **Afegir la capa normativa.** Separar identitat de l'element, patró observat i criteri de bona execució; versionar qualsevol dependència del reglament.
-10. **Biomecànica funcional — implementada en `draft`.** Revisar professionalment la llavor descrita a [`implementacio_capa_biomecanica_iatrain.md`](implementacio_capa_biomecanica_iatrain.md) i ampliar condicions o evidència només amb casos verificables. La biomecànica quantitativa i la capa privada d'exercicis continuen sent futures.
+10. **Biomecànica funcional — implementada en `draft`.** Revisar professionalment la llavor descrita a [`implementacio_capa_biomecanica_iatrain.md`](implementacio_capa_biomecanica_iatrain.md) i ampliar condicions o evidència només amb casos verificables. La biomecànica quantitativa continua sent futura.
+11. **Catàleg privat d'exercicis — primera estructura implementada.** Revisar i ampliar els exemples seguint [`implementacio_cataleg_privat_exercicis_iatrain.md`](implementacio_cataleg_privat_exercicis_iatrain.md), sense crear encara un catàleg professional comú.
 
 ## 11. Criteris mínims del futur mapatge de tracker
 
@@ -325,6 +326,7 @@ Abans d'acceptar un adaptador com a fiable, ha de demostrar:
 - `iatrain_motion/migrations/`: esquema persistent i evolució versionada.
 - `iatrain_motion/tests/`: contractes de models, govern, llavors i esquelet.
 - `iatrain_biomechanics/`: funcions musculars, context, evidència, govern, raonament i llavor biomecànica.
+- `iatrain_exercises/`: catàleg privat, fases, connexions biomecàniques, buits i propostes editorials.
 - `iatrain/views/knowledge_graph.py`: projecció tècnica i anatòmica per al visor.
 - `iatrain/static/iatrain/knowledge_graph.js`: selector i representació interactiva.
 

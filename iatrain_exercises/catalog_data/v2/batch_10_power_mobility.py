@@ -1,0 +1,47 @@
+from .common import batch, variant as V
+from .templates import CALF_RAISE, DORSIFLEXION, HINGE, HIP_ABDUCTION, HIP_ADDUCTION, HORIZONTAL_PRESS, JUMP, SHOULDER_ABDUCTION, SHOULDER_EXTERNAL_ROTATION, SQUAT, TRUNK_EXTENSION, TRUNK_ROTATION, UNILATERAL_SQUAT
+
+
+ROWS = [
+    V("squat_jump", "Salt des d'esquat", "vertical_jump", "Salt vertical", JUMP, difficulty="intermediate", modality="power", objective="power"),
+    V("countermovement_jump", "Salt vertical amb contramoviment", "vertical_jump", "Salt vertical", JUMP, difficulty="intermediate", modality="power", objective="power"),
+    V("box_jump", "Salt bilateral a caixa", "box_jump_family", "Salt a caixa", JUMP, equipment=("box",), difficulty="intermediate", modality="power", objective="power"),
+    V("low_box_jump", "Salt a caixa baixa", "box_jump_family", "Salt a caixa", JUMP, equipment=("box",), difficulty="beginner", modality="power", objective="power"),
+    V("lateral_box_jump", "Salt lateral a caixa", "box_jump_family", "Salt a caixa", JUMP, equipment=("box",), difficulty="advanced", laterality="unilateral", modality="power", objective="power"),
+    V("broad_jump", "Salt horitzontal a peus junts", "horizontal_jump", "Salt horitzontal", JUMP, difficulty="intermediate", modality="power", objective="power"),
+    V("lateral_skater_jump", "Salt lateral alternant", "lateral_jump", "Salt lateral", JUMP, difficulty="intermediate", laterality="alternating", modality="power", objective="power"),
+    V("single_leg_vertical_hop", "Salt vertical a una cama", "single_leg_jump", "Salt a una cama", JUMP, difficulty="advanced", laterality="unilateral", modality="power", objective="power"),
+    V("single_leg_forward_hop", "Salt endavant a una cama", "single_leg_jump", "Salt a una cama", JUMP, difficulty="advanced", laterality="unilateral", modality="power", objective="power"),
+    V("single_leg_lateral_hop", "Salt lateral a una cama", "single_leg_jump", "Salt a una cama", JUMP, difficulty="advanced", laterality="unilateral", modality="power", objective="power"),
+    V("split_squat_jump", "Salt en posició d'esquat dividit", "split_jump", "Salt dividit", JUMP, difficulty="advanced", laterality="alternating", modality="power", objective="power"),
+    V("tuck_jump", "Salt amb recollida de genolls", "vertical_jump", "Salt vertical", JUMP, difficulty="advanced", modality="power", objective="power"),
+    V("pogo_jump_bilateral", "Salts reactius bilaterals de turmell", "pogo_jump", "Salt dominant de turmell", JUMP, difficulty="intermediate", modality="power", objective="power"),
+    V("pogo_jump_alternating", "Salts reactius alternants de turmell", "pogo_jump", "Salt dominant de turmell", JUMP, difficulty="advanced", laterality="alternating", modality="power", objective="power"),
+    V("medicine_ball_chest_pass", "Llançament frontal de pilota medicinal", "medicine_ball_press", "Empenta amb pilota medicinal", HORIZONTAL_PRESS, equipment=("medicine_ball", "wall"), difficulty="intermediate", modality="power", objective="power", kinetic_chain="mixed"),
+    V("kneeling_medicine_ball_chest_pass", "Llançament frontal agenollat amb pilota medicinal", "medicine_ball_press", "Empenta amb pilota medicinal", HORIZONTAL_PRESS, equipment=("medicine_ball", "mat", "wall"), difficulty="intermediate", modality="power", objective="power", kinetic_chain="open"),
+    V("explosive_incline_push_up", "Flexió explosiva inclinada", "explosive_push_up", "Flexió explosiva", HORIZONTAL_PRESS, equipment=("bench",), difficulty="intermediate", modality="power", objective="power", kinetic_chain="closed"),
+    V("plyometric_push_up", "Flexió de braços pliomètrica", "explosive_push_up", "Flexió explosiva", HORIZONTAL_PRESS, optional_equipment=("mat",), difficulty="advanced", modality="power", objective="power", kinetic_chain="closed"),
+    V("bodyweight_squat_to_reach", "Esquat amb abast per sobre del cap", "dynamic_warm_up", "Escalfament dinàmic", SQUAT, difficulty="beginner", modality="warm_up", objective="preparation", secondary_objective="mobility"),
+    V("squat_pry_mobility", "Esquat profund amb desplaçament controlat", "squat_mobility", "Mobilitat en esquat", SQUAT, difficulty="intermediate", modality="mobility", objective="mobility", secondary_objective="motor_control"),
+    V("assisted_deep_squat_mobility", "Esquat profund assistit", "squat_mobility", "Mobilitat en esquat", SQUAT, equipment=("suspension_trainer",), difficulty="beginner", modality="mobility", objective="mobility"),
+    V("dynamic_bodyweight_hip_hinge", "Frontissa dinàmica amb pes corporal", "dynamic_warm_up", "Escalfament dinàmic", HINGE, difficulty="beginner", modality="warm_up", objective="preparation"),
+    V("alternating_reverse_lunge_warmup", "Gambada enrere alternant d'escalfament", "dynamic_warm_up", "Escalfament dinàmic", UNILATERAL_SQUAT, difficulty="beginner", laterality="alternating", modality="warm_up", objective="preparation"),
+    V("lateral_lunge_mobility", "Gambada lateral de mobilitat", "hip_mobility", "Mobilitat de maluc", UNILATERAL_SQUAT, difficulty="beginner", laterality="alternating", modality="mobility", objective="mobility"),
+    V("band_lateral_walk_step", "Pas lateral amb banda", "hip_warm_up", "Escalfament de maluc", HIP_ABDUCTION, equipment=("elastic_band",), difficulty="beginner", laterality="alternating", modality="warm_up", objective="preparation", kinetic_chain="mixed"),
+    V("dynamic_calf_raise_warmup", "Elevació dinàmica de talons d'escalfament", "ankle_warm_up", "Escalfament de turmell", CALF_RAISE, difficulty="beginner", modality="warm_up", objective="preparation"),
+    V("wall_supported_ankle_mobility_raise", "Mobilitat activa de turmell amb suport", "ankle_mobility", "Mobilitat de turmell", CALF_RAISE, equipment=("wall",), difficulty="beginner", modality="mobility", objective="mobility"),
+    V("bodyweight_shoulder_abduction_warmup", "Abducció activa d'espatlles d'escalfament", "shoulder_warm_up", "Escalfament d'espatlla", SHOULDER_ABDUCTION, difficulty="beginner", modality="warm_up", objective="preparation", kinetic_chain="open"),
+    V("band_shoulder_abduction_warmup", "Abducció d'espatlla amb banda d'escalfament", "shoulder_warm_up", "Escalfament d'espatlla", SHOULDER_ABDUCTION, equipment=("elastic_band",), difficulty="beginner", modality="warm_up", objective="preparation", kinetic_chain="open"),
+    V("standing_active_hip_abduction_mobility", "Abducció activa de maluc dempeus", "hip_mobility", "Mobilitat de maluc", HIP_ABDUCTION, difficulty="beginner", laterality="unilateral", modality="mobility", objective="mobility", kinetic_chain="open"),
+    V("side_lying_active_hip_adduction_mobility", "Adducció activa de maluc en decúbit lateral", "hip_mobility", "Mobilitat de maluc", HIP_ADDUCTION, optional_equipment=("mat",), difficulty="beginner", laterality="unilateral", modality="mobility", objective="mobility", kinetic_chain="open"),
+    V("seated_active_ankle_dorsiflexion", "Dorsiflexió activa de turmell assegut", "ankle_mobility", "Mobilitat de turmell", DORSIFLEXION, equipment=("bench",), difficulty="beginner", modality="mobility", objective="mobility", kinetic_chain="open"),
+    V("standing_active_ankle_dorsiflexion", "Dorsiflexió activa de turmell dempeus", "ankle_mobility", "Mobilitat de turmell", DORSIFLEXION, optional_equipment=("wall",), difficulty="beginner", laterality="unilateral", modality="mobility", objective="mobility", kinetic_chain="mixed"),
+    V("active_shoulder_abduction_mobility", "Abducció activa d'espatlla en rang controlat", "shoulder_mobility", "Mobilitat d'espatlla", SHOULDER_ABDUCTION, difficulty="beginner", modality="mobility", objective="mobility", kinetic_chain="open"),
+    V("active_shoulder_external_rotation_mobility", "Rotació externa activa d'espatlla", "shoulder_mobility", "Mobilitat d'espatlla", SHOULDER_EXTERNAL_ROTATION, difficulty="beginner", laterality="unilateral", modality="mobility", objective="mobility", kinetic_chain="open"),
+    V("seated_active_trunk_rotation", "Rotació activa de tronc assegut", "trunk_mobility", "Mobilitat del tronc", TRUNK_ROTATION, equipment=("bench",), difficulty="beginner", laterality="alternating", modality="mobility", objective="mobility", kinetic_chain="open"),
+    V("standing_active_trunk_rotation", "Rotació activa de tronc dempeus", "trunk_mobility", "Mobilitat del tronc", TRUNK_ROTATION, difficulty="beginner", laterality="alternating", modality="mobility", objective="mobility", kinetic_chain="mixed"),
+    V("prone_active_trunk_extension_mobility", "Extensió activa de tronc en decúbit pron", "trunk_mobility", "Mobilitat del tronc", TRUNK_EXTENSION, optional_equipment=("mat",), difficulty="beginner", modality="mobility", objective="mobility", kinetic_chain="open"),
+    V("assisted_split_squat_mobility", "Esquat dividit assistit de mobilitat", "hip_mobility", "Mobilitat de maluc", UNILATERAL_SQUAT, equipment=("suspension_trainer",), difficulty="beginner", laterality="unilateral", modality="mobility", objective="mobility"),
+]
+
+BATCH = batch("10_power_mobility", "Potència, mobilitat i escalfament", ROWS)

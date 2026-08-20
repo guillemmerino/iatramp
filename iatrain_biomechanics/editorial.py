@@ -9,6 +9,7 @@ from iatrain.models import KnowledgeEditorialEvent
 from iatrain_motion.models import EditorialStatus, MotionConcept
 
 from .checks import audit_action_function, audit_stabilization_function
+from .dependencies import collect_biomechanics_dependency_issues
 from .models import (
     BiomechanicalContext,
     MuscleActionFunction,
@@ -137,6 +138,12 @@ def transition_muscle_action_function(*, user, function, target_status, reason="
     _validate_transition(previous_status, target_status)
     if previous_status == target_status:
         return EditorialTransition(function, previous_status)
+    dependency_issues = collect_biomechanics_dependency_issues(
+        instance=function,
+        target_status=target_status,
+    )
+    if dependency_issues:
+        raise ValidationError("No es pot canviar la funció:\n- " + "\n- ".join(dependency_issues))
     list(function.evidence_links.select_for_update())
     if target_status == EditorialStatus.VALIDATED:
         issues = audit_action_function(function, require_validated=True)
@@ -181,6 +188,12 @@ def transition_muscle_stabilization_function(*, user, function, target_status, r
     _validate_transition(previous_status, target_status)
     if previous_status == target_status:
         return EditorialTransition(function, previous_status)
+    dependency_issues = collect_biomechanics_dependency_issues(
+        instance=function,
+        target_status=target_status,
+    )
+    if dependency_issues:
+        raise ValidationError("No es pot canviar la funció:\n- " + "\n- ".join(dependency_issues))
     list(function.evidence_links.select_for_update())
     if target_status == EditorialStatus.VALIDATED:
         issues = audit_stabilization_function(function, require_validated=True)

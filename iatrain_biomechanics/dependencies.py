@@ -1,8 +1,30 @@
+from collections import OrderedDict
+
 from django.db.models import Q
 
 from iatrain_motion.models import EditorialStatus, MotionConcept, MotionRelation
 
 from .models import MuscleActionFunction, MuscleStabilizationFunction
+
+
+_biomechanics_dependency_handlers = OrderedDict()
+
+
+def register_biomechanics_dependency_handler(name, handler):
+    existing = _biomechanics_dependency_handlers.get(name)
+    if existing is not None and existing is not handler:
+        raise RuntimeError(
+            f"Ja existeix un gestor de dependències biomecàniques per a {name}."
+        )
+    _biomechanics_dependency_handlers[name] = handler
+
+
+def collect_biomechanics_dependency_issues(*, instance, target_status):
+    issues = []
+    for name, handler in _biomechanics_dependency_handlers.items():
+        for issue in handler(instance=instance, target_status=target_status) or ():
+            issues.append(f"{name}: {issue}")
+    return issues
 
 
 def motion_dependency_issues(*, instance, target_status):

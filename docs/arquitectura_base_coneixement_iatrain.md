@@ -17,7 +17,7 @@ Aquest document explica de manera autosuficient com s'està construint la base d
 
 Quan aquest document entri en conflicte amb descripcions més antigues de `KnowledgeConcept`, `KnowledgeRelation`, `TrainingContext` o del graf dins de `docs/arquitectura_iatrain_mvp.md`, aquest document preval per al subsistema de coneixement d'IA Train.
 
-L'arquitectura del subgraf anatòmic-cinemàtic, el corpus multivídeo i la separació entre identitat de l'element i qualitat d'execució es desenvolupa a [`arquitectura_coneixement_anatomic_cinematic_iatrain.md`](arquitectura_coneixement_anatomic_cinematic_iatrain.md). L'inventari de la primera implementació —vocabulari, esquelet canònic, govern, límits i passos següents— viu a [`implementacio_graf_anatomic_esquelet_cinematic_iatrain.md`](implementacio_graf_anatomic_esquelet_cinematic_iatrain.md).
+L'arquitectura del subgraf anatòmic-cinemàtic, el corpus multivídeo i la separació entre identitat de l'element i qualitat d'execució es desenvolupa a [`arquitectura_coneixement_anatomic_cinematic_iatrain.md`](arquitectura_coneixement_anatomic_cinematic_iatrain.md). L'inventari de la primera implementació —vocabulari, esquelet canònic, govern, límits i passos següents— viu a [`implementacio_graf_anatomic_esquelet_cinematic_iatrain.md`](implementacio_graf_anatomic_esquelet_cinematic_iatrain.md). El catàleg privat de preparació física i el protocol perquè un agent l'ampliï es documenten a [`implementacio_cataleg_privat_exercicis_iatrain.md`](implementacio_cataleg_privat_exercicis_iatrain.md).
 
 Les afirmacions s'han de llegir amb tres estats diferents:
 
@@ -114,7 +114,7 @@ Els contactes, la posició i la rotació continuen descrivint la identitat tècn
 
 ### 3.3. Capa pròpia de l'entrenador
 
-**Estat: decidida, encara no implementada.**
+**Estat: primera estructura implementada per a exercicis de preparació física; les tasques tècniques generals continuen pendents.**
 
 Un exercici o `TrainingTask` és un concepte ampli. Pot ser:
 
@@ -365,7 +365,7 @@ La visualització usa Canvas i no introdueix una base de dades de graf separada.
 
 ### 8.1. Allò que encara no existeix
 
-- model de `TrainingTask` o capa pròpia de l'entrenador;
+- model general de `TrainingTask` tècnica; el catàleg privat de preparació física ja existeix a `iatrain_exercises`;
 - `TrainingSession` i `TrainingSessionItem`;
 - `TrainingPlan`;
 - integració productiva amb un LLM;
@@ -514,7 +514,8 @@ Abans de crear o modificar coneixement, un agent ha de seguir aquest ordre:
 - `iatrain/tests/test_rotation_notation_import.py`: importació, idempotència i conflictes de notació.
 - `docs/arquitectura_coneixement_anatomic_cinematic_iatrain.md`: arquitectura canònica del coneixement anatòmic, cinemàtic, normatiu i del corpus de vídeo.
 - `docs/implementacio_graf_anatomic_esquelet_cinematic_iatrain.md`: estat real del subgraf i de l'esquelet canònic, fronteres dels models i full de ruta immediat.
-- `docs/implementacio_capa_biomecanica_iatrain.md`: musculatura, funcions biomecàniques, evidència, raonament de contracció, límits i integració futura amb exercicis privats.
+- `docs/implementacio_capa_biomecanica_iatrain.md`: musculatura, funcions biomecàniques, evidència, raonament de contracció i límits.
+- `docs/implementacio_cataleg_privat_exercicis_iatrain.md`: models, govern, exemples, buits, propostes del LLM i protocol d'ampliació del catàleg privat.
 
 ## 14. Resum de decisions no negociables actuals
 

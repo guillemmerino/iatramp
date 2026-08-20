@@ -3,7 +3,7 @@
 > **Estat:** implementació funcional completa en `draft`, pendent de revisió professional
 > **Actualitzat:** 20 d'agost de 2026
 > **Abast:** musculatura anatòmica, funcions musculars qualitatives, estabilització, context, evidència, raonament de contracció i projecció visual.
-> **No inclou:** exercicis privats d'entrenador, activació muscular observada, EMG, forces internes, braços de moment quantitatius ni simulació musculoesquelètica.
+> **No inclou:** activació muscular observada, EMG, forces internes, braços de moment quantitatius ni simulació musculoesquelètica. La capa privada d'exercicis ja està implementada separadament a [`implementacio_cataleg_privat_exercicis_iatrain.md`](implementacio_cataleg_privat_exercicis_iatrain.md).
 
 ## 1. Objectiu
 
@@ -24,8 +24,8 @@ iatrain_biomechanics
 ├── evidència i procedència
 └── recuperació i inferència funcional
 
-futura capa privada de l'entrenador
-└── exercicis i fases que referencien les capes professionals
+iatrain_exercises
+└── exercicis i fases privats que referencien les capes professionals
 ```
 
 Les dues apps viuen al mateix projecte i a la mateixa base PostgreSQL. La separació és de responsabilitat, govern, migracions i proves; no és un microservei ni una base física diferent.
@@ -200,17 +200,16 @@ La base és funcionalment completa per començar a estructurar preparació físi
 - mapatge del tracker i validació de les mesures reals;
 - informació quantitativa de moment articular, potència, braç de moment i relació força-longitud-velocitat;
 - observacions EMG quan siguin necessàries i legalment adequades;
-- model de seqüències o fases d'exercicis;
-- capa privada d'exercicis de cada entrenador.
+- revisió professional de les connexions creades per la primera mostra privada d'exercicis;
 
 Una base musculoesquelètica quantitativa futura necessitaria una `MusculoskeletalModelSchema` versionada amb insercions, trajectòries, paràmetres i convencions pròpies. No s'ha barrejat amb aquesta capa qualitativa.
 
-## 9. Connexió futura amb exercicis
+## 9. Connexió implementada amb exercicis
 
-La capa privada dependrà de la professional, mai al revés. Un registre futur podrà expressar:
+La capa privada depèn de la professional, mai al revés. La implementació actual expressa:
 
 ```text
-CoachExercise
+ExerciseRevision
 └── ExercisePhase
     ├── acció articular professional
     ├── múscul o funció biomecànica professional
@@ -220,7 +219,7 @@ CoachExercise
     └── càrrega, material i indicacions privades
 ```
 
-Això permetrà consultar exercicis per moviment o musculatura i explicar el perquè, mantenint separats el coneixement compartit i les preferències de cada entrenador.
+Això ja permet consultar exercicis privats per moviment o musculatura i explicar el perquè. Les mostres i el protocol d'ampliació es documenten a [`implementacio_cataleg_privat_exercicis_iatrain.md`](implementacio_cataleg_privat_exercicis_iatrain.md).
 
 ## 10. Mapa del codi
 
