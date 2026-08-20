@@ -11,6 +11,7 @@ from core.models import Person
 from iatrain.models import KnowledgeEditorialEvent
 
 from .checks import audit_skeleton_schema
+from .dependencies import collect_motion_dependency_issues
 from .models import EditorialStatus, MotionConcept, MotionRelation, SkeletonSchema
 
 
@@ -141,6 +142,12 @@ def transition_motion_concept(*, user, concept, target_status, reason=""):
             raise ValidationError(
                 "Reobre o retira primer els esquemes canònics validats que utilitzen el concepte."
             )
+        downstream_issues = collect_motion_dependency_issues(
+            instance=concept,
+            target_status=target_status,
+        )
+        if downstream_issues:
+            raise ValidationError("Dependències validades:\n- " + "\n- ".join(downstream_issues))
 
     _apply_transition(instance=concept, target_status=target_status, reviewer=reviewer)
     _record_event(
@@ -186,6 +193,13 @@ def transition_motion_relation(*, user, relation, target_status, reason=""):
         raise ValidationError(
             "Reobre o retira primer els esquemes canònics validats que depenen de la relació."
         )
+    if previous_status == EditorialStatus.VALIDATED and target_status != EditorialStatus.VALIDATED:
+        downstream_issues = collect_motion_dependency_issues(
+            instance=relation,
+            target_status=target_status,
+        )
+        if downstream_issues:
+            raise ValidationError("Dependències validades:\n- " + "\n- ".join(downstream_issues))
     _apply_transition(instance=relation, target_status=target_status, reviewer=reviewer)
     _record_event(
         instance=relation,

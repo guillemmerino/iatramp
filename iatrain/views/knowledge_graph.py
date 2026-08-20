@@ -15,6 +15,7 @@ from iatrain.editorial import (
 from iatrain.views.common import base_context
 from iatrain_motion.editorial import transition_motion_concept, transition_motion_relation
 from iatrain_motion.models import MotionConcept, MotionRelation
+from iatrain_biomechanics.models import MuscleActionFunction, MuscleStabilizationFunction
 
 
 EDITORIAL_STATUSES = {
@@ -165,6 +166,49 @@ def _motion_relation_payload(relation):
     }
 
 
+def _muscle_action_function_payload(function):
+    return {
+        "id": f"action-{function.pk}",
+        "source": function.muscle_id,
+        "target": function.action_id,
+        "relationType": "contributes_to_action",
+        "rationale": function.statement,
+        "status": function.editorial_status,
+        "author": function.authored_by.display_name,
+        "attributes": {
+            "contributionClass": function.contribution_class,
+            "context": function.context.code if function.context_id else None,
+            "conditions": function.conditions,
+            "limitations": function.limitations,
+        },
+        "createdAt": function.created_at.isoformat(),
+        "updatedAt": function.updated_at.isoformat(),
+    }
+
+
+def _stabilization_function_payload(function):
+    target = function.target_joint or function.target_segment
+    return {
+        "id": f"stabilization-{function.pk}",
+        "source": function.muscle_id,
+        "target": target.pk,
+        "relationType": (
+            "stabilizes_joint" if function.target_joint_id else "stabilizes_segment"
+        ),
+        "rationale": function.statement,
+        "status": function.editorial_status,
+        "author": function.authored_by.display_name,
+        "attributes": {
+            "stabilizationType": function.stabilization_type,
+            "context": function.context.code if function.context_id else None,
+            "conditions": function.conditions,
+            "limitations": function.limitations,
+        },
+        "createdAt": function.created_at.isoformat(),
+        "updatedAt": function.updated_at.isoformat(),
+    }
+
+
 @require_GET
 def knowledge_graph(request):
     _require_superuser(request)
@@ -178,6 +222,10 @@ def knowledge_graph(request):
             ).count(),
             "motion_concept_count": MotionConcept.objects.count(),
             "motion_relation_count": MotionRelation.objects.count(),
+            "biomechanical_function_count": (
+                MuscleActionFunction.objects.count()
+                + MuscleStabilizationFunction.objects.count()
+            ),
         }
     )
     return render(request, "iatrain/knowledge_graph/index.html", context)
@@ -199,6 +247,65 @@ def knowledge_graph_data(request):
                 "domain": "motion",
                 "nodes": [_motion_concept_payload(concept) for concept in concepts],
                 "links": [_motion_relation_payload(relation) for relation in relations],
+            }
+        )
+    if domain == "biomechanics":
+        action_functions = list(
+            MuscleActionFunction.objects.select_related(
+                "muscle", "action", "context", "authored_by"
+            ).order_by("id")
+        )
+        stabilization_functions = list(
+            MuscleStabilizationFunction.objects.select_related(
+                "muscle", "target_joint", "target_segment", "context", "authored_by"
+            ).order_by("id")
+        )
+        endpoint_ids = {
+            endpoint_id
+            for function in action_functions
+            for endpoint_id in (function.muscle_id, function.action_id)
+        }
+        endpoint_ids.update(
+            endpoint_id
+            for function in stabilization_functions
+            for endpoint_id in (
+                function.muscle_id,
+                function.target_joint_id,
+                function.target_segment_id,
+            )
+            if endpoint_id
+        )
+        stable_relations = list(
+            MotionRelation.objects.select_related(
+                "source", "target", "authored_by", "last_validated_by"
+            ).filter(
+                relation_type__in=(
+                    MotionRelation.RelationType.MEMBER_OF_MUSCLE_GROUP,
+                    MotionRelation.RelationType.SPANS_JOINT,
+                )
+            ).order_by("id")
+        )
+        endpoint_ids.update(
+            endpoint_id
+            for relation in stable_relations
+            for endpoint_id in (relation.source_id, relation.target_id)
+        )
+        concepts = MotionConcept.objects.select_related(
+            "authored_by", "last_validated_by"
+        ).filter(pk__in=endpoint_ids).order_by("id")
+        return JsonResponse(
+            {
+                "domain": "biomechanics",
+                "readOnly": True,
+                "nodes": [_motion_concept_payload(concept) for concept in concepts],
+                "links": (
+                    [_motion_relation_payload(relation) for relation in stable_relations]
+                    + [_muscle_action_function_payload(function) for function in action_functions]
+                    + [
+                        _stabilization_function_payload(function)
+                        for function in stabilization_functions
+                    ]
+                ),
             }
         )
     if domain != "technical":

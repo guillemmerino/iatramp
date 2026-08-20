@@ -1,9 +1,9 @@
 # Implementació del graf anatòmic-cinemàtic i l'esquelet canònic d'IA Train
 
 > **Estat del document:** registre canònic de la implementació actual  
-> **Actualitzat:** 18 d'agost de 2026  
-> **Abast implementat:** vocabulari anatòmic-cinemàtic, relacions semàntiques, esquelet funcional canònic, govern editorial, llavors de dades i visualització del subgraf.  
-> **Fora de l'abast actual:** mapatge de trackers, seqüències observades, especificacions temporals d'elements, corpus, normativa, músculs i inferència biomecànica.
+> **Actualitzat:** 20 d'agost de 2026
+> **Abast implementat:** vocabulari anatòmic-cinemàtic i muscular, relacions semàntiques, esquelet funcional canònic, biomecànica funcional, govern editorial, llavors de dades i visualització dels subgrafs.
+> **Fora de l'abast actual:** mapatge de trackers, seqüències observades, especificacions temporals d'elements, corpus, normativa i biomecànica quantitativa. La musculatura i la biomecànica funcional ja estan implementades i es documenten a [`implementacio_capa_biomecanica_iatrain.md`](implementacio_capa_biomecanica_iatrain.md).
 
 ## 1. Propòsit
 
@@ -45,7 +45,7 @@ flowchart TB
     A["Adaptador de tracker · futur\ncorrespondències, derivacions i confiança"]
     O["Seqüències observades · futur\ncoordenades, temps, calibratge i qualitat"]
     E["Especificació de moviment · futur\nfases ordenades i accions d'un element"]
-    B["Capa biomecànica · futur\nmúsculs, funcions i evidència"]
+    B["Capa biomecànica funcional · implementada\nmúsculs, funcions, context i evidència"]
     N["Corpus i normativa · futur\nexecucions validades, criteris i reglaments"]
 
     M --> S
@@ -93,7 +93,7 @@ MotionConcept hip_flexion
 - **Adaptador de tracker:** traduirà els punts reals d'un proveïdor al contracte canònic.
 - **Seqüències observades:** conservaran coordenades per frame, temps, confiança, calibratge i transformacions.
 - **Especificacions de moviment:** connectaran cada `KnowledgeConcept` d'element amb fases ordenades i conceptes de `iatrain_motion`.
-- **Biomecànica i músculs:** connectaran músculs o grups musculars amb accions articulars, rol, condicions i evidència.
+- **Biomecànica funcional i músculs:** implementats a `iatrain_biomechanics`; connecten músculs, accions, estabilitzacions, context i evidència sense inferir activació real.
 - **Corpus professional:** aportarà múltiples execucions revisades i la seva variabilitat real.
 - **Normativa:** representarà criteris, errors i reglaments versionats.
 
@@ -198,8 +198,8 @@ No és una mesura d'un vídeo. És la definició estable que permetrà calcular 
 
 La llavor anatòmica crea, en estat `draft`:
 
-- **52 nodes:** 13 segments, 7 articulacions, 26 accions articulars, 3 plans i 3 eixos;
-- **116 relacions** tipades i auditades.
+- **169 nodes totals:** 13 segments, 9 articulacions, 40 accions articulars, 3 plans, 3 eixos, 70 músculs i 31 grups musculars;
+- **360 relacions** tipades i auditades després de les llavors anatòmica i biomecànica.
 
 No crea nodes `left_*` i `right_*` al vocabulari semàntic. `hip_joint`, per exemple, és un únic concepte parell.
 
@@ -207,10 +207,10 @@ No crea nodes `left_*` i `right_*` al vocabulari semàntic. `hip_joint`, per exe
 
 La llavor de l'esquelet crea:
 
-- **27 punts canònics**;
+- **30 punts canònics**;
 - **17 segments concrets**;
-- **13 articulacions concretes**;
-- **13 definicions angulars**.
+- **16 articulacions concretes**;
+- **24 definicions angulars**.
 
 Els costats només s'instancien quan l'estructura és parella. Les estructures medials —com pelvis, tronc o cap— mantenen una única instància. Les accions continuen sent genèriques i el costat s'obté de l'articulació o del registre futur que les apliqui.
 
@@ -282,7 +282,7 @@ La implementació està preparada estructuralment per créixer, però encara no 
 - connexió persistent amb elements tècnics;
 - corpus multivídeo;
 - criteris normatius i reglamentaris;
-- músculs, funcions musculars, forces i càrregues;
+- validació professional de músculs i funcions; forces, càrregues internes i braços de moment quantitatius;
 - ampliació anatòmica guiada per casos d'ús reals.
 
 ## 10. Passos futurs recomanats
@@ -298,7 +298,7 @@ L'ordre recomanat és el següent:
 7. **Construir un tall vertical.** Descriure una variant exacta i ben delimitada de Barani de cap a cap abans d'expandir el catàleg.
 8. **Afegir seqüències i corpus.** Conservar fora del graf les sèries massives i mantenir a PostgreSQL metadades, versions, permisos, anotacions i procedència.
 9. **Afegir la capa normativa.** Separar identitat de l'element, patró observat i criteri de bona execució; versionar qualsevol dependència del reglament.
-10. **Afegir biomecànica i músculs.** Modelar músculs o grups musculars com a conceptes relacionats amb accions articulars i rols condicionals —agonista, antagonista, sinergista o estabilitzador— amb evidència i context. Després es podran connectar exercicis, càrregues i objectius d'entrenament sense deduir activació muscular directament de la cinemàtica.
+10. **Biomecànica funcional — implementada en `draft`.** Revisar professionalment la llavor descrita a [`implementacio_capa_biomecanica_iatrain.md`](implementacio_capa_biomecanica_iatrain.md) i ampliar condicions o evidència només amb casos verificables. La biomecànica quantitativa i la capa privada d'exercicis continuen sent futures.
 
 ## 11. Criteris mínims del futur mapatge de tracker
 
@@ -324,6 +324,7 @@ Abans d'acceptar un adaptador com a fiable, ha de demostrar:
 - `iatrain_motion/admin.py`: administració dels conceptes i definicions canòniques.
 - `iatrain_motion/migrations/`: esquema persistent i evolució versionada.
 - `iatrain_motion/tests/`: contractes de models, govern, llavors i esquelet.
+- `iatrain_biomechanics/`: funcions musculars, context, evidència, govern, raonament i llavor biomecànica.
 - `iatrain/views/knowledge_graph.py`: projecció tècnica i anatòmica per al visor.
 - `iatrain/static/iatrain/knowledge_graph.js`: selector i representació interactiva.
 

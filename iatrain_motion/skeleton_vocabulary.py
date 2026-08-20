@@ -97,6 +97,10 @@ LANDMARKS = [
         "Punt mig funcional entre les espines ilíaques posterosuperiors.",
         {"method": "midpoint", "inputs": ["left_psis", "right_psis"]},
     ),
+    _landmark(
+        "neck_base", "Base funcional cervical", LT.JOINT_CENTER, MS.ESTIMATED, S.MIDLINE,
+        "Centre funcional estimat de la transició entre el tronc i el complex cap-coll.",
+    ),
 ]
 
 for side, label in ((S.LEFT, "esquerre"), (S.RIGHT, "dret")):
@@ -114,6 +118,7 @@ for side, label in ((S.LEFT, "esquerre"), (S.RIGHT, "dret")):
             _landmark(f"{prefix}_ankle_center", f"Centre de turmell {label}", LT.JOINT_CENTER, MS.ESTIMATED, side, "Centre funcional del complex del turmell."),
             _landmark(f"{prefix}_heel", f"Taló {label}", LT.ANATOMICAL, MS.OBSERVED, side, "Punt posterior representatiu del calcani."),
             _landmark(f"{prefix}_forefoot_center", f"Centre d'avantpeu {label}", LT.TERMINAL, MS.OBSERVED, side, "Punt distal representatiu de l'avantpeu."),
+            _landmark(f"{prefix}_scapula_center", f"Centre escapular {label}", LT.JOINT_CENTER, MS.ESTIMATED, side, "Punt funcional estimat per representar la interfície escapulotoràcica."),
         )
     )
 
@@ -174,10 +179,12 @@ def _joint(code, concept, side, center, proximal, distal):
 
 JOINTS = [
     _joint("thoracolumbar_spine_complex", "thoracolumbar_spine_complex", S.MIDLINE, "pelvis_center", "pelvis", "trunk"),
+    _joint("cervical_spine_complex", "cervical_spine_complex", S.MIDLINE, "neck_base", "trunk", "head_neck"),
 ]
 for side in (S.LEFT, S.RIGHT):
     JOINTS.extend(
         (
+            _joint(f"{side}_scapulothoracic_joint", "scapulothoracic_joint", side, f"{side}_scapula_center", "trunk", f"{side}_shoulder_girdle"),
             _joint(f"{side}_shoulder_joint", "shoulder_joint", side, f"{side}_shoulder_center", f"{side}_shoulder_girdle", f"{side}_upper_arm"),
             _joint(f"{side}_elbow_joint", "elbow_joint", side, f"{side}_elbow_center", f"{side}_upper_arm", f"{side}_forearm"),
             _joint(f"{side}_wrist_joint", "wrist_joint", side, f"{side}_wrist_center", f"{side}_forearm", f"{side}_hand"),
@@ -190,12 +197,21 @@ for side in (S.LEFT, S.RIGHT):
 JOINTS = tuple(JOINTS)
 
 
-def _angle(code, joint, positive, negative, plane, axis, component="flexion_extension"):
+def _angle(
+    code,
+    joint,
+    positive,
+    negative,
+    plane,
+    axis,
+    component="flexion_extension",
+    sequence_index=1,
+):
     return {
         "code": code,
         "joint_code": joint,
         "component": component,
-        "sequence_index": 1,
+        "sequence_index": sequence_index,
         "positive_action_code": positive,
         "negative_action_code": negative,
         "plane_code": plane,
@@ -211,16 +227,22 @@ def _angle(code, joint, positive, negative, plane, axis, component="flexion_exte
 
 ANGLES = [
     _angle("trunk_flexion_extension", "thoracolumbar_spine_complex", "trunk_flexion", "trunk_extension", "sagittal_plane", "mediolateral_axis"),
+    _angle("cervical_flexion_extension", "cervical_spine_complex", "neck_flexion", "neck_extension", "sagittal_plane", "mediolateral_axis"),
 ]
 for side in (S.LEFT, S.RIGHT):
     ANGLES.extend(
         (
             _angle(f"{side}_shoulder_flexion_extension", f"{side}_shoulder_joint", "shoulder_flexion", "shoulder_extension", "sagittal_plane", "mediolateral_axis"),
+            _angle(f"{side}_shoulder_abduction_adduction", f"{side}_shoulder_joint", "shoulder_abduction", "shoulder_adduction", "frontal_plane", "anteroposterior_axis", JointAngleDefinition.Component.ABDUCTION_ADDUCTION, 2),
+            _angle(f"{side}_shoulder_horizontal_abduction_adduction", f"{side}_shoulder_joint", "shoulder_horizontal_abduction", "shoulder_horizontal_adduction", "transverse_plane", "longitudinal_axis", JointAngleDefinition.Component.HORIZONTAL_ABDUCTION_ADDUCTION, 3),
             _angle(f"{side}_elbow_flexion_extension", f"{side}_elbow_joint", "elbow_flexion", "elbow_extension", "sagittal_plane", "mediolateral_axis"),
             _angle(f"{side}_wrist_flexion_extension", f"{side}_wrist_joint", "wrist_flexion", "wrist_extension", "sagittal_plane", "mediolateral_axis"),
+            _angle(f"{side}_wrist_radial_ulnar_deviation", f"{side}_wrist_joint", "wrist_radial_deviation", "wrist_ulnar_deviation", "frontal_plane", "anteroposterior_axis", JointAngleDefinition.Component.RADIAL_ULNAR_DEVIATION, 2),
             _angle(f"{side}_hip_flexion_extension", f"{side}_hip_joint", "hip_flexion", "hip_extension", "sagittal_plane", "mediolateral_axis"),
+            _angle(f"{side}_hip_abduction_adduction", f"{side}_hip_joint", "hip_abduction", "hip_adduction", "frontal_plane", "anteroposterior_axis", JointAngleDefinition.Component.ABDUCTION_ADDUCTION, 2),
             _angle(f"{side}_knee_flexion_extension", f"{side}_knee_joint", "knee_flexion", "knee_extension", "sagittal_plane", "mediolateral_axis"),
             _angle(f"{side}_ankle_flexion_extension", f"{side}_ankle_joint", "ankle_dorsiflexion", "ankle_plantarflexion", "sagittal_plane", "mediolateral_axis"),
+            _angle(f"{side}_ankle_inversion_eversion", f"{side}_ankle_joint", "foot_inversion", "foot_eversion", "frontal_plane", "anteroposterior_axis", JointAngleDefinition.Component.INVERSION_EVERSION, 2),
         )
     )
 

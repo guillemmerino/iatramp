@@ -46,6 +46,8 @@ class MotionConcept(models.Model):
         AXIS = "axis", "Eix anatòmic"
         BODY_CONFIGURATION = "body_configuration", "Configuració corporal"
         KINEMATIC_EVENT = "kinematic_event", "Esdeveniment cinemàtic"
+        MUSCLE = "muscle", "Múscul esquelètic funcional"
+        MUSCLE_GROUP = "muscle_group", "Grup muscular funcional"
 
     class Laterality(models.TextChoices):
         NOT_APPLICABLE = "not_applicable", "No aplicable"
@@ -127,11 +129,16 @@ class MotionConcept(models.Model):
         if self._state.adding and self.editorial_status != EditorialStatus.DRAFT:
             errors["editorial_status"] = "Un concepte nou sempre ha d'entrar com a esborrany."
 
-        anatomical_kinds = {self.Kind.SEGMENT, self.Kind.JOINT}
+        anatomical_kinds = {
+            self.Kind.SEGMENT,
+            self.Kind.JOINT,
+            self.Kind.MUSCLE,
+            self.Kind.MUSCLE_GROUP,
+        }
         if self.kind in anatomical_kinds and self.laterality == self.Laterality.NOT_APPLICABLE:
-            errors["laterality"] = "Un segment o una articulació ha de declarar la seva lateralitat."
+            errors["laterality"] = "Una estructura anatòmica ha de declarar la seva lateralitat."
         if self.kind not in anatomical_kinds and self.laterality != self.Laterality.NOT_APPLICABLE:
-            errors["laterality"] = "La lateralitat només classifica segments i articulacions."
+            errors["laterality"] = "La lateralitat només classifica estructures anatòmiques."
         if self.editorial_status == EditorialStatus.VALIDATED and not self.definition.strip():
             errors["definition"] = "Un concepte validat necessita una definició professional."
         if governed_content_changed(
@@ -168,6 +175,8 @@ class MotionRelation(models.Model):
         PRIMARY_PLANE = "primary_plane", "Es produeix principalment al pla"
         PRIMARY_AXIS = "primary_axis", "Es produeix principalment al voltant de l'eix"
         OPPOSITE_OF = "opposite_of", "És oposada a"
+        MEMBER_OF_MUSCLE_GROUP = "member_of_muscle_group", "Forma part del grup muscular"
+        SPANS_JOINT = "spans_joint", "Travessa funcionalment l'articulació"
 
     source = models.ForeignKey(
         MotionConcept,
@@ -250,6 +259,8 @@ class MotionRelation(models.Model):
             cls.RelationType.PRIMARY_PLANE: (kind.JOINT_ACTION, kind.PLANE),
             cls.RelationType.PRIMARY_AXIS: (kind.JOINT_ACTION, kind.AXIS),
             cls.RelationType.OPPOSITE_OF: (kind.JOINT_ACTION, kind.JOINT_ACTION),
+            cls.RelationType.MEMBER_OF_MUSCLE_GROUP: (kind.MUSCLE, kind.MUSCLE_GROUP),
+            cls.RelationType.SPANS_JOINT: (kind.MUSCLE, kind.JOINT),
         }
 
     def clean(self):
@@ -717,6 +728,12 @@ class JointAngleDefinition(SkeletonDefinition):
         FLEXION_EXTENSION = "flexion_extension", "Flexió-extensió"
         ABDUCTION_ADDUCTION = "abduction_adduction", "Abducció-adducció"
         AXIAL_ROTATION = "axial_rotation", "Rotació axial"
+        HORIZONTAL_ABDUCTION_ADDUCTION = (
+            "horizontal_abduction_adduction",
+            "Abducció-adducció horitzontal",
+        )
+        RADIAL_ULNAR_DEVIATION = "radial_ulnar_deviation", "Desviació radial-cubital"
+        INVERSION_EVERSION = "inversion_eversion", "Inversió-eversió"
 
     class CalculationMethod(models.TextChoices):
         PROJECTED_PLANAR = "projected_planar", "Angle planar projectat"

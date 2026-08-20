@@ -1,9 +1,9 @@
 # Arquitectura del coneixement anatòmic, cinemàtic i d'execució d'IA Train
 
 > **Estat del document:** arquitectura canònica; primera fase del subgraf anatòmic-cinemàtic implementada
-> **Actualitzat:** 18 d'agost de 2026  
+> **Actualitzat:** 20 d'agost de 2026
 > **Abast:** anatomia funcional, descripció cinemàtica dels elements, corpus professional multivídeo, criteris d'execució i reconeixement futur.  
-> **Implementació actual:** vocabulari anatòmic-cinemàtic, relacions tipades, esquelet canònic mesurable versionat, govern editorial i llavors funcionals. Encara no hi ha mapatge de trackers, especificacions d'elements, corpus ni capa normativa.
+> **Implementació actual:** vocabulari anatòmic-cinemàtic, musculatura, relacions tipades, esquelet canònic mesurable versionat, biomecànica funcional, govern editorial i llavors revisables. Encara no hi ha mapatge de trackers, especificacions d'elements, corpus, biomecànica quantitativa ni capa normativa.
 
 ## 1. Propòsit
 
@@ -24,6 +24,8 @@ Tot el que es descriu aquí forma part de la **base professional comuna**. Encar
 Aquest document amplia [`arquitectura_base_coneixement_iatrain.md`](arquitectura_base_coneixement_iatrain.md). En cas de conflicte, aquell document continua sent l'autoritat sobre l'arquitectura general i aquest ho és sobre el subsistema anatòmic-cinemàtic.
 
 L'estat exacte del que ja s'ha construït, les fronteres entre models i l'ordre operatiu dels passos següents es documenten a [`implementacio_graf_anatomic_esquelet_cinematic_iatrain.md`](implementacio_graf_anatomic_esquelet_cinematic_iatrain.md). Aquest document d'arquitectura governa la direcció; el document d'implementació governa l'inventari actual.
+
+La implementació muscular i biomecànica funcional es detalla a [`implementacio_capa_biomecanica_iatrain.md`](implementacio_capa_biomecanica_iatrain.md).
 
 ## 2. Decisió principal
 
@@ -159,10 +161,10 @@ Tampoc s'han de crear automàticament nodes per a les fases. `ElementMotionSpeci
 
 El vocabulari defineix què és un maluc o una flexió; `SkeletonSchema` en crea una instanciació mesurable, versionada i independent del tracker. La llavor `iatrain_functional_skeleton_1.0.0-draft` conté:
 
-- 27 punts canònics observables, estimats o derivats;
+- 30 punts canònics observables, estimats o derivats;
 - 17 segments concrets amb lateralitat i eix primari;
-- 13 articulacions connectades als segments proximal i distal;
-- 13 definicions angulars funcionals amb acció positiva i negativa, pla, eix, mètode i signe;
+- 16 articulacions connectades als segments proximal i distal;
+- 24 definicions angulars funcionals amb acció positiva i negativa, pla, eix, mètode i signe;
 - sistema global dretà, metre i radiant com a unitats internes i una posició neutra documentada.
 
 Les instàncies `left_hip_joint` o `left_thigh` referencien directament els nodes genèrics `hip_joint` i `thigh`. Abans de validar un esquema, l'auditoria exigeix que la topologia i les accions coincideixin amb les `MotionRelation` validades.

@@ -1,7 +1,7 @@
 # Arquitectura de la base de coneixement d'IA Train
 
 > **Estat del document:** font canònica del subsistema de coneixement d'IA Train  
-> **Actualitzat:** 18 d'agost de 2026  
+> **Actualitzat:** 20 d'agost de 2026
 > **Abast:** base professional comuna, semàntica dels elements, coneixement propi de l'entrenador, estat temporal del gimnasta, planificació, aprenentatge i interacció amb l'LLM.
 
 ## 1. Propòsit i criteri de lectura
@@ -514,6 +514,7 @@ Abans de crear o modificar coneixement, un agent ha de seguir aquest ordre:
 - `iatrain/tests/test_rotation_notation_import.py`: importació, idempotència i conflictes de notació.
 - `docs/arquitectura_coneixement_anatomic_cinematic_iatrain.md`: arquitectura canònica del coneixement anatòmic, cinemàtic, normatiu i del corpus de vídeo.
 - `docs/implementacio_graf_anatomic_esquelet_cinematic_iatrain.md`: estat real del subgraf i de l'esquelet canònic, fronteres dels models i full de ruta immediat.
+- `docs/implementacio_capa_biomecanica_iatrain.md`: musculatura, funcions biomecàniques, evidència, raonament de contracció, límits i integració futura amb exercicis privats.
 
 ## 14. Resum de decisions no negociables actuals
 

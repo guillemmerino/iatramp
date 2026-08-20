@@ -13,6 +13,7 @@ from iatrain.models import (
     KnowledgeRelation,
 )
 from iatrain_motion.models import EditorialStatus, MotionConcept, MotionRelation
+from iatrain_biomechanics.models import BiomechanicalContext, MuscleActionFunction
 
 
 class KnowledgeGraphViewTests(TestCase):
@@ -128,7 +129,9 @@ class KnowledgeGraphViewTests(TestCase):
         self.assertContains(response, 'id="kg-relation-filter"')
         self.assertContains(response, 'data-domain="technical"')
         self.assertContains(response, 'data-domain="motion"')
+        self.assertContains(response, 'data-domain="biomechanics"')
         self.assertContains(response, "Graf anatòmic-cinemàtic")
+        self.assertContains(response, "Graf biomecànic")
         self.assertContains(response, "Ctrl")
         self.assertContains(response, "Graf 3D")
         self.assertContains(response, 'data-status="validated"')
@@ -168,6 +171,53 @@ class KnowledgeGraphViewTests(TestCase):
         self.assertEqual(joint["kind"], MotionConcept.Kind.JOINT)
         self.assertEqual(joint["laterality"], MotionConcept.Laterality.PAIRED)
         self.assertEqual(payload["links"][0]["relationType"], "proximal_segment")
+
+    def test_biomechanics_domain_projects_muscle_functions_read_only(self):
+        muscle = MotionConcept.objects.create(
+            code="vastus_lateralis",
+            name="Vast lateral",
+            definition="Extensor monoarticular del genoll.",
+            kind=MotionConcept.Kind.MUSCLE,
+            laterality=MotionConcept.Laterality.PAIRED,
+            authored_by=self.author,
+        )
+        action = MotionConcept.objects.create(
+            code="knee_extension",
+            name="Extensió de genoll",
+            definition="Augment de l'angle entre cuixa i cama.",
+            kind=MotionConcept.Kind.JOINT_ACTION,
+            authored_by=self.author,
+        )
+        context = BiomechanicalContext.objects.create(
+            code="general",
+            name="General",
+            description="Context general de prova.",
+            authored_by=self.author,
+        )
+        function = MuscleActionFunction.objects.create(
+            code="vastus_lateralis__knee_extension",
+            muscle=muscle,
+            action=action,
+            context=context,
+            statement="El vast lateral contribueix a l'extensió del genoll.",
+            authored_by=self.author,
+        )
+        self.client.force_login(self.superuser)
+
+        response = self.client.get(
+            reverse("iatrain_knowledge_graph_data"),
+            {"domain": "biomechanics"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["domain"], "biomechanics")
+        self.assertTrue(payload["readOnly"])
+        self.assertEqual({node["id"] for node in payload["nodes"]}, {muscle.pk, action.pk})
+        projected = next(
+            link for link in payload["links"] if link["id"] == f"action-{function.pk}"
+        )
+        self.assertEqual(projected["relationType"], "contributes_to_action")
 
     def test_unknown_graph_domain_is_rejected(self):
         self.client.force_login(self.superuser)

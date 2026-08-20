@@ -54,7 +54,9 @@
     plane: "Pla anatòmic",
     axis: "Eix anatòmic",
     body_configuration: "Configuració corporal",
-    kinematic_event: "Esdeveniment cinemàtic"
+    kinematic_event: "Esdeveniment cinemàtic",
+    muscle: "Múscul",
+    muscle_group: "Grup muscular"
   };
   var KIND_COLORS = {
     skill: "#60a5fa",
@@ -72,7 +74,9 @@
     plane: "#34d399",
     axis: "#fbbf24",
     body_configuration: "#22d3ee",
-    kinematic_event: "#fb7185"
+    kinematic_event: "#fb7185",
+    muscle: "#ef4444",
+    muscle_group: "#f97316"
   };
   var STATUS_COLORS = { draft: "#f59e0b", validated: "#10b981", retired: "#64748b" };
   var LINK_COLORS = {
@@ -90,7 +94,12 @@
     action_at_joint: "#f472b6",
     primary_plane: "#34d399",
     primary_axis: "#fbbf24",
-    opposite_of: "#fb7185"
+    opposite_of: "#fb7185",
+    member_of_muscle_group: "#f97316",
+    spans_joint: "#ef4444",
+    contributes_to_action: "#dc2626",
+    stabilizes_joint: "#14b8a6",
+    stabilizes_segment: "#0d9488"
   };
   var RELATION_LABELS = {
     requires: "requereix",
@@ -107,7 +116,12 @@
     action_at_joint: "es produeix a l'articulació",
     primary_plane: "té com a pla principal",
     primary_axis: "té com a eix principal",
-    opposite_of: "és oposada a"
+    opposite_of: "és oposada a",
+    member_of_muscle_group: "forma part del grup muscular",
+    spans_joint: "travessa funcionalment l'articulació",
+    contributes_to_action: "pot contribuir a l'acció",
+    stabilizes_joint: "contribueix a estabilitzar l'articulació",
+    stabilizes_segment: "contribueix a estabilitzar el segment"
   };
 
   var LATERALITY_LABELS = {
@@ -556,11 +570,15 @@
       addMeta("Destí", item.targetNode.name);
       addMeta("Autoria", item.author);
       addMeta("Actualitzada", new Date(item.updatedAt).toLocaleString("ca-ES"));
-      detailAttributes.parentElement.hidden = true;
+      detailAttributes.parentElement.hidden = !item.attributes;
+      detailAttributes.textContent = item.attributes
+        ? JSON.stringify(item.attributes, null, 2)
+        : "";
     }
     editorialActions.querySelectorAll("button[data-status]").forEach(function (button) {
       button.classList.toggle("is-current", button.dataset.status === item.status);
     });
+    editorialActions.hidden = graphDomain === "biomechanics";
   }
 
   function clearSelection() {
@@ -594,7 +612,7 @@
   }
 
   async function updateEditorialStatus(status) {
-    if (!selected) return;
+    if (!selected || graphDomain === "biomechanics") return;
     var item = selected.item;
     var domainPrefix = graphDomain === "motion" ? "motion" : "technical";
     var template = selected.type === "node"
@@ -730,7 +748,9 @@
 
   async function loadGraph(domain) {
     var sequence = ++loadSequence;
-    graphDomain = domain === "motion" ? "motion" : "technical";
+    graphDomain = ["technical", "motion", "biomechanics"].indexOf(domain) >= 0
+      ? domain
+      : "technical";
     clearSelection();
     hovered = null;
     searchInput.value = "";
@@ -741,16 +761,24 @@
     loading.style.color = "";
     loading.textContent = graphDomain === "motion"
       ? "Preparant el graf anatòmic-cinemàtic…"
-      : "Preparant el graf tècnic…";
+      : graphDomain === "biomechanics"
+        ? "Preparant el graf biomecànic…"
+        : "Preparant el graf tècnic…";
     domainDescription.textContent = graphDomain === "motion"
-      ? "Explora segments, articulacions, accions, plans i eixos, i revisa com es relacionen anatòmicament."
-      : "Explora la identitat tècnica dels elements, revisa'n la procedència i valida manualment nodes i arestes.";
+      ? "Explora segments, articulacions, músculs, accions, plans i eixos, i revisa com es relacionen anatòmicament."
+      : graphDomain === "biomechanics"
+        ? "Explora quins músculs poden contribuir a cada acció o estabilització. La projecció és de consulta; el govern detallat viu a l'administració."
+        : "Explora la identitat tècnica dels elements, revisa'n la procedència i valida manualment nodes i arestes.";
     domainButtons.forEach(function (button) {
       button.setAttribute("aria-pressed", String(button.dataset.domain === graphDomain));
     });
     resetCamera();
     try {
-      var url = graphDomain === "motion" ? app.dataset.motionGraphUrl : app.dataset.technicalGraphUrl;
+      var url = graphDomain === "motion"
+        ? app.dataset.motionGraphUrl
+        : graphDomain === "biomechanics"
+          ? app.dataset.biomechanicsGraphUrl
+          : app.dataset.technicalGraphUrl;
       var response = await window.fetch(url, { credentials: "same-origin" });
       if (!response.ok) throw new Error("No s'han pogut carregar les dades del graf.");
       var payload = await response.json();

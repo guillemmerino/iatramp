@@ -8,6 +8,7 @@
 <section class="kg-page" id="knowledge-graph-app"
   data-technical-graph-url="{% url 'iatrain_knowledge_graph_data' %}?domain=technical"
   data-motion-graph-url="{% url 'iatrain_knowledge_graph_data' %}?domain=motion"
+  data-biomechanics-graph-url="{% url 'iatrain_knowledge_graph_data' %}?domain=biomechanics"
   data-technical-node-status-url="{% url 'iatrain_knowledge_concept_status' 0 %}"
   data-technical-link-status-url="{% url 'iatrain_knowledge_relation_status' 0 %}"
   data-motion-node-status-url="{% url 'iatrain_motion_concept_status' 0 %}"
@@ -34,6 +35,10 @@
     <button type="button" data-domain="motion" aria-pressed="false">
       <span>Graf anatòmic-cinemàtic</span>
       <small>{{ motion_concept_count }} conceptes · {{ motion_relation_count }} relacions</small>
+    </button>
+    <button type="button" data-domain="biomechanics" aria-pressed="false">
+      <span>Graf biomecànic</span>
+      <small>{{ biomechanical_function_count }} funcions musculars · projecció de consulta</small>
     </button>
   </nav>
 
