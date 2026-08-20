@@ -9,3 +9,14 @@ docker-compose.intern.yml
 media/
 /static/
 /staticfiles/
+
+# Originals i làmines de QA de la generació visual; el producte usa els WebP versionats.
+/iatrain/static/iatrain/library/exercises/*-source.png
+/iatrain/static/iatrain/library/families/*-source.png
+/iatrain/static/iatrain/library/groups/*-source.png
+/iatrain/static/iatrain/library/exercises/band_resisted_squat-v1-*.webp
+/iatrain/static/iatrain/library/exercises/heel_elevated_goblet_squat-v2-*.webp
+/explaining-contact-sheet.webp
+/family-*-contact.webp
+/variants-*-contact.webp
+/variants-qa-*.webp

@@ -1,9 +1,9 @@
 from collections import OrderedDict
 from django.core.paginator import Paginator
 from django.db.models import OuterRef, Prefetch, Q, Subquery
-from django.templatetags.static import static
 from django.urls import reverse
 
+from iatrain.library_visuals import exercise_illustration, family_illustration
 from iatrain.models import KnowledgeConcept, KnowledgeRelation
 from iatrain_exercises.models import (
     ExerciseObjective,
@@ -36,31 +36,6 @@ TECHNICAL_KIND_LABELS = {
     KnowledgeConcept.Kind.SKILL: "Element tècnic",
     KnowledgeConcept.Kind.EXERCISE: "Exercici tècnic",
 }
-
-EXERCISE_ILLUSTRATIONS = {
-    "bodyweight_squat": {
-        "large": "iatrain/library/exercises/bodyweight_squat-v1-960.webp",
-        "small": "iatrain/library/exercises/bodyweight_squat-v1-480.webp",
-        "alt": (
-            "Avatar d’IA Train dempeus i en la posició baixa d’un esquat "
-            "amb els talons recolzats."
-        ),
-        "start_label": "Inici",
-        "end_label": "Descens",
-    },
-}
-
-
-def exercise_illustration(code):
-    definition = EXERCISE_ILLUSTRATIONS.get(code)
-    if not definition:
-        return None
-    return {
-        **definition,
-        "large_url": static(definition["large"]),
-        "small_url": static(definition["small"]),
-    }
-
 
 def family_movement_badge(code):
     """Return a short, stable label only for unambiguous movement directions."""
@@ -227,7 +202,7 @@ def _with_page_query(request, page_number):
 def _physical_summary(request, revision):
     equipment = [link.equipment.name for link in revision.equipment_requirements.all()]
     movement_badge = family_movement_badge(revision.exercise.parent.code)
-    illustration = exercise_illustration(revision.exercise.code)
+    illustration = exercise_illustration(revision.exercise.code, revision.exercise.name)
     return {
         "key": f"physical:{revision.pk}",
         "name": revision.exercise.name,
@@ -285,6 +260,10 @@ def _group_results(items):
         if item["domain"] == DOMAIN_PHYSICAL:
             revision = item["model"]
             group_key = f"physical-family:{revision.exercise.parent_id}"
+            illustration = family_illustration(
+                revision.exercise.parent.code,
+                revision.exercise.parent.name,
+            )
             group = groups.setdefault(
                 group_key,
                 {
@@ -295,6 +274,7 @@ def _group_results(items):
                     "origin_label": "El meu catàleg",
                     "description": "Família d’exercicis amb variants executables.",
                     "movement_badge": item["movement_badge"],
+                    "illustration": illustration,
                     "items": [],
                 },
             )

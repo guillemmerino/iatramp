@@ -1,9 +1,15 @@
 from django.contrib.auth import get_user_model
+from django.contrib.staticfiles import finders
 from django.test import TestCase
 from django.urls import reverse
 
 from iatrain.models import KnowledgeConcept, KnowledgeRelation
 from iatrain.library import exercise_illustration, family_movement_badge
+from iatrain.library_visuals import (
+    EXERCISE_IMAGE_VERSIONS,
+    FAMILY_IMAGE_VERSIONS,
+    family_illustration,
+)
 from iatrain.services import activate_coach_profile
 from iatrain_exercises.models import Exercise, ExerciseCatalog, ExerciseRevision
 
@@ -217,12 +223,24 @@ class IatrainLibraryTests(TestCase):
         self.assertEqual(family_movement_badge("knee_extension")["short"], "EXT")
         self.assertIsNone(family_movement_badge("push_up"))
 
-    def test_bodyweight_squat_pilot_has_responsive_illustration(self):
+    def test_first_squat_batch_has_responsive_illustrations(self):
         illustration = exercise_illustration("bodyweight_squat")
 
-        self.assertTrue(illustration["large_url"].endswith("bodyweight_squat-v1-960.webp"))
-        self.assertTrue(illustration["small_url"].endswith("bodyweight_squat-v1-480.webp"))
+        self.assertEqual(len(EXERCISE_IMAGE_VERSIONS), 29)
+        self.assertEqual(len(FAMILY_IMAGE_VERSIONS), 7)
+        self.assertTrue(illustration["large_url"].endswith("bodyweight_squat-v2-960.webp"))
+        self.assertTrue(illustration["small_url"].endswith("bodyweight_squat-v2-480.webp"))
         self.assertIsNone(exercise_illustration("exercise_without_asset"))
+        self.assertIsNone(family_illustration("family_without_asset"))
+
+        for code in EXERCISE_IMAGE_VERSIONS:
+            asset = exercise_illustration(code)
+            self.assertIsNotNone(finders.find(asset["large"]))
+            self.assertIsNotNone(finders.find(asset["small"]))
+        for code in FAMILY_IMAGE_VERSIONS:
+            asset = family_illustration(code)
+            self.assertIsNotNone(finders.find(asset["cover"]))
+            self.assertIsNotNone(finders.find(asset["group"]))
 
         variant = Exercise.objects.create(
             catalog=self.catalog,
@@ -252,6 +270,8 @@ class IatrainLibraryTests(TestCase):
             reverse("iatrain_library"),
             {"domain": "physical", "item": f"physical:{revision.pk}"},
         )
-        self.assertContains(response, "bodyweight_squat-v1-960.webp")
-        self.assertContains(response, "bodyweight_squat-v1-480.webp")
+        self.assertContains(response, "bodyweight_squat-v2-960.webp")
+        self.assertContains(response, "bodyweight_squat-v2-480.webp")
+        self.assertContains(response, "squat-v1-480.webp")
+        self.assertContains(response, "lower_body-v1-256.webp")
         self.assertContains(response, "Descens")

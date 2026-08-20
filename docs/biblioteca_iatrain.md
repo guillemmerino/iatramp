@@ -100,6 +100,8 @@ Els elements tècnics són resultats individuals perquè actualment el model pro
 
 Les famílies amb direccions anatòmiques inequívoces incorporen una etiqueta breu per facilitar-ne la diferenciació visual: `AB`, `AD`, `ROT EXT`, `ROT INT`, `ROT`, `FLEX` o `EXT`. El nom complet es conserva i l’etiqueta exposa el significat desenvolupat com a ajuda accessible. La regla utilitza el codi semàntic estable de la família i evita falsos positius com «Flexió de braços», que no representa necessàriament una flexió articular.
 
+El primer lot visual cobreix les set famílies d’esquat (`squat`, `box_squat`, `sit_to_stand`, `wall_sit`, `hack_squat`, `squat_hold` i `leg_press`) i les seves 29 variants visibles. Cada targeta combina una portada de família amb la miniatura muscular general **Cames i glutis**; aquesta miniatura substitueix `PF` només quan la categoria visual està disponible. `TT` es manté sense canvis.
+
 ### 3.5. Fitxa de preparació física
 
 La fitxa lateral mostra:
@@ -114,7 +116,11 @@ La fitxa lateral mostra:
 - contracció esperada;
 - requisits, precaucions i limitacions.
 
-La variant `bodyweight_squat` incorpora el primer pilot visual: una composició de l’avatar en posició inicial i en descens, amb etiquetes i direcció superposades per HTML/CSS. L’asset es distribueix en WebP de `960×640` i `480×320`; la miniatura usa càrrega diferida i la fitxa selecciona la mida segons l’amplada de pantalla. Les variants sense il·lustració mantenen el fallback textual i no mostren cap imatge genèrica enganyosa.
+Les 29 variants del primer lot d’esquat incorporen una composició de l’avatar en posició inicial i en posició clau, amb etiquetes i direcció superposades per HTML/CSS. Cada asset es distribueix en WebP de `960×640` i `480×320`; la miniatura usa càrrega diferida i la fitxa selecciona la mida segons l’amplada de pantalla. Les portades de les set famílies es distribueixen a `480×320` i la miniatura de grup muscular a `256×256`. Les variants sense il·lustració mantenen el fallback textual i no mostren cap imatge genèrica enganyosa.
+
+La identitat facial de totes aquestes peces deriva exclusivament de `core/static/core/avatar/explaining`. Les expressions varien entre atenció, concentració i esforç contingut segons el moviment. Els textos, les fletxes i les etiquetes no formen part del bitmap: són UI, de manera que es poden traduir, adaptar i mantenir accessibles.
+
+El procediment complet per ampliar aquest sistema està recollit al [protocol de generació d’imatges per lots](generacio_imatges_biblioteca_iatrain.md).
 
 Cada connexió física mostra el seu estat de verificació:
 
@@ -382,6 +388,8 @@ També ha de permetre una justificació, dates de vigència i un pes o ordre. Pe
 ## 11. Mapa del codi
 
 - `iatrain/library.py`: projecció, cerca, filtres, agrupació, permisos editorials i detall.
+- `iatrain/library_visuals.py`: manifest versionat d’il·lustracions de variants, famílies i grup muscular.
+- `docs/generacio_imatges_biblioteca_iatrain.md`: protocol reproduïble per inventariar, generar, revisar, convertir i integrar nous lots visuals.
 - `iatrain/views/library.py`: frontera HTTP i exigència de perfil d’entrenador.
 - `iatrain/templates/iatrain/library/index.html`: interfície de resultats i fitxes.
 - `iatrain/static/iatrain/library.css`: disseny responsive de la secció.
@@ -401,3 +409,4 @@ La primera versió es considera correcta quan:
 6. les famílies agrupen variants i la fitxa conserva la revisió seleccionada;
 7. els filtres es mantenen a la URL;
 8. la pantalla continua sent utilitzable en escriptori i mòbil.
+9. les 29 variants i les set famílies del primer lot resolen a assets WebP existents.

@@ -70,7 +70,6 @@
 
 <div class="library-summary">
   <p><strong>{{ library.result_count }}</strong> continguts en <strong>{{ library.group_count }}</strong> resultats</p>
-  <p>Les famílies físiques agrupen les variants per evitar una llista plana.</p>
 </div>
 
 <div class="library-layout">
@@ -79,7 +78,14 @@
       {% for group in library.groups %}
         <article class="library-result{% if group.is_selected %} is-selected{% endif %}">
           <div class="library-result-head">
-            <span class="library-domain-icon library-domain-icon--{{ group.domain }}" aria-hidden="true">{% if group.domain == 'physical' %}PF{% else %}TT{% endif %}</span>
+            {% if group.illustration %}
+              <div class="library-family-media">
+                <img class="library-family-cover" src="{{ group.illustration.cover_url }}" width="96" height="64" loading="lazy" decoding="async" alt="{{ group.illustration.cover_alt }}">
+                <img class="library-muscle-group" src="{{ group.illustration.group_url }}" width="30" height="30" loading="lazy" decoding="async" alt="" title="{{ group.illustration.group_alt }}">
+              </div>
+            {% else %}
+              <span class="library-domain-icon library-domain-icon--{{ group.domain }}" aria-hidden="true">{% if group.domain == 'physical' %}PF{% else %}TT{% endif %}</span>
+            {% endif %}
             <div>
               <span class="library-kicker">{{ group.domain_label }} · {{ group.origin_label }}</span>
               <h2>{{ group.name }}{% if group.movement_badge %} <span class="library-movement-badge" title="{{ group.movement_badge.full }}" aria-label="{{ group.movement_badge.full }}">{{ group.movement_badge.short }}</span>{% endif %}</h2>
@@ -165,7 +171,7 @@
         {% endif %}
 
         <section class="library-detail-section">
-          <div class="library-section-title"><div><span class="library-kicker">Camí explicatiu</span><h3>Fases i connexions</h3></div><small>La verificació evita presentar inferències com a certeses.</small></div>
+          <div class="library-section-title"><div><span class="library-kicker">Camí explicatiu</span><h3>Fases i connexions</h3></div></div>
           {% if library.selected_item.phases %}
             <ol class="library-phases">
               {% for phase in library.selected_item.phases %}
@@ -184,7 +190,7 @@
       {% else %}
         {% if library.selected_item.attributes %}<section class="library-detail-section"><h3>Característiques</h3><dl class="library-attributes">{% for row in library.selected_item.attributes %}<div><dt>{{ row.name }}</dt><dd>{{ row.value }}</dd></div>{% endfor %}</dl></section>{% endif %}
         <section class="library-detail-section">
-          <div class="library-section-title"><div><span class="library-kicker">Base tècnica</span><h3>Connexions importants</h3></div><small>Presentades com a relacions llegibles, no com un graf.</small></div>
+          <div class="library-section-title"><div><span class="library-kicker">Base tècnica</span><h3>Connexions importants</h3></div></div>
           {% if library.selected_item.connections %}
             <div class="library-technical-connections">
               {% for connection in library.selected_item.connections %}<article><span>{% if connection.direction == 'incoming' %}←{% else %}→{% endif %}</span><div><strong>{{ connection.label }}</strong><h4>{{ connection.target }}</h4>{% if connection.rationale %}<p>{{ connection.rationale }}</p>{% endif %}</div><small>{{ connection.status }}</small></article>{% endfor %}
@@ -198,8 +204,4 @@
   </aside>
 </div>
 
-<section class="library-future-note">
-  <div><span class="iatrain-eyebrow">Evolució prevista</span><h2>Una Biblioteca preparada per créixer</h2><p>La capa actual diferencia el catàleg propi de la base professional. Les publicacions comunitàries, els favorits i les prioritats contextuals s’afegiran sobre aquesta mateixa identitat visual.</p></div>
-  <span>Comunitat · Favorits · Planificació</span>
-</section>
 {% endblock %}
