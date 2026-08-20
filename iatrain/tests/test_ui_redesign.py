@@ -49,6 +49,7 @@ class IatrainRedesignTests(TestCase):
         self.assertContains(response, 'class="iatrain-mode-switch"', count=1)
         self.assertContains(response, "Organitzacions")
         self.assertContains(response, "Gimnasos")
+        self.assertContains(response, "Explorar Biblioteca")
         self.assertContains(response, "Començar entrenament")
         self.assertContains(response, "/static/core/avatar/controls/avatar_in.png")
         self.assertNotContains(response, "Perfil de gimnasta")

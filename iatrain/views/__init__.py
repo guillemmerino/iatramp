@@ -20,6 +20,7 @@ from .knowledge_graph import (
     motion_concept_status,
     motion_relation_status,
 )
+from .library import library
 
 __all__ = (
     "athlete_create",
@@ -41,6 +42,7 @@ __all__ = (
     "knowledge_graph",
     "knowledge_graph_data",
     "knowledge_relation_status",
+    "library",
     "motion_concept_status",
     "motion_relation_status",
     "organization_detail",

@@ -7,6 +7,7 @@ urlpatterns = [
     path("", views.home, name="iatrain_home"),
     path("perfils/actualitzar/", views.update_profile, name="iatrain_profile_update"),
     path("perspectiva/", views.select_perspective, name="iatrain_perspective"),
+    path("biblioteca/", views.library, name="iatrain_library"),
     path("gimnastes/", views.athlete_list, name="iatrain_athlete_list"),
     path("gimnastes/afegir/", views.athlete_create, name="iatrain_athlete_create"),
     path("gimnastes/<int:pk>/", views.athlete_detail, name="iatrain_athlete_detail"),

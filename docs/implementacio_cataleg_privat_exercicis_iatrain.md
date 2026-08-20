@@ -1,6 +1,6 @@
 # Catàleg privat i explicable d'exercicis d'IA Train
 
-> **Estat:** base privada extensa implementada, importada i revisable en `draft`
+> **Estat:** base privada extensa implementada, importada i consultable des de la Biblioteca; revisions en `draft`
 > **Actualitzat:** 20 d'agost de 2026
 > **Mòdul:** `iatrain_exercises`
 > **Abast actual:** exercicis de preparació física propietat d'una persona, connectats al coneixement anatòmic, cinemàtic i biomecànic.
@@ -237,7 +237,7 @@ Si un exercici necessita una acció, múscul o funció biomecànica que no exist
 Ordre recomanat:
 
 1. revisar professionalment les sis mostres i les dependències en `draft`;
-2. construir una interfície privada de consulta, alta i revisió de buits/propostes;
+2. ampliar la [Biblioteca d’IA Train](biblioteca_iatrain.md), ja implementada en mode consulta, amb alta i revisió de buits/propostes;
 3. implementar resolució de duplicats i aplicació transaccional de propostes del LLM;
 4. ampliar gradualment el catàleg privat seguint la plantilla, amb proves de cobertura per patrons i articulacions;
 5. crear la capa de prescripció i rutines separada;

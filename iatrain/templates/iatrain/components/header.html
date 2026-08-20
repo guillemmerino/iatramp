@@ -25,6 +25,7 @@
   <div class="iatrain-coach-bar">
     <nav class="iatrain-primary-nav" aria-label="Navegació d’IA Train">
       <a href="{% url 'iatrain_home' %}" {% if request.resolver_match.url_name == 'iatrain_home' %}aria-current="page"{% endif %}>Resum</a>
+      <a class="tone-library" href="{% url 'iatrain_library' %}" {% if request.resolver_match.url_name == 'iatrain_library' %}aria-current="page"{% endif %}>Biblioteca</a>
       <a class="tone-organization" href="{% url 'iatrain_organization_list' %}" {% if 'organization' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Organitzacions</a>
       <a class="tone-group" href="{% url 'iatrain_group_list' %}" {% if 'group' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Grups</a>
       <a class="tone-athlete" href="{% url 'iatrain_athlete_list' %}" {% if 'athlete' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Gimnastes</a>

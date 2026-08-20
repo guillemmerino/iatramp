@@ -1,0 +1,205 @@
+{% extends "iatrain/base.html" %}
+{% load static_extras %}
+
+{% block iatrain_title %}Biblioteca{% endblock %}
+{% block extra_head %}{{ block.super }}<link rel="stylesheet" href="{% staticv 'iatrain/library.css' %}">{% endblock %}
+
+{% block iatrain_content %}
+<section class="library-hero">
+  <div>
+    <span class="iatrain-eyebrow">Coneixement aplicable</span>
+    <h1>Biblioteca d’entrenament</h1>
+    <p>Cerca exercicis físics i elements tècnics, consulta’n les variants i entén les connexions que els sostenen.</p>
+  </div>
+  <div class="library-hero-counts" aria-label="Contingut disponible">
+    <span><strong>{{ library.counts.physical }}</strong> variants físiques</span>
+    <span><strong>{{ library.counts.technical }}</strong> elements tècnics</span>
+  </div>
+</section>
+
+<form class="library-search" method="get" role="search">
+  <input type="hidden" name="domain" value="{{ library.domain }}">
+  <div class="library-search-box">
+    <label for="library-query">Què vols trobar?</label>
+    <div>
+      <span aria-hidden="true">⌕</span>
+      <input id="library-query" name="q" type="search" value="{{ library.query }}" placeholder="Exercici, família, material, múscul, posició o prerequisit">
+      <button type="submit">Cercar</button>
+    </div>
+  </div>
+
+  <fieldset class="library-domain-switch">
+    <legend>Àmbit</legend>
+    <button type="submit" name="domain" value="all" {% if library.domain == 'all' %}aria-pressed="true"{% else %}aria-pressed="false"{% endif %}>Tots</button>
+    <button type="submit" name="domain" value="physical" {% if library.domain == 'physical' %}aria-pressed="true"{% else %}aria-pressed="false"{% endif %}>Preparació física</button>
+    <button type="submit" name="domain" value="technical" {% if library.domain == 'technical' %}aria-pressed="true"{% else %}aria-pressed="false"{% endif %}>Tècnica de trampolí</button>
+  </fieldset>
+
+  <div class="library-filters">
+    <label>Origen
+      <select name="origin">
+        <option value="all" {% if library.origin == 'all' %}selected{% endif %}>Tots els orígens</option>
+        <option value="personal" {% if library.origin == 'personal' %}selected{% endif %}>El meu catàleg</option>
+        <option value="professional" {% if library.origin == 'professional' %}selected{% endif %}>Base professional</option>
+      </select>
+    </label>
+    <label>Estat
+      <select name="status">
+        <option value="all" {% if library.status == 'all' %}selected{% endif %}>Actius</option>
+        <option value="draft" {% if library.status == 'draft' %}selected{% endif %}>Esborrany</option>
+        <option value="validated" {% if library.status == 'validated' %}selected{% endif %}>Validat</option>
+        <option value="retired" {% if library.status == 'retired' %}selected{% endif %}>Retirat</option>
+      </select>
+    </label>
+    <label>Dificultat física
+      <select name="difficulty">
+        <option value="all" {% if library.difficulty == 'all' %}selected{% endif %}>Totes</option>
+        {% for value, label in library.difficulty_options %}<option value="{{ value }}" {% if library.difficulty == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Patró motriu
+      <select name="pattern">
+        <option value="all" {% if library.pattern == 'all' %}selected{% endif %}>Tots</option>
+        {% for value, label in library.pattern_options %}<option value="{{ value }}" {% if library.pattern == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <button class="library-filter-submit" type="submit">Aplicar filtres</button>
+    {% if library.active_filters %}<a class="library-clear" href="{{ library.clear_url }}">Netejar</a>{% endif %}
+  </div>
+</form>
+
+<div class="library-summary">
+  <p><strong>{{ library.result_count }}</strong> continguts en <strong>{{ library.group_count }}</strong> resultats</p>
+  <p>Les famílies físiques agrupen les variants per evitar una llista plana.</p>
+</div>
+
+<div class="library-layout">
+  <section class="library-results" aria-label="Resultats de la Biblioteca">
+    {% if library.groups %}
+      {% for group in library.groups %}
+        <article class="library-result{% if group.is_selected %} is-selected{% endif %}">
+          <div class="library-result-head">
+            <span class="library-domain-icon library-domain-icon--{{ group.domain }}" aria-hidden="true">{% if group.domain == 'physical' %}PF{% else %}TT{% endif %}</span>
+            <div>
+              <span class="library-kicker">{{ group.domain_label }} · {{ group.origin_label }}</span>
+              <h2>{{ group.name }}{% if group.movement_badge %} <span class="library-movement-badge" title="{{ group.movement_badge.full }}" aria-label="{{ group.movement_badge.full }}">{{ group.movement_badge.short }}</span>{% endif %}</h2>
+            </div>
+          </div>
+
+          {% if group.domain == 'physical' %}
+            <details class="library-variants" {% if group.item_count < 4 %}open{% endif %}>
+              <summary>{{ group.item_count }} variant{{ group.item_count|pluralize:"s" }}</summary>
+              <div>
+                {% for item in group.items %}
+                  <a href="{{ item.detail_url }}" {% if library.selected_item.key == item.key %}aria-current="true"{% endif %}>
+                    {% if item.illustration %}<img src="{{ item.illustration.small_url }}" width="72" height="48" loading="lazy" decoding="async" alt="">{% endif %}
+                    <span class="library-variant-copy"><strong>{{ item.name }}</strong><small>{{ item.status_label }} · {{ item.tags.1 }}</small></span>
+                  </a>
+                {% endfor %}
+              </div>
+            </details>
+          {% else %}
+            <p>{{ group.description|default:"Sense descripció disponible."|truncatechars:170 }}</p>
+            <a class="library-open-detail" href="{{ group.primary_item.detail_url }}">Consultar fitxa →</a>
+          {% endif %}
+        </article>
+      {% endfor %}
+
+      {% if library.page_obj.paginator.num_pages > 1 %}
+        <nav class="library-pagination" aria-label="Paginació de resultats">
+          {% if library.previous_url %}<a href="{{ library.previous_url }}">← Anterior</a>{% else %}<span></span>{% endif %}
+          <strong>Pàgina {{ library.page_obj.number }} de {{ library.page_obj.paginator.num_pages }}</strong>
+          {% if library.next_url %}<a href="{{ library.next_url }}">Següent →</a>{% endif %}
+        </nav>
+      {% endif %}
+    {% else %}
+      <div class="library-empty">
+        <span aria-hidden="true">⌕</span>
+        <h2>No hem trobat cap coincidència</h2>
+        <p>Prova un terme més general o elimina algun filtre.</p>
+        <a href="{{ library.clear_url }}">Veure tota la Biblioteca</a>
+      </div>
+    {% endif %}
+  </section>
+
+  <aside class="library-detail" aria-label="Fitxa del contingut seleccionat">
+    {% if library.selected_item %}
+      <header>
+        <div class="library-detail-badges">
+          <span class="library-badge library-badge--{{ library.selected_item.origin }}">{{ library.selected_item.origin_label }}</span>
+          <span class="library-badge library-badge--status-{{ library.selected_item.status }}">{{ library.selected_item.status_label }}</span>
+        </div>
+        <span class="library-kicker">{{ library.selected_item.domain_label }} · {{ library.selected_item.kind_label }}</span>
+        <h2>{{ library.selected_item.name }}{% if library.selected_item.movement_badge %} <span class="library-movement-badge" title="{{ library.selected_item.movement_badge.full }}" aria-label="{{ library.selected_item.movement_badge.full }}">{{ library.selected_item.movement_badge.short }}</span>{% endif %}</h2>
+        <p>{{ library.selected_item.description|default:"Sense descripció disponible." }}</p>
+        <small>Autoria: {{ library.selected_item.author }}{% if library.selected_item.revision_number %} · Revisió {{ library.selected_item.revision_number }}{% endif %}</small>
+      </header>
+
+      {% if library.selected_item.domain == 'physical' %}
+        {% if library.selected_item.illustration %}
+          <figure class="library-exercise-visual">
+            <picture>
+              <source media="(max-width: 620px)" srcset="{{ library.selected_item.illustration.small_url }}">
+              <img src="{{ library.selected_item.illustration.large_url }}" width="960" height="640" decoding="async" alt="{{ library.selected_item.illustration.alt }}">
+            </picture>
+            <div aria-hidden="true"><span>{{ library.selected_item.illustration.start_label }}</span><b>→</b><span>{{ library.selected_item.illustration.end_label }}</span></div>
+          </figure>
+        {% endif %}
+        <section class="library-detail-section">
+          <h3>Classificació</h3>
+          <div class="library-chips">{% for label in library.selected_item.classification %}<span>{{ label }}</span>{% endfor %}</div>
+        </section>
+
+        <section class="library-practical-grid">
+          <article><h3>Preparació</h3><p>{{ library.selected_item.setup }}</p></article>
+          <article><h3>Execució</h3><p>{{ library.selected_item.execution }}</p></article>
+          <article><h3>Consignes</h3><p>{{ library.selected_item.coaching_cues }}</p></article>
+          {% if library.selected_item.safety_notes %}<article><h3>Seguretat</h3><p>{{ library.selected_item.safety_notes }}</p></article>{% endif %}
+        </section>
+
+        {% if library.selected_item.objectives or library.selected_item.equipment %}
+          <section class="library-detail-section library-detail-columns">
+            {% if library.selected_item.objectives %}<div><h3>Objectius</h3><ul>{% for objective in library.selected_item.objectives %}<li>{{ objective }}</li>{% endfor %}</ul></div>{% endif %}
+            {% if library.selected_item.equipment %}<div><h3>Material</h3><ul>{% for row in library.selected_item.equipment %}<li>{{ row.name }} <small>· {{ row.requirement }}</small></li>{% endfor %}</ul></div>{% endif %}
+          </section>
+        {% endif %}
+
+        <section class="library-detail-section">
+          <div class="library-section-title"><div><span class="library-kicker">Camí explicatiu</span><h3>Fases i connexions</h3></div><small>La verificació evita presentar inferències com a certeses.</small></div>
+          {% if library.selected_item.phases %}
+            <ol class="library-phases">
+              {% for phase in library.selected_item.phases %}
+                <li>
+                  <div class="library-phase-head"><span>{{ forloop.counter }}</span><div><h4>{{ phase.name }}{% if phase.is_key %} <b>Clau</b>{% endif %}</h4><small>{{ phase.phase_type }} · {{ phase.intent }}</small></div></div>
+                  <p>{{ phase.description }}</p>
+                  {% if phase.actions %}<div class="library-connections"><strong>Accions</strong>{% for action in phase.actions %}<article><div><b>{{ action.name }}</b><span>{{ action.role }}</span></div><em class="is-{{ action.verification_code }}">{{ action.verification }}</em>{% if action.rationale %}<p>{{ action.rationale }}</p>{% endif %}</article>{% endfor %}</div>{% endif %}
+                  {% if phase.muscles %}<div class="library-connections"><strong>Funció muscular</strong>{% for muscle in phase.muscles %}<article><div><b>{{ muscle.name }}</b><span>{{ muscle.role }} · {{ muscle.contraction }}</span></div><em class="is-{{ muscle.verification_code }}">{{ muscle.verification }}</em><p>{{ muscle.basis }}{% if muscle.rationale %} · {{ muscle.rationale }}{% endif %}</p></article>{% endfor %}</div>{% endif %}
+                </li>
+              {% endfor %}
+            </ol>
+          {% else %}<p class="library-muted">Aquesta revisió encara no té fases descrites.</p>{% endif %}
+        </section>
+
+        {% if library.selected_item.constraints %}<section class="library-detail-section"><h3>Requisits i precaucions</h3><ul>{% for row in library.selected_item.constraints %}<li><strong>{{ row.kind }}:</strong> {{ row.statement }} <small>({{ row.severity }})</small></li>{% endfor %}</ul></section>{% endif %}
+      {% else %}
+        {% if library.selected_item.attributes %}<section class="library-detail-section"><h3>Característiques</h3><dl class="library-attributes">{% for row in library.selected_item.attributes %}<div><dt>{{ row.name }}</dt><dd>{{ row.value }}</dd></div>{% endfor %}</dl></section>{% endif %}
+        <section class="library-detail-section">
+          <div class="library-section-title"><div><span class="library-kicker">Base tècnica</span><h3>Connexions importants</h3></div><small>Presentades com a relacions llegibles, no com un graf.</small></div>
+          {% if library.selected_item.connections %}
+            <div class="library-technical-connections">
+              {% for connection in library.selected_item.connections %}<article><span>{% if connection.direction == 'incoming' %}←{% else %}→{% endif %}</span><div><strong>{{ connection.label }}</strong><h4>{{ connection.target }}</h4>{% if connection.rationale %}<p>{{ connection.rationale }}</p>{% endif %}</div><small>{{ connection.status }}</small></article>{% endfor %}
+            </div>
+          {% else %}<p class="library-muted">Aquest element encara no té connexions visibles.</p>{% endif %}
+        </section>
+      {% endif %}
+    {% else %}
+      <div class="library-detail-empty"><span aria-hidden="true">↗</span><h2>Selecciona un resultat</h2><p>Aquí en veuràs l’execució, les variants i les connexions importants.</p></div>
+    {% endif %}
+  </aside>
+</div>
+
+<section class="library-future-note">
+  <div><span class="iatrain-eyebrow">Evolució prevista</span><h2>Una Biblioteca preparada per créixer</h2><p>La capa actual diferencia el catàleg propi de la base professional. Les publicacions comunitàries, els favorits i les prioritats contextuals s’afegiran sobre aquesta mateixa identitat visual.</p></div>
+  <span>Comunitat · Favorits · Planificació</span>
+</section>
+{% endblock %}
