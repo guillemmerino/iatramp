@@ -14,6 +14,7 @@ from .contracts import (
     BlockLoadEstimate,
     BlockObjective,
     BlockParticipantProposal,
+    ParticipantConditionDecision,
     ExerciseAlternativeProposal,
     ExerciseDoseProposal,
 )
@@ -42,6 +43,7 @@ __all__ = (
     "BlockLoadEstimate",
     "BlockObjective",
     "BlockParticipantProposal",
+    "ParticipantConditionDecision",
     "ExerciseAlternativeProposal",
     "ExerciseDoseProposal",
     "TrainingSelection",

@@ -1,5 +1,6 @@
 from django import forms
 
+from iatrain_motion.models import MotionConcept
 from organizations.models import Organization
 
 from .models import (
@@ -128,6 +129,7 @@ class AthleteObservationForm(forms.Form):
 
 
 class AthleteConditionForm(forms.Form):
+    supersedes_id = forms.IntegerField(required=False, widget=forms.HiddenInput)
     category = forms.ChoiceField(label="Tipus", choices=AthleteCondition.Category.choices)
     title = forms.CharField(label="Títol", max_length=180)
     narrative = forms.CharField(
@@ -150,12 +152,50 @@ class AthleteConditionForm(forms.Form):
         label="Impacte sobre l'entrenament",
         choices=AthleteCondition.TrainingImpact.choices,
     )
+    applicability_scope = forms.ChoiceField(
+        label="Abast de la condició",
+        choices=AthleteCondition.ApplicabilityScope.choices,
+        help_text=(
+            "Indica si afecta una regió concreta, tot l’entrenament o encara cal concretar-ho."
+        ),
+    )
+    body_region = forms.ModelChoiceField(
+        label="Regió corporal",
+        queryset=MotionConcept.objects.filter(
+            kind__in=(
+                MotionConcept.Kind.SEGMENT,
+                MotionConcept.Kind.JOINT,
+                MotionConcept.Kind.MUSCLE,
+                MotionConcept.Kind.MUSCLE_GROUP,
+            )
+        ).order_by("name"),
+        required=False,
+        empty_label="Sense regió concreta",
+    )
     source = forms.ChoiceField(label="Font", choices=AthleteCondition.Source.choices)
     valid_until = forms.DateTimeField(
         label="Vigent fins a",
         required=False,
         widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
     )
+
+    def clean(self):
+        cleaned = super().clean()
+        scope = cleaned.get("applicability_scope")
+        region = cleaned.get("body_region")
+        if scope == AthleteCondition.ApplicabilityScope.REGIONAL and not region:
+            self.add_error("body_region", "Selecciona la regió corporal afectada.")
+        if scope == AthleteCondition.ApplicabilityScope.GLOBAL and region:
+            self.add_error(
+                "body_region",
+                "Deixa la regió buida quan la condició afecta globalment l’entrenament.",
+            )
+        if scope == AthleteCondition.ApplicabilityScope.UNKNOWN and region:
+            self.add_error(
+                "applicability_scope",
+                "Si coneixes la regió, selecciona «Regió corporal concreta».",
+            )
+        return cleaned
 
 
 class TrainingGroupForm(forms.Form):

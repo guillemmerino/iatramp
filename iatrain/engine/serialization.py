@@ -12,6 +12,7 @@ from .contracts import (
     BlockParticipantProposal,
     ExerciseAlternativeProposal,
     ExerciseDoseProposal,
+    ParticipantConditionDecision,
 )
 
 
@@ -28,6 +29,61 @@ def contract_to_payload(value):
     if isinstance(value, dict):
         return {key: contract_to_payload(item) for key, item in value.items()}
     return value
+
+
+def proposal_payload_from_agent_output(
+    *,
+    final,
+    session_revision_id,
+    sequence_index,
+    block_role,
+    planned_duration_minutes,
+    participant_plan_ids,
+    excluded_participant_plan_ids,
+    available_equipment_ids,
+    generator_reference,
+):
+    """Map the public agent schema to the one canonical proposal contract."""
+
+    plan = final["plan"]
+    request = {
+        "session_revision_id": session_revision_id,
+        "sequence_index": sequence_index,
+        "name": plan["name"].strip()[:160],
+        "block_role": block_role,
+        "planned_duration_minutes": planned_duration_minutes,
+        "objective": plan["objective"],
+        "participant_plan_ids": list(participant_plan_ids),
+        "excluded_participant_plan_ids": list(excluded_participant_plan_ids),
+        "execution_mode": plan["execution_mode"],
+        "domain": "physical",
+        "target_intensity": plan["target_intensity"],
+        "available_equipment_ids": list(available_equipment_ids),
+        "hard_constraints": list(dict.fromkeys(plan["hard_constraints"])),
+        "preferences": list(dict.fromkeys(plan["preferences"])),
+        "instructions": plan["instructions"],
+        "rounds": plan["rounds"],
+        "rest_between_rounds_seconds": plan["rest_between_rounds_seconds"],
+        "is_optional": False,
+        "contract_version": "3.1",
+    }
+    return {
+        "request": request,
+        "items": final["items"],
+        "estimated_duration_seconds": final["estimated_duration_seconds"],
+        "estimated_load": final["estimated_load"],
+        "coverage": final["coverage"],
+        "participants": final["participants"],
+        "satisfied_constraints": final["satisfied_constraints"],
+        "warnings": final["warnings"],
+        "unmet_constraints": final["unmet_constraints"],
+        "confidence": final["confidence"],
+        "generator_reference": generator_reference,
+        "planning_summary": final["planning_summary"],
+        "premise_effects": final["premise_effects"],
+        "search_summary": final["search_summary"],
+        "contract_version": "3.1",
+    }
 
 
 def _decimal(value):
@@ -131,6 +187,7 @@ def proposal_from_payload(payload):
                 title=row["title"],
                 instructions=row.get("instructions", ""),
                 coaching_cues=row.get("coaching_cues", ""),
+                setup_seconds=int(row.get("setup_seconds", 0)),
                 planned_duration_seconds=row.get("planned_duration_seconds"),
                 rest_after_seconds=int(row.get("rest_after_seconds", 0)),
                 selection_rationale=row.get("selection_rationale", ""),
@@ -152,6 +209,18 @@ def proposal_from_payload(payload):
             participant_plan_id=int(row["participant_plan_id"]),
             mode=row["mode"],
             rationale=row.get("rationale", ""),
+            condition_decisions=tuple(
+                ParticipantConditionDecision(
+                    condition_id=int(decision["condition_id"]),
+                    action=decision["action"],
+                    rationale=decision.get("rationale", ""),
+                    affected_sequence_indices=tuple(
+                        int(value)
+                        for value in decision.get("affected_sequence_indices", [])
+                    ),
+                )
+                for decision in row.get("condition_decisions", [])
+            ),
         )
         for row in payload.get("participants", [])
     )
@@ -185,5 +254,8 @@ def proposal_from_payload(payload):
         unmet_constraints=tuple(payload.get("unmet_constraints", [])),
         confidence=_decimal(payload.get("confidence")),
         generator_reference=payload.get("generator_reference", ""),
+        planning_summary=payload.get("planning_summary", ""),
+        premise_effects=tuple(payload.get("premise_effects", [])),
+        search_summary=payload.get("search_summary", ""),
         contract_version=payload.get("contract_version", "1.0"),
     )

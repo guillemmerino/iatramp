@@ -5,6 +5,7 @@ from .generation import (
     block_generation_decide,
     block_generation_discard,
     block_generation_refine,
+    block_generation_status,
 )
 
 __all__ = (
@@ -13,6 +14,7 @@ __all__ = (
     "block_generation_decide",
     "block_generation_discard",
     "block_generation_refine",
+    "block_generation_status",
     "context_options",
     "training_start",
 )

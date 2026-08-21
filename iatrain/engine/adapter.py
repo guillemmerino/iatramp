@@ -104,6 +104,17 @@ def apply_block_generation_proposal(*, user, proposal):
             participant_plan=participant_plans[participant.participant_plan_id],
             mode=participant.mode,
             rationale=participant.rationale,
+            condition_decisions=[
+                {
+                    "condition_id": decision.condition_id,
+                    "action": decision.action,
+                    "rationale": decision.rationale,
+                    "affected_sequence_indices": list(
+                        decision.affected_sequence_indices
+                    ),
+                }
+                for decision in participant.condition_decisions
+            ],
         )
 
     for proposed_item in sorted(proposal.items, key=lambda item: item.sequence_index):
@@ -114,6 +125,7 @@ def apply_block_generation_proposal(*, user, proposal):
             title=proposed_item.title,
             instructions=proposed_item.instructions,
             coaching_cues=proposed_item.coaching_cues,
+            setup_seconds=proposed_item.setup_seconds,
             planned_duration_seconds=proposed_item.planned_duration_seconds,
             rest_after_seconds=proposed_item.rest_after_seconds,
             selection_rationale=proposed_item.selection_rationale,

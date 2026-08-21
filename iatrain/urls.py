@@ -33,6 +33,7 @@ urlpatterns = [
     path("sessions/<int:pk>/", views.session_detail, name="iatrain_session_detail"),
     path("sessions/<int:pk>/generacions/bloc/", views.block_generation_create, name="iatrain_block_generation_create"),
     path("sessions/<int:pk>/generacions/<int:run_pk>/reformular/", views.block_generation_refine, name="iatrain_block_generation_refine"),
+    path("sessions/<int:pk>/generacions/<int:run_pk>/estat/", views.block_generation_status, name="iatrain_block_generation_status"),
     path("sessions/<int:pk>/generacions/<int:run_pk>/decidir/", views.block_generation_decide, name="iatrain_block_generation_decide"),
     path("sessions/<int:pk>/generacions/<int:run_pk>/aplicar/", views.block_generation_apply, name="iatrain_block_generation_apply"),
     path("sessions/<int:pk>/generacions/<int:run_pk>/descartar/", views.block_generation_discard, name="iatrain_block_generation_discard"),

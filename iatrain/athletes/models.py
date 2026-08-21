@@ -265,6 +265,11 @@ class AthleteCondition(CleanOnSaveModel):
         AVOID = "avoid", "Evitar"
         STOP = "stop", "No entrenar"
 
+    class ApplicabilityScope(models.TextChoices):
+        UNKNOWN = "unknown", "Abast pendent de concretar"
+        REGIONAL = "regional", "Regió corporal concreta"
+        GLOBAL = "global", "Afecta globalment l’entrenament"
+
     class Source(models.TextChoices):
         ATHLETE_REPORT = "athlete_report", "Informació del gimnasta"
         COACH_OBSERVATION = "coach_observation", "Observació de l'entrenador"
@@ -301,6 +306,11 @@ class AthleteCondition(CleanOnSaveModel):
         null=True,
         blank=True,
         related_name="athlete_conditions",
+    )
+    applicability_scope = models.CharField(
+        max_length=20,
+        choices=ApplicabilityScope.choices,
+        default=ApplicabilityScope.UNKNOWN,
     )
     laterality = models.CharField(
         max_length=20, choices=Laterality.choices, default=Laterality.NOT_APPLICABLE
@@ -378,6 +388,23 @@ class AthleteCondition(CleanOnSaveModel):
             MotionConcept.Kind.MUSCLE_GROUP,
         }:
             errors["body_region"] = "La regió ha de ser una estructura anatòmica."
+        if (
+            self.applicability_scope == self.ApplicabilityScope.REGIONAL
+            and not self.body_region_id
+        ):
+            errors["body_region"] = "Una condició regional necessita una regió corporal."
+        if (
+            self.applicability_scope == self.ApplicabilityScope.GLOBAL
+            and self.body_region_id
+        ):
+            errors["body_region"] = "Una condició global no ha de limitar-se a una regió."
+        if (
+            self.applicability_scope == self.ApplicabilityScope.UNKNOWN
+            and self.body_region_id
+        ):
+            errors["applicability_scope"] = (
+                "Si coneixes la regió, marca la condició com a regional."
+            )
         if self.ended_at and self.ended_at < self.started_at:
             errors["ended_at"] = "La condició no pot acabar abans de començar."
         if self.valid_until and self.valid_until < self.started_at:
@@ -407,6 +434,7 @@ class AthleteCondition(CleanOnSaveModel):
                 "narrative",
                 "evidence",
                 "body_region_id",
+                "applicability_scope",
                 "laterality",
                 "severity",
                 "training_impact",

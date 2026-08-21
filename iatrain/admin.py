@@ -301,10 +301,17 @@ class AthleteConditionAdmin(admin.ModelAdmin):
         "title",
         "category",
         "training_impact",
+        "applicability_scope",
         "status",
         "started_at",
     )
-    list_filter = ("category", "training_impact", "status", "organization")
+    list_filter = (
+        "category",
+        "training_impact",
+        "applicability_scope",
+        "status",
+        "organization",
+    )
     search_fields = (
         "athlete_profile__person__first_name",
         "athlete_profile__person__last_name",

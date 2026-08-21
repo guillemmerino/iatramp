@@ -158,6 +158,7 @@ def propose_athlete_condition(
     organization=None,
     evidence="",
     body_region=None,
+    applicability_scope=None,
     laterality=AthleteCondition.Laterality.NOT_APPLICABLE,
     severity=None,
     training_impact=AthleteCondition.TrainingImpact.MONITOR,
@@ -167,6 +168,14 @@ def propose_athlete_condition(
 ):
     athlete_profile = _profile(athlete)
     actor = _assert_can_edit(user, athlete_profile, organization, health=True)
+    if applicability_scope is None:
+        applicability_scope = (
+            AthleteCondition.ApplicabilityScope.REGIONAL
+            if body_region
+            else AthleteCondition.ApplicabilityScope.GLOBAL
+            if training_impact == AthleteCondition.TrainingImpact.STOP
+            else AthleteCondition.ApplicabilityScope.UNKNOWN
+        )
     condition = AthleteCondition(
         athlete_profile=athlete_profile,
         organization=organization,
@@ -175,6 +184,7 @@ def propose_athlete_condition(
         narrative=narrative,
         evidence=evidence,
         body_region=body_region,
+        applicability_scope=applicability_scope,
         laterality=laterality,
         severity=severity,
         training_impact=training_impact,

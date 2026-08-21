@@ -81,6 +81,9 @@ class TrainingItemForm(forms.Form):
     coaching_cues = forms.CharField(
         label="Consignes", required=False, widget=forms.Textarea(attrs={"rows": 2})
     )
+    setup_seconds = forms.IntegerField(
+        label="Preparació (s)", min_value=0, initial=0, required=False
+    )
     planned_duration_seconds = forms.IntegerField(
         label="Durada (s)", required=False, min_value=1
     )

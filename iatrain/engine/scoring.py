@@ -68,6 +68,20 @@ def _condition_region_tokens(condition):
     return values
 
 
+def condition_applicability(condition, candidate_regions):
+    """Return applies/not_applicable/uncertain without treating missing data as global."""
+
+    if condition.get("training_impact") == "stop":
+        return "applies"
+    scope = condition.get("applicability_scope", "")
+    if scope == "global":
+        return "applies"
+    tokens = _condition_region_tokens(condition)
+    if tokens:
+        return "applies" if candidate_regions & tokens else "not_applicable"
+    return "uncertain"
+
+
 def _request_athletes(context, request):
     participant_ids = set(request.participant_plan_ids)
     return tuple(
@@ -95,8 +109,7 @@ def _group_profile(athletes):
 
 
 def condition_applies(condition, candidate_regions):
-    tokens = _condition_region_tokens(condition)
-    return not tokens or bool(candidate_regions & tokens)
+    return condition_applicability(condition, candidate_regions) == "applies"
 
 
 def athlete_candidate_compatibility(athlete, candidate_regions):

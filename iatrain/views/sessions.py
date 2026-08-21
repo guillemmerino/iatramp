@@ -92,6 +92,13 @@ def _generation_preview(run, revision):
         plan.pk: plan.athlete_profile.person.display_name
         for plan in revision.participant_plans.all()
     }
+    condition_labels = {
+        condition.pk: condition.title
+        for plan in revision.participant_plans.prefetch_related(
+            "athlete_profile__conditions"
+        )
+        for condition in plan.athlete_profile.conditions.all()
+    }
     participant_modes = {
         "shared": "Compartida",
         "personalized": "Personalitzada",
@@ -104,6 +111,17 @@ def _generation_preview(run, revision):
         participant["mode_label"] = participant_modes.get(
             participant.get("mode"), participant.get("mode", "")
         )
+        for decision in participant.get("condition_decisions", []):
+            decision["condition_title"] = condition_labels.get(
+                decision.get("condition_id"), "Condició"
+            )
+            decision["action_label"] = {
+                "not_applicable": "No afecta aquest bloc",
+                "monitor": "Monitoratge",
+                "modify": "Modificació",
+                "replace": "Substitució",
+                "skip": "Omissió",
+            }.get(decision.get("action"), decision.get("action", ""))
     exercise_ids = set()
     for item in payload.get("items", []):
         dose = item.get("dose") or {}
@@ -138,6 +156,37 @@ def _generation_preview(run, revision):
         payload["confidence_percent"] = int(float(payload.get("confidence") or 0) * 100)
     except (TypeError, ValueError):
         payload["confidence_percent"] = 0
+    trace = run.agent_trace or []
+    candidate_ids = {
+        int(value)
+        for row in trace
+        if row.get("tool") in {"search_exercises", "find_compatible_alternatives"}
+        and row.get("status") == "ok"
+        for value in row.get("exercise_revision_ids", [])
+    }
+    search_rows = [
+        row
+        for row in trace
+        if row.get("tool") in {"search_exercises", "find_compatible_alternatives"}
+    ]
+    payload["agent_audit"] = {
+        "model_name": run.model_name,
+        "tool_calls": len(trace),
+        "searches": len(search_rows),
+        "unique_candidates": len(candidate_ids),
+        "selected_exercises": len(
+            {
+                (item.get("dose") or {}).get("exercise_revision_id")
+                for item in payload.get("items", [])
+                if (item.get("dose") or {}).get("exercise_revision_id")
+            }
+        ),
+        "timing_checked": any(
+            row.get("tool") == "calculate_block_timing" and row.get("status") == "ok"
+            for row in trace
+        ),
+        "review": (run.validation_payload or {}).get("independent_review"),
+    }
     return payload
 
 
@@ -152,7 +201,7 @@ def _generation_decision_preview(run, revision):
     for issue in payload.get("issues", []):
         plan = plans.get(issue.get("participant_plan_id"))
         issue["participant_name"] = (
-            plan.athlete_profile.person.display_name if plan else "Gimnasta"
+            plan.athlete_profile.person.display_name if plan else "Planificació del bloc"
         )
         issue["athlete_profile_id"] = plan.athlete_profile_id if plan else None
     return payload
@@ -330,6 +379,7 @@ def session_item_create(request, pk, block_pk):
             "sequence_index": _next_index(block.items),
             "item_type": TrainingSessionItem.ItemType.PHYSICAL_EXERCISE,
             "sets": 1,
+            "setup_seconds": 0,
             "rest_after_seconds": 0,
             "rest_between_sets_seconds": 0,
             "intensity_metric": PhysicalExercisePrescription.IntensityMetric.NONE,
@@ -374,6 +424,8 @@ def _save_item_form(form, *, block, item=None):
         if item is None:
             item = TrainingSessionItem(block=block)
         for field, value in values.items():
+            if field == "setup_seconds":
+                value = value or 0
             setattr(item, field, value)
         item.save()
         if item.item_type == TrainingSessionItem.ItemType.PHYSICAL_EXERCISE:
@@ -449,6 +501,7 @@ def session_item_edit(request, pk, item_pk):
             "title",
             "instructions",
             "coaching_cues",
+            "setup_seconds",
             "planned_duration_seconds",
             "rest_after_seconds",
             "selection_rationale",

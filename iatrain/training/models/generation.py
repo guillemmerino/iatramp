@@ -52,6 +52,11 @@ class BlockGenerationRun(CleanOnSaveModel):
     decision_payload = models.JSONField(blank=True, default=dict)
     coach_decisions = models.JSONField(blank=True, default=dict)
     source_references = models.JSONField(blank=True, default=list)
+    agent_trace = models.JSONField(blank=True, default=list)
+    response_ids = models.JSONField(blank=True, default=list)
+    usage_payload = models.JSONField(blank=True, default=dict)
+    validation_payload = models.JSONField(blank=True, default=dict)
+    progress_payload = models.JSONField(blank=True, default=dict)
     model_name = models.CharField(max_length=120, blank=True, default="")
     prompt_version = models.CharField(max_length=40, default="1.0")
     engine_version = models.CharField(max_length=40, default="1.0")
@@ -88,11 +93,18 @@ class BlockGenerationRun(CleanOnSaveModel):
             "proposal_payload",
             "decision_payload",
             "coach_decisions",
+            "usage_payload",
+            "validation_payload",
+            "progress_payload",
         ):
             if not isinstance(getattr(self, field_name), dict):
                 errors[field_name] = "Aquest camp ha de ser un objecte JSON."
         if not isinstance(self.source_references, list):
             errors["source_references"] = "Les fonts han de ser una llista."
+        if not isinstance(self.agent_trace, list):
+            errors["agent_trace"] = "La traça de l'agent ha de ser una llista."
+        if not isinstance(self.response_ids, list):
+            errors["response_ids"] = "Els identificadors de resposta han de ser una llista."
         if errors:
             raise ValidationError(errors)
 

@@ -14,6 +14,7 @@ from iatrain.athletes.services import (
     set_athlete_sport_profile,
 )
 from iatrain.models import AthleteMeasurement, AthleteObservation, CoachProfile
+from iatrain_motion.models import MotionConcept
 from iatrain.services import (
     activate_athlete_profile,
     record_athlete_observation,
@@ -34,7 +35,7 @@ ATHLETES = (
         "level": "iniciacio_2",
         "laterality": "right",
         "started_on": date(2024, 9, 1),
-        "condition": ("injury", "Apofisitis calcània comunicada", "Dolor de taló després de salts repetits; restricció aportada per la família.", "bilateral", 2, "modify"),
+        "condition": ("injury", "Apofisitis calcània comunicada", "Dolor de taló després de salts repetits; restricció aportada per la família.", "bilateral", 2, "modify", "ankle"),
         "measurements": (("power", "salt_vertical", "Salt vertical", "18.5", "cm", "not_applicable"), ("mobility", "dorsiflexio_turmell", "Dorsiflexió de turmell", "28", "graus", "bilateral")),
         "observation": ("learning", "Aprèn ràpidament patrons nous, però perd alineació quan acumula recepcions."),
     },
@@ -46,7 +47,7 @@ ATHLETES = (
         "level": "base_3",
         "laterality": "left",
         "started_on": date(2023, 9, 1),
-        "condition": ("medical_restriction", "Osgood-Schlatter comunicat", "Molèstia anterior de genoll amb flexions profundes i volum elevat de salts.", "left", 2, "monitor"),
+        "condition": ("medical_restriction", "Osgood-Schlatter comunicat", "Molèstia anterior de genoll amb flexions profundes i volum elevat de salts.", "left", 2, "monitor", "knee"),
         "measurements": (("power", "salt_vertical", "Salt vertical", "22", "cm", "not_applicable"), ("mobility", "flexio_genoll", "Flexió de genoll sense molèstia", "105", "graus", "left")),
         "observation": ("strength", "Bona orientació espacial i control del ritme en aproximacions curtes."),
     },
@@ -58,7 +59,7 @@ ATHLETES = (
         "level": "competicio_4",
         "laterality": "right",
         "started_on": date(2021, 9, 1),
-        "condition": ("injury", "Inestabilitat recurrent de turmell", "Antecedents d'esquinços; inseguretat en recepcions amb desviació lateral.", "right", 3, "modify"),
+        "condition": ("injury", "Inestabilitat recurrent de turmell", "Antecedents d'esquinços; inseguretat en recepcions amb desviació lateral.", "right", 3, "modify", "ankle"),
         "measurements": (("power", "salt_vertical", "Salt vertical", "27.5", "cm", "not_applicable"), ("motor_control", "equilibri_unipodal", "Equilibri unipodal", "24", "s", "right")),
         "observation": ("difficulty", "En recepcions laterals descarrega pes de manera precoç sobre la cama esquerra."),
     },
@@ -70,7 +71,7 @@ ATHLETES = (
         "level": "competicio_5",
         "laterality": "mixed",
         "started_on": date(2020, 9, 1),
-        "condition": ("pain", "Tendinopatia rotuliana comunicada", "Dolor anterior de genoll després de sèries explosives i recepcions rígides.", "right", 3, "avoid"),
+        "condition": ("pain", "Tendinopatia rotuliana comunicada", "Dolor anterior de genoll després de sèries explosives i recepcions rígides.", "right", 3, "avoid", "knee"),
         "measurements": (("power", "salt_vertical", "Salt vertical", "31", "cm", "not_applicable"), ("strength", "isometric_quadriceps", "Força isomètrica de quàdriceps", "182", "n", "right")),
         "observation": ("limitation", "Augmenta la rigidesa de genoll quan busca més velocitat en la diagonal."),
     },
@@ -82,7 +83,7 @@ ATHLETES = (
         "level": "tecnificacio_6",
         "laterality": "left",
         "started_on": date(2019, 9, 1),
-        "condition": ("medical_restriction", "Espondilòlisi lumbar en retorn progressiu", "Restricció mèdica aportada: evitar hiperextensions i impactes màxims de moment.", "not_applicable", 4, "avoid"),
+        "condition": ("medical_restriction", "Espondilòlisi lumbar en retorn progressiu", "Restricció mèdica aportada: evitar hiperextensions i impactes màxims de moment.", "not_applicable", 4, "avoid", "lumbar"),
         "measurements": (("motor_control", "control_lumbopelvic", "Control lumbopèlvic", "3", "nivell", "not_applicable"), ("mobility", "flexio_maluc", "Flexió de maluc", "118", "graus", "bilateral")),
         "observation": ("competency", "Manté molt bon control tècnic en tasques submàximes i amb volum reduït."),
     },
@@ -94,7 +95,7 @@ ATHLETES = (
         "level": "tecnificacio_7",
         "laterality": "right",
         "started_on": date(2018, 9, 1),
-        "condition": ("discomfort", "Tendinopatia extensora de canell comunicada", "Molèstia amb suport prolongat de mans i recepcions de mans repetides.", "left", 2, "modify"),
+        "condition": ("discomfort", "Tendinopatia extensora de canell comunicada", "Molèstia amb suport prolongat de mans i recepcions de mans repetides.", "left", 2, "modify", "wrist"),
         "measurements": (("power", "salt_vertical", "Salt vertical", "35", "cm", "not_applicable"), ("mobility", "extensio_canell", "Extensió de canell", "61", "graus", "left")),
         "observation": ("strength", "Bona capacitat de producció de força i estabilitat en impulsos bilaterals."),
     },
@@ -106,7 +107,7 @@ ATHLETES = (
         "level": "alt_rendiment_8",
         "laterality": "right",
         "started_on": date(2017, 9, 1),
-        "condition": ("injury", "Inestabilitat anterior d'espatlla", "Episodis comunicats d'inestabilitat; limitar palanques llargues per sobre del cap.", "right", 3, "avoid"),
+        "condition": ("injury", "Inestabilitat anterior d'espatlla", "Episodis comunicats d'inestabilitat; limitar palanques llargues per sobre del cap.", "right", 3, "avoid", "shoulder"),
         "measurements": (("strength", "rotacio_externa_espatlla", "Força de rotació externa", "8.4", "kg", "right"), ("mobility", "flexio_espatlla", "Flexió d'espatlla", "162", "graus", "right")),
         "observation": ("difficulty", "Perd control escapular en les últimes repeticions de les sèries de força."),
     },
@@ -118,7 +119,7 @@ ATHLETES = (
         "level": "alt_rendiment_9",
         "laterality": "left",
         "started_on": date(2016, 9, 1),
-        "condition": ("load_tolerance", "Tendinopatia aquíl·lia comunicada", "Tolera càrrega moderada, però apareix rigidesa l'endemà de sessions explosives.", "left", 2, "monitor"),
+        "condition": ("load_tolerance", "Tendinopatia aquíl·lia comunicada", "Tolera càrrega moderada, però apareix rigidesa l'endemà de sessions explosives.", "left", 2, "monitor", "ankle"),
         "measurements": (("power", "salt_vertical", "Salt vertical", "39.5", "cm", "not_applicable"), ("workload", "salts_setmanals", "Salts setmanals", "245", "repeticions", "not_applicable")),
         "observation": ("competency", "Regula bé la intensitat quan rep objectius clars de volum i RPE."),
     },
@@ -130,7 +131,7 @@ ATHLETES = (
         "level": "retorn_competicio",
         "laterality": "right",
         "started_on": date(2014, 9, 1),
-        "condition": ("medical_restriction", "Retorn després de reconstrucció de LCA", "Fase de readaptació comunicada; encara no autoritzada per a recepcions màximes.", "left", 4, "modify"),
+        "condition": ("medical_restriction", "Retorn després de reconstrucció de LCA", "Fase de readaptació comunicada; encara no autoritzada per a recepcions màximes.", "left", 4, "modify", "knee"),
         "measurements": (("strength", "single_leg_press", "Força unilateral de cama", "72", "kg", "left"), ("motor_control", "hop_test_simetria", "Simetria en hop test", "84", "%", "not_applicable")),
         "observation": ("learning", "Executa bé les correccions, però anticipa la protecció de la cama esquerra."),
     },
@@ -142,7 +143,7 @@ ATHLETES = (
         "level": "senior_10",
         "laterality": "mixed",
         "started_on": date(2010, 9, 1),
-        "condition": ("medical_restriction", "Protocol de retorn després de commoció", "Restricció mèdica temporal: sense entrenament fins a nova autorització.", "not_applicable", 5, "stop"),
+        "condition": ("medical_restriction", "Protocol de retorn després de commoció", "Restricció mèdica temporal: sense entrenament fins a nova autorització.", "not_applicable", 5, "stop", None),
         "measurements": (("recovery", "benestar_percebut", "Benestar percebut", "4", "sobre_10", "not_applicable"), ("motor_control", "equilibri_tandem", "Equilibri tàndem", "18", "s", "not_applicable")),
         "observation": ("limitation", "S'ha aturat tota exposició física i tècnica fins a completar el protocol mèdic."),
     },
@@ -257,6 +258,11 @@ class Command(BaseCommand):
                     )
                 condition_data = data["condition"]
                 title = condition_data[1]
+                region = (
+                    MotionConcept.objects.filter(code=condition_data[6]).first()
+                    if condition_data[6]
+                    else None
+                )
                 if not athlete.conditions.filter(
                     organization=organization,
                     title=title,
@@ -270,6 +276,14 @@ class Command(BaseCommand):
                         title=title,
                         narrative=condition_data[2],
                         evidence=MARKER,
+                        body_region=region,
+                        applicability_scope=(
+                            "regional"
+                            if region
+                            else "global"
+                            if condition_data[5] == "stop"
+                            else "unknown"
+                        ),
                         laterality=condition_data[3],
                         severity=condition_data[4],
                         training_impact=condition_data[5],

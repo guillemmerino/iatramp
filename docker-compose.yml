@@ -20,6 +20,24 @@ services:
         condition: service_healthy
     command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env.${APP_ENV:-dev}
+      - path: .env.${APP_ENV:-dev}.local
+        required: false
+    volumes:
+      - .:/app
+      - media_data:/data/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["celery", "-A", "iatramp", "worker", "--loglevel=info", "--concurrency=1"]
+
   db:
     image: postgres:15
     restart: unless-stopped

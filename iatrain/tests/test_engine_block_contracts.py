@@ -16,6 +16,7 @@ from iatrain.engine import (
     BlockItemProposal,
     BlockLoadEstimate,
     BlockObjective,
+    BlockParticipantProposal,
     ExerciseAlternativeProposal,
     ExerciseDoseProposal,
     apply_block_generation_proposal,
@@ -227,6 +228,64 @@ class EngineBlockContractTests(TestCase):
             )
         self.assertFalse(TrainingBlock.objects.exists())
 
+    def test_v31_rejects_personalized_participant_without_structured_adjustment(self):
+        base = self._proposal()
+        item = replace(base.items[0], athlete_adjustments=())
+        request = replace(base.request, contract_version="3.1")
+        proposal = replace(
+            base,
+            request=request,
+            items=(item, *base.items[1:]),
+            participants=(
+                BlockParticipantProposal(
+                    participant_plan_id=self.participant.pk,
+                    mode="personalized",
+                    rationale="Necessita una adaptació.",
+                ),
+            ),
+            contract_version="3.1",
+        )
+
+        with self.assertRaisesMessage(
+            ValidationError, "no té cap ajustament estructurat"
+        ):
+            validate_block_generation_proposal(
+                proposal,
+                revision=self.revision,
+                exercise_owner=self.person,
+            )
+
+    def test_v31_rejects_individual_instruction_hidden_in_shared_dose_notes(self):
+        base = self._proposal()
+        dose = replace(
+            base.items[0].dose,
+            execution_notes=f"Per a la participant {self.participant.pk}, redueix el rang.",
+        )
+        item = replace(base.items[0], dose=dose)
+        request = replace(base.request, contract_version="3.1")
+        proposal = replace(
+            base,
+            request=request,
+            items=(item, *base.items[1:]),
+            participants=(
+                BlockParticipantProposal(
+                    participant_plan_id=self.participant.pk,
+                    mode="personalized",
+                    rationale="Volum reduït.",
+                ),
+            ),
+            contract_version="3.1",
+        )
+
+        with self.assertRaisesMessage(
+            ValidationError, "han d'anar a athlete_adjustments"
+        ):
+            validate_block_generation_proposal(
+                proposal,
+                revision=self.revision,
+                exercise_owner=self.person,
+            )
+
     def test_validator_rejects_a_block_that_does_not_cover_all_participants(self):
         second_athlete = AthleteProfile.objects.create(
             person=Person.objects.create(first_name="Berta", last_name="Rius")
@@ -432,7 +491,7 @@ class EngineBlockContractTests(TestCase):
 
     def test_failed_provider_call_is_kept_as_an_auditable_generation_run(self):
         with patch(
-            "iatrain.engine.services.interpret_block_prompt",
+            "iatrain.engine.services.plan_block_with_agent",
             side_effect=OpenAITrainingUnavailable("Servei temporalment no disponible."),
         ):
             with self.assertRaises(OpenAITrainingUnavailable):

@@ -1,21 +1,24 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
-from django.views.decorators.http import require_POST
+from django.utils import timezone
+from django.views.decorators.http import require_GET, require_POST
 
 from iatrain.engine.forms import BlockGenerationForm
 from iatrain.engine.openai import OpenAITrainingError
 from iatrain.engine.scoring import GenerationBlocked
 from iatrain.engine.services import (
     apply_generation_run,
+    create_block_generation_run,
     discard_generation_run,
-    generate_block_run,
-    resume_generation_run,
+    prepare_resume_generation_run,
 )
 from iatrain.models import BlockGenerationRun, TrainingSession, TrainingSessionRevision
 from iatrain.services import organizations_available_to_coach
+from iatrain.tasks import execute_block_generation_task
 from iatrain.views.common import require_coach
 
 
@@ -51,6 +54,74 @@ def _detail_url(session, revision, run=None):
     return url
 
 
+def _dispatch_generation(run, user):
+    try:
+        execute_block_generation_task.delay(run.pk, user.pk)
+    except Exception as error:
+        run.status = run.Status.FAILED
+        run.error_code = "generation_queue_unavailable"
+        run.error_message = "No s’ha pogut iniciar el procés de generació en segon pla."
+        run.progress_payload = {
+            "stage": "failed",
+            "message": run.error_message,
+            "updated_at": timezone.now().isoformat(),
+        }
+        run.save()
+        try:
+            error.run = run
+        except (AttributeError, TypeError):
+            pass
+        raise ValidationError(run.error_message) from error
+
+
+def _safe_progress_events(trace):
+    labels = {
+        "search_exercises": "Cerca al catàleg",
+        "get_exercise_details": "Comparació de finalistes",
+        "get_prescription_guidance": "Revisió de dosificació",
+        "check_participant_compatibility": "Compatibilitat individual",
+        "find_compatible_alternatives": "Cerca d’alternatives individuals",
+        "calculate_block_timing": "Càlcul temporal",
+        "audit_block_draft": "Auditoria de l’esborrany",
+    }
+    events = []
+    for row in trace[-10:]:
+        tool = row.get("tool", "")
+        if tool not in labels:
+            continue
+        detail = ""
+        if tool == "search_exercises":
+            detail = (
+                f"{row.get('result_count', 0)} candidats mostrats de "
+                f"{row.get('total_matches', 0)} coincidències"
+            )
+        elif tool in {
+            "get_exercise_details",
+            "get_prescription_guidance",
+            "check_participant_compatibility",
+            "find_compatible_alternatives",
+        }:
+            detail = f"{row.get('result_count', 0)} resultats revisats"
+        elif tool == "calculate_block_timing":
+            seconds = row.get("total_seconds")
+            detail = f"{seconds} segons" if seconds is not None else "Temps recalculat"
+        elif tool == "audit_block_draft":
+            detail = (
+                "Esborrany correcte"
+                if row.get("audit_valid")
+                else "S’han detectat ajustos pendents"
+            )
+        events.append(
+            {
+                "sequence": row.get("sequence"),
+                "label": labels[tool],
+                "detail": detail,
+                "ok": row.get("status") == "ok",
+            }
+        )
+    return events
+
+
 @login_required
 @require_POST
 def block_generation_create(request, pk):
@@ -73,21 +144,19 @@ def block_generation_create(request, pk):
         return redirect(_detail_url(session, revision))
     run = None
     try:
-        run = generate_block_run(
+        run = create_block_generation_run(
             user=request.user,
             revision=revision,
             prompt=form.cleaned_data["prompt"],
             duration_minutes=form.cleaned_data["duration_minutes"],
             block_role=form.cleaned_data["block_role"],
         )
+        _dispatch_generation(run, request.user)
     except (OpenAITrainingError, GenerationBlocked, ValidationError) as error:
         run = getattr(error, "run", None)
         messages.error(request, str(error))
     else:
-        if run.status == run.Status.AWAITING_DECISION:
-            messages.info(request, "Cal una decisió abans de completar la proposta.")
-        else:
-            messages.success(request, "Proposta preparada. Revisa-la abans d'afegir-la.")
+        messages.info(request, "Generació iniciada. Pots seguir-ne el progrés en directe.")
     return redirect(_detail_url(session, revision, run))
 
 
@@ -110,7 +179,7 @@ def block_generation_refine(request, pk, run_pk):
         return redirect(_detail_url(session, revision, parent))
     run = None
     try:
-        run = generate_block_run(
+        run = create_block_generation_run(
             user=request.user,
             revision=revision,
             prompt=parent.prompt,
@@ -119,11 +188,12 @@ def block_generation_refine(request, pk, run_pk):
             parent_run=parent,
             refinement=instruction,
         )
+        _dispatch_generation(run, request.user)
     except (OpenAITrainingError, GenerationBlocked, ValidationError) as error:
         run = getattr(error, "run", None)
         messages.error(request, str(error))
     else:
-        messages.success(request, "Proposta reformulada.")
+        messages.info(request, "Reformulació iniciada. Pots seguir-ne el progrés.")
     return redirect(_detail_url(session, revision, run or parent))
 
 
@@ -142,20 +212,63 @@ def block_generation_decide(request, pk, run_pk):
         if key.startswith("decision_") and value
     }
     try:
-        run = resume_generation_run(
+        run = prepare_resume_generation_run(
             user=request.user,
             run=run,
             decisions=decisions,
         )
-    except (GenerationBlocked, ValidationError) as error:
+        _dispatch_generation(run, request.user)
+    except (OpenAITrainingError, GenerationBlocked, ValidationError) as error:
         failed_run = getattr(error, "run", None)
         messages.error(request, str(error))
         return redirect(_detail_url(session, revision, failed_run or run))
-    if run.status == run.Status.AWAITING_DECISION:
-        messages.info(request, "Encara falta resoldre alguna decisió del grup.")
-    else:
-        messages.success(request, "Proposta personalitzada preparada.")
+    messages.info(request, "Decisions rebudes. La planificació continua en segon pla.")
     return redirect(_detail_url(session, revision, run))
+
+
+@login_required
+@require_GET
+def block_generation_status(request, pk, run_pk):
+    require_coach(request)
+    session = _session_for(request.user, pk)
+    run = _run_for(session, run_pk)
+    trace = run.agent_trace or []
+    search_rows = [
+        row
+        for row in trace
+        if row.get("tool") in {"search_exercises", "find_compatible_alternatives"}
+        and row.get("status") == "ok"
+    ]
+    candidate_ids = {
+        int(value)
+        for row in search_rows
+        for value in row.get("exercise_revision_ids", [])
+    }
+    elapsed = max(int((timezone.now() - run.created_at).total_seconds()), 0)
+    terminal = run.status != run.Status.PROCESSING
+    payload = {
+        "status": run.status,
+        "status_label": run.get_status_display(),
+        "terminal": terminal,
+        "progress": {
+            "stage": run.progress_payload.get("stage", "processing"),
+            "message": run.progress_payload.get(
+                "message", "Preparant la generació…"
+            ),
+            "elapsed_seconds": elapsed,
+        },
+        "stats": {
+            "tool_calls": len(trace),
+            "searches": len(search_rows),
+            "unique_candidates": len(candidate_ids),
+            "rounds": len(run.response_ids or []),
+        },
+        "events": _safe_progress_events(trace),
+        "redirect_url": _detail_url(session, run.session_revision, run),
+        "error_message": run.error_message if run.status == run.Status.FAILED else "",
+        "poll_after_ms": 1500,
+    }
+    return JsonResponse(payload)
 
 
 @login_required

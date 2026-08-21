@@ -88,6 +88,7 @@ class ProfileAndSessionUiTests(TestCase):
                 "condition-laterality": "right",
                 "condition-severity": "2",
                 "condition-training_impact": "modify",
+                "condition-applicability_scope": "unknown",
                 "condition-source": "coach_observation",
             },
         )

@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from core.models import Person
@@ -126,6 +127,65 @@ class AthleteLivingProfileTests(TestCase):
         self.assertTrue(
             confirmed_context["selection_guardrails"]["has_training_modifiers"]
         )
+
+    def test_confirmed_condition_can_be_corrected_without_rewriting_history(self):
+        CoachAthleteRelation.objects.create(
+            coach_profile=self.coach_profile,
+            athlete_profile=self.athlete_profile,
+            organization=self.organization,
+            can_edit_training=True,
+            can_view_health_data=True,
+        )
+        original = propose_athlete_condition(
+            user=self.user,
+            athlete=self.athlete_profile,
+            organization=self.organization,
+            category=AthleteCondition.Category.DISCOMFORT,
+            title="Molèstia sense abast",
+            narrative="Cal concretar on s'aplica.",
+            source=AthleteCondition.Source.ATHLETE_REPORT,
+            training_impact=AthleteCondition.TrainingImpact.MODIFY,
+        )
+        review_athlete_condition(user=self.user, condition=original, accept=True)
+        self.client.force_login(self.user)
+        detail_url = reverse("iatrain_athlete_detail", args=(self.athlete_profile.pk,))
+
+        response = self.client.get(
+            detail_url
+            + f"?tab=conditions&organization={self.organization.pk}"
+            + f"&supersede_condition={original.pk}"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Corregir condició")
+
+        response = self.client.post(
+            detail_url,
+            {
+                "action": "condition",
+                "active_tab": "conditions",
+                "organization_scope": self.organization.pk,
+                "condition-supersedes_id": original.pk,
+                "condition-category": AthleteCondition.Category.DISCOMFORT,
+                "condition-title": "Molèstia d'abast global",
+                "condition-narrative": "Afecta qualsevol activitat física.",
+                "condition-evidence": "Confirmat per l'equip responsable.",
+                "condition-laterality": AthleteCondition.Laterality.NOT_APPLICABLE,
+                "condition-training_impact": AthleteCondition.TrainingImpact.MODIFY,
+                "condition-applicability_scope": AthleteCondition.ApplicabilityScope.GLOBAL,
+                "condition-body_region": "",
+                "condition-source": AthleteCondition.Source.CLINICAL_DOCUMENT,
+                "condition-valid_until": "",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        correction = AthleteCondition.objects.get(supersedes=original)
+        self.assertEqual(correction.status, AthleteCondition.Status.PROPOSED)
+        original.refresh_from_db()
+        self.assertEqual(original.status, AthleteCondition.Status.CONFIRMED)
+
+        review_athlete_condition(user=self.user, condition=correction, accept=True)
+        original.refresh_from_db()
+        self.assertEqual(original.status, AthleteCondition.Status.SUPERSEDED)
 
     def test_insight_requires_typed_evidence_and_remains_separate_from_facts(self):
         measurement = self.measurement()

@@ -12,6 +12,13 @@ from decimal import Decimal
 TARGET_INTENSITIES = ("low", "moderate", "high", "very_high")
 BLOCK_PARTICIPANT_MODES = ("shared", "personalized", "excluded")
 ATHLETE_ADJUSTMENT_ACTIONS = ("modify", "replace", "skip")
+CONDITION_DECISION_ACTIONS = (
+    "not_applicable",
+    "monitor",
+    "modify",
+    "replace",
+    "skip",
+)
 PHYSICAL_BLOCK_HARD_CONSTRAINTS = (
     "validated_only",
     "bodyweight_only",
@@ -108,6 +115,7 @@ class BlockItemProposal:
     title: str
     instructions: str = ""
     coaching_cues: str = ""
+    setup_seconds: int = 0
     planned_duration_seconds: int | None = None
     rest_after_seconds: int = 0
     selection_rationale: str = ""
@@ -140,6 +148,17 @@ class BlockParticipantProposal:
     participant_plan_id: int
     mode: str
     rationale: str = ""
+    condition_decisions: tuple["ParticipantConditionDecision", ...] = field(
+        default_factory=tuple
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ParticipantConditionDecision:
+    condition_id: int
+    action: str
+    rationale: str
+    affected_sequence_indices: tuple[int, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,4 +174,7 @@ class BlockGenerationProposal:
     unmet_constraints: tuple[str, ...] = field(default_factory=tuple)
     confidence: Decimal | None = None
     generator_reference: str = ""
+    planning_summary: str = ""
+    premise_effects: tuple[str, ...] = field(default_factory=tuple)
+    search_summary: str = ""
     contract_version: str = "1.0"

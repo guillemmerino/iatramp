@@ -85,8 +85,43 @@ def athlete_detail(request, pk):
     selected_organization = _selected_organization(
         request, organization_options
     )
+    health_access = has_athlete_access(
+        request.user,
+        profile,
+        permission="can_view_health_data",
+        organization=selected_organization,
+    )
     action = request.POST.get("action", "")
     active_tab = request.POST.get("active_tab") or request.GET.get("tab", "overview")
+
+    condition_initial = None
+    supersede_condition_id = request.GET.get("supersede_condition")
+    if request.method != "POST" and supersede_condition_id and health_access:
+        superseded_condition = get_object_or_404(
+            profile.conditions.select_related("body_region"),
+            pk=supersede_condition_id,
+            status=AthleteCondition.Status.CONFIRMED,
+        )
+        if (
+            selected_organization
+            and superseded_condition.organization_id
+            and superseded_condition.organization_id != selected_organization.pk
+        ):
+            raise PermissionDenied
+        condition_initial = {
+            "supersedes_id": superseded_condition.pk,
+            "category": superseded_condition.category,
+            "title": superseded_condition.title,
+            "narrative": superseded_condition.narrative,
+            "evidence": superseded_condition.evidence,
+            "laterality": superseded_condition.laterality,
+            "severity": superseded_condition.severity,
+            "training_impact": superseded_condition.training_impact,
+            "applicability_scope": superseded_condition.applicability_scope,
+            "body_region": superseded_condition.body_region_id,
+            "source": superseded_condition.source,
+            "valid_until": superseded_condition.valid_until,
+        }
 
     sport_form = AthleteSportProfileForm(
         request.POST if action == "sport_profile" else None,
@@ -103,6 +138,7 @@ def athlete_detail(request, pk):
     condition_form = AthleteConditionForm(
         request.POST if action == "condition" else None,
         prefix="condition",
+        initial=condition_initial,
     )
 
     if request.method == "POST" and action:
@@ -149,12 +185,6 @@ def athlete_detail(request, pk):
     can_edit_profile = can_record_observations(
         request.user,
         profile.person,
-        organization=selected_organization,
-    )
-    health_access = has_athlete_access(
-        request.user,
-        profile,
-        permission="can_view_health_data",
         organization=selected_organization,
     )
     profile_context = None
@@ -285,10 +315,25 @@ def _save_profile_action(*, action, form, request, profile, organization):
             **values,
         )
     if action == "condition":
+        supersedes_id = values.pop("supersedes_id", None)
+        supersedes = None
+        if supersedes_id:
+            supersedes = get_object_or_404(
+                profile.conditions,
+                pk=supersedes_id,
+                status=AthleteCondition.Status.CONFIRMED,
+            )
+            if (
+                organization
+                and supersedes.organization_id
+                and supersedes.organization_id != organization.pk
+            ):
+                raise PermissionDenied
         return propose_athlete_condition(
             user=request.user,
             athlete=profile,
             organization=organization,
+            supersedes=supersedes,
             **values,
         )
     raise PermissionDenied

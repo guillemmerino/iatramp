@@ -86,6 +86,8 @@ def _condition_payload(condition):
             if condition.body_region_id
             else None
         ),
+        "applicability_scope": condition.applicability_scope,
+        "applicability_scope_label": condition.get_applicability_scope_display(),
         "laterality": condition.laterality,
         "severity": condition.severity,
         "training_impact": condition.training_impact,

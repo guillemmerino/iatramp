@@ -174,6 +174,7 @@ class BlockParticipantAssignment(RevisionOwnedModel):
     )
     mode = models.CharField(max_length=20, choices=Mode.choices)
     rationale = models.TextField(blank=True, default="")
+    condition_decisions = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ("block_id", "participant_plan_id")
@@ -215,6 +216,7 @@ class TrainingSessionItem(RevisionOwnedModel):
     title = models.CharField(max_length=180)
     instructions = models.TextField(blank=True, default="")
     coaching_cues = models.TextField(blank=True, default="")
+    setup_seconds = models.PositiveSmallIntegerField(default=0)
     planned_duration_seconds = models.PositiveIntegerField(
         null=True, blank=True, validators=(MinValueValidator(1),)
     )
