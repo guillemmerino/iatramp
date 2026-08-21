@@ -136,6 +136,11 @@ class ProfileAndSessionUiTests(TestCase):
         self.assertEqual(revision.goals.get().description, "Millorar el control en les recepcions")
 
         detail_url = reverse("iatrain_session_detail", args=(session.pk,))
+        with self.settings(OPENAI_API_KEY=""):
+            generation_page = self.client.get(detail_url)
+            self.assertContains(generation_page, "Generar un bloc")
+            self.assertContains(generation_page, "OPENAI_API_KEY")
+            self.assertContains(generation_page, "Generar proposta")
         response = self.client.post(
             detail_url,
             {

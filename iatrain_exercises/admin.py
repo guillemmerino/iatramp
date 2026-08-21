@@ -16,6 +16,7 @@ from .models import (
     ExercisePhase,
     ExercisePhaseAction,
     ExercisePhaseMuscleRole,
+    ExercisePrescriptionGuideline,
     ExerciseProposalItem,
     ExerciseRevision,
 )
@@ -44,6 +45,10 @@ class EquipmentRequirementInline(DraftChildInline):
 
 class ConstraintInline(DraftChildInline):
     model = ExerciseConstraint
+
+
+class PrescriptionGuidelineInline(DraftChildInline):
+    model = ExercisePrescriptionGuideline
 
 
 class PhaseActionInline(admin.TabularInline):
@@ -111,7 +116,13 @@ class ExerciseRevisionAdmin(admin.ModelAdmin):
     readonly_fields = (
         "editorial_status", "last_validated_by", "last_validated_at", "created_at", "updated_at",
     )
-    inlines = (PhaseInline, ObjectiveInline, EquipmentRequirementInline, ConstraintInline)
+    inlines = (
+        PhaseInline,
+        ObjectiveInline,
+        EquipmentRequirementInline,
+        ConstraintInline,
+        PrescriptionGuidelineInline,
+    )
     actions = ("validate_selected", "retire_selected", "reopen_retired_selected")
 
     def _transition(self, request, queryset, target):
@@ -171,6 +182,29 @@ class ExercisePhaseMuscleRoleAdmin(admin.ModelAdmin):
     list_filter = ("role", "expected_contraction", "verification_state")
     search_fields = ("phase__revision__exercise__name", "muscle__code", "muscle__name")
     autocomplete_fields = ("phase", "muscle", "action_function", "stabilization_function")
+
+
+@admin.register(ExercisePrescriptionGuideline)
+class ExercisePrescriptionGuidelineAdmin(admin.ModelAdmin):
+    list_display = (
+        "revision",
+        "population_stage",
+        "experience_level",
+        "objective",
+        "block_role",
+        "dose_mode",
+        "is_active",
+    )
+    list_filter = (
+        "population_stage",
+        "experience_level",
+        "objective",
+        "block_role",
+        "evidence_type",
+        "is_active",
+    )
+    search_fields = ("revision__exercise__name", "source_title", "rationale")
+    autocomplete_fields = ("revision",)
 
 
 @admin.register(ExerciseGap)

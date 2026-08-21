@@ -1,6 +1,13 @@
 from .athletes import athlete_create, athlete_detail, athlete_list
 from .dashboard import home
-from .engine import context_options, training_start
+from .engine import (
+    block_generation_apply,
+    block_generation_create,
+    block_generation_discard,
+    block_generation_refine,
+    context_options,
+    training_start,
+)
 from .groups import group_create, group_detail, group_list, group_member_remove
 from .gyms import (
     gym_create,
@@ -44,6 +51,10 @@ __all__ = (
     "athlete_create",
     "athlete_detail",
     "athlete_list",
+    "block_generation_apply",
+    "block_generation_create",
+    "block_generation_discard",
+    "block_generation_refine",
     "context_options",
     "condition_resolve",
     "condition_review",

@@ -1,3 +1,6 @@
+from copy import deepcopy
+
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -9,6 +12,7 @@ from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 
 from iatrain.models import (
+    BlockGenerationRun,
     PhysicalExercisePrescription,
     SessionGoal,
     SessionParticipantPlan,
@@ -17,6 +21,7 @@ from iatrain.models import (
     TrainingSessionItem,
     TrainingSessionRevision,
 )
+from iatrain.engine.forms import BlockGenerationForm
 from iatrain.services import organizations_available_to_coach, person_for_user
 from iatrain.training.forms import (
     SessionGoalForm,
@@ -29,6 +34,7 @@ from iatrain.training.services import (
     propose_session_revision,
     reopen_session_revision,
 )
+from iatrain_exercises.models import ExerciseObjective, ExerciseRevision
 
 from .common import base_context, require_coach
 
@@ -59,6 +65,68 @@ def _next_index(queryset):
 
 def _revision_url(session, revision):
     return f"{reverse('iatrain_session_detail', args=(session.pk,))}?revision={revision.pk}"
+
+
+def _generation_preview(run, revision):
+    if not run or not run.proposal_payload:
+        return None
+    payload = deepcopy(run.proposal_payload)
+    request = payload.get("request", {})
+    objective = request.get("objective", {})
+    quality_labels = dict(ExerciseObjective.Objective.choices)
+    pattern_labels = dict(ExerciseRevision.MovementPattern.choices)
+    objective["primary_quality_label"] = quality_labels.get(
+        objective.get("primary_quality"), objective.get("primary_quality", "")
+    )
+    objective["movement_pattern_labels"] = [
+        pattern_labels.get(value, value)
+        for value in objective.get("movement_patterns", [])
+    ]
+    request["target_intensity_label"] = {
+        "low": "Baixa",
+        "moderate": "Moderada",
+        "high": "Alta",
+        "very_high": "Molt alta",
+    }.get(request.get("target_intensity"), request.get("target_intensity", ""))
+    participant_labels = {
+        plan.pk: plan.athlete_profile.person.display_name
+        for plan in revision.participant_plans.all()
+    }
+    exercise_ids = set()
+    for item in payload.get("items", []):
+        dose = item.get("dose") or {}
+        if dose.get("exercise_revision_id"):
+            exercise_ids.add(dose["exercise_revision_id"])
+        for alternative in item.get("alternatives", []):
+            exercise_ids.add(alternative["exercise_revision_id"])
+        for adjustment in item.get("athlete_adjustments", []):
+            if adjustment.get("replacement_exercise_revision_id"):
+                exercise_ids.add(adjustment["replacement_exercise_revision_id"])
+    exercise_labels = {
+        row.pk: row.exercise.name
+        for row in ExerciseRevision.objects.filter(pk__in=exercise_ids).select_related("exercise")
+    }
+    for item in payload.get("items", []):
+        dose = item.get("dose") or {}
+        item["exercise_name"] = exercise_labels.get(dose.get("exercise_revision_id"), item["title"])
+        for alternative in item.get("alternatives", []):
+            alternative["exercise_name"] = exercise_labels.get(
+                alternative["exercise_revision_id"], "Alternativa"
+            )
+        for adjustment in item.get("athlete_adjustments", []):
+            adjustment["participant_name"] = participant_labels.get(
+                adjustment["participant_plan_id"], "Gimnasta"
+            )
+            adjustment["replacement_exercise_name"] = exercise_labels.get(
+                adjustment.get("replacement_exercise_revision_id"), ""
+            )
+    seconds = payload.get("estimated_duration_seconds", 0)
+    payload["estimated_duration_label"] = f"{seconds / 60:.1f}".replace(".0", "") + " min"
+    try:
+        payload["confidence_percent"] = int(float(payload.get("confidence") or 0) * 100)
+    except (TypeError, ValueError):
+        payload["confidence_percent"] = 0
+    return payload
 
 
 @login_required
@@ -134,8 +202,28 @@ def session_detail(request, pk):
             "participant_plans__athlete_profile__person",
             "goals",
             "blocks__items__physical_prescription__exercise_revision__exercise",
+            "blocks__items__alternatives__exercise_revision__exercise",
+            "blocks__items__athlete_adjustments__participant_plan__athlete_profile__person",
+            "blocks__items__athlete_adjustments__replacement_exercise_revision__exercise",
         )
         .get()
+    )
+    used_minutes = sum(revision.blocks.values_list("planned_duration_minutes", flat=True))
+    remaining_minutes = max(revision.planned_duration_minutes - used_minutes, 0)
+    selected_generation = None
+    generation_id = request.GET.get("generation")
+    if generation_id:
+        selected_generation = get_object_or_404(
+            BlockGenerationRun.objects.select_related("created_by", "parent_run"),
+            pk=generation_id,
+            session_revision=revision,
+        )
+    generation_form = BlockGenerationForm(
+        maximum_duration=remaining_minutes,
+        initial={
+            "duration_minutes": min(12, remaining_minutes) if remaining_minutes else 1,
+            "block_role": TrainingBlock.Role.MAIN,
+        },
     )
     context = base_context(request)
     context.update(
@@ -147,6 +235,11 @@ def session_detail(request, pk):
             "goal_form": goal_form,
             "block_form": block_form,
             "can_edit_revision": revision.status == revision.Status.DRAFT,
+            "remaining_minutes": remaining_minutes,
+            "generation_form": generation_form,
+            "generation_run": selected_generation,
+            "generation_preview": _generation_preview(selected_generation, revision),
+            "openai_training_configured": bool(getattr(settings, "OPENAI_API_KEY", "")),
         }
     )
     return render(request, "iatrain/sessions/detail.html", context)

@@ -3,7 +3,7 @@ from django.utils import timezone
 
 from organizations.models import Organization
 
-from iatrain.models import AthleteProfile, Gym, TrainingGroup
+from iatrain.models import AthleteProfile, Gym, TrainingBlock, TrainingGroup
 from iatrain.services import (
     accessible_athletes,
     accessible_gyms,
@@ -119,3 +119,30 @@ class TrainingStartForm(forms.Form):
                 "Per entrenar diversos gimnastes, selecciona un grup.",
             )
         return cleaned
+
+
+class BlockGenerationForm(forms.Form):
+    prompt = forms.CharField(
+        label="Què vols treballar?",
+        max_length=4000,
+        widget=forms.Textarea(
+            attrs={
+                "rows": 4,
+                "placeholder": (
+                    "Ex.: força de cames i control de la recepció, sense impacte alt, "
+                    "adaptat al grup d'avui"
+                ),
+            }
+        ),
+    )
+    duration_minutes = forms.IntegerField(label="Durada", min_value=1, max_value=180)
+    block_role = forms.ChoiceField(label="Funció", choices=TrainingBlock.Role.choices)
+
+    def __init__(self, *args, maximum_duration=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if maximum_duration is not None:
+            self.fields["duration_minutes"].max_value = maximum_duration
+            self.fields["duration_minutes"].widget.attrs["max"] = maximum_duration
+
+    def clean_prompt(self):
+        return " ".join(self.cleaned_data["prompt"].split())

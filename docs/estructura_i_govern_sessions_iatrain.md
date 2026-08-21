@@ -1,14 +1,14 @@
 # Estructura i govern de les sessions d’IA Train
 
 > **Estat:** base implementada i operativa
-> **Actualitzat:** 20 d’agost de 2026
+> **Actualitzat:** 21 d’agost de 2026
 > **Domini:** `iatrain.training`
-> **Abast actual:** creació, revisió, aprovació i execució de sessions, amb prescripció física
-> **Fora d’abast actual:** motor de generació, planificació de temporada, motor tècnic i interfície específica d’edició
+> **Abast actual:** creació, generació assistida, revisió, aprovació i execució de sessions, amb prescripció física
+> **Fora d’abast actual:** planificació de temporada, motor tècnic i generació automàtica de sessions completes
 
 ## 1. Objectiu
 
-Aquesta capa defineix l’estructura sobre la qual IA Train podrà crear, revisar, aprovar i registrar entrenaments. No selecciona exercicis automàticament: proporciona un contracte de dades estable perquè l’entrenador, una interfície o el futur motor d’IA treballin sobre les mateixes regles.
+Aquesta capa defineix l’estructura sobre la qual IA Train crea, revisa, aprova i registra entrenaments. El motor físic ja pot proposar blocs i seleccionar exercicis sobre aquest contracte, però la proposta continua separada de la sessió fins que l’entrenador l’aplica.
 
 La implementació viu dins de l’aplicació existent `iatrain`. Els models estan separats internament per domini, però es continuen exposant des de `iatrain.models` per mantenir la compatibilitat amb Django i amb el codi actual.
 
@@ -30,6 +30,7 @@ TrainingSession
 └── TrainingSessionRevision
     ├── SessionParticipantPlan
     ├── SessionGoal
+    ├── BlockGenerationRun
     └── TrainingBlock
         └── TrainingSessionItem
             ├── PhysicalExercisePrescription
@@ -42,7 +43,7 @@ TrainingSession
     └── TrainingItemResult
 ```
 
-La branca superior representa **què s’ha planificat**. La branca inferior representa **què ha passat realment**.
+La branca superior representa **què s’ha planificat**. `BlockGenerationRun` és una traça auxiliar de proposta i no substitueix els models planificats. La branca inferior representa **què ha passat realment**.
 
 ## 4. Sessió i versions
 
@@ -350,30 +351,27 @@ Les referències a persones i perfils formen part del mecanisme general de fusi�
 
 Això evita eliminar o trencar l’historial d’una sessió quan dues identitats representaven la mateixa persona.
 
-## 14. Frontera amb el futur motor
+## 14. Frontera amb el motor físic
 
-El motor de generació haurà de produir **propostes en esborrany** sobre aquesta estructura. No haurà de crear models paral·lels ni guardar una sessió completa en JSON.
+El motor físic produeix `BlockGenerationProposal` no persistents, les mostra per revisar i només crea models de sessió quan l’entrenador les accepta. `BlockGenerationRun` conserva la traça de la interpretació, les versions del motor, els advertiments i el resultat de la decisió.
 
-El motor podrà:
+OpenAI transforma llenguatge natural en `BlockGenerationRequest`; no selecciona identificadors ni escriu a la base de dades. La recuperació privada, els filtres de seguretat, la puntuació, la dosificació, la validació i l’adaptador són responsabilitat del servidor.
 
-1. interpretar la petició i el context dels participants;
-2. definir objectius i blocs;
-3. consultar exercicis candidats;
-4. crear prescripcions, alternatives i ajustos;
-5. justificar cada selecció;
-6. validar la coherència del conjunt;
-7. presentar una proposta editable a l’entrenador.
+El disseny complet i els buits pendents són a [motor_generacio_fisica_iatrain.md](motor_generacio_fisica_iatrain.md).
 
-L’aprovació continuarà sent una acció governada. La connexió futura amb el motor tècnic reutilitzarà sessió, versió, participants, objectius, blocs i ítems, afegint els detalls especialitzats necessaris per als ítems tècnics.
+L’aprovació continua sent una acció governada. La futura connexió amb el motor tècnic reutilitzarà sessió, versió, participants, objectius, blocs i ítems, afegint contractes i detalls especialitzats per als ítems tècnics.
 
 ## 15. Implementació de referència
 
 - Models de sessió: `iatrain/training/models/sessions.py`
 - Models de planificació: `iatrain/training/models/planning.py`
 - Models d’execució: `iatrain/training/models/execution.py`
+- Traça de generació: `iatrain/training/models/generation.py`
 - Serveis i transicions: `iatrain/training/services.py`
+- Motor de blocs físics: `iatrain/engine/`
 - Integració administrativa: `iatrain/admin.py`
 - Fusió d’identitats: `iatrain/identity.py`
 - Migració inicial: `iatrain/migrations/0009_trainingblock_trainingsession_and_more.py`
+- Migració del motor: `iatrain/migrations/0011_blockgenerationrun_equipment_codes.py`
 - Proves funcionals: `iatrain/tests/test_training_sessions.py`
-
+- Proves del motor: `iatrain/tests/test_engine_block_contracts.py`

@@ -1,6 +1,7 @@
 """Models públics de sessions, planificació i execució."""
 
 from .execution import SessionAttendance, TrainingItemResult, TrainingSessionExecution
+from .generation import BlockGenerationRun
 from .planning import (
     PhysicalExercisePrescription,
     SessionGoal,
@@ -13,6 +14,7 @@ from .planning import (
 from .sessions import TrainingSession, TrainingSessionRevision
 
 __all__ = (
+    "BlockGenerationRun",
     "PhysicalExercisePrescription",
     "SessionAttendance",
     "SessionGoal",
@@ -26,4 +28,3 @@ __all__ = (
     "TrainingSessionItem",
     "TrainingSessionRevision",
 )
-

@@ -794,6 +794,195 @@ class ExerciseConstraint(RevisionChildModel):
         return f"{self.revision.exercise} · {self.code}"
 
 
+class ExercisePrescriptionGuideline(RevisionChildModel):
+    """Professionally governed dosing envelope for one exercise revision.
+
+    A guideline is deliberately a range, not a ready-made prescription. The
+    training engine combines it with population baselines, athlete context and
+    the coach request to create a concrete dose.
+    """
+
+    class PopulationStage(models.TextChoices):
+        ALL = "all", "Totes"
+        CHILD = "child", "Infància"
+        ADOLESCENT = "adolescent", "Adolescència"
+        ADULT = "adult", "Edat adulta"
+        OLDER_ADULT = "older_adult", "Adult gran"
+
+    class ExperienceLevel(models.TextChoices):
+        ALL = "all", "Tots"
+        NOVICE = "novice", "Inicial"
+        INTERMEDIATE = "intermediate", "Intermedi"
+        ADVANCED = "advanced", "Avançat"
+
+    class BlockRole(models.TextChoices):
+        ALL = "all", "Totes"
+        PREPARATION = "preparation", "Preparació"
+        MAIN = "main", "Principal"
+        COMPLEMENTARY = "complementary", "Complementari"
+        RECOVERY = "recovery", "Recuperació"
+        ASSESSMENT = "assessment", "Avaluació"
+
+    class DoseMode(models.TextChoices):
+        REPETITIONS = "repetitions", "Repeticions"
+        DURATION = "duration", "Durada"
+        HOLD = "hold", "Manteniment"
+        DISTANCE = "distance", "Distància"
+        ASSISTED = "assisted", "Assistida"
+
+    class EvidenceType(models.TextChoices):
+        POSITION_STAND = "position_stand", "Posicionament professional"
+        CONSENSUS = "consensus", "Consens"
+        SYSTEMATIC_REVIEW = "systematic_review", "Revisió sistemàtica"
+        PROFESSIONAL_STANDARD = "professional_standard", "Estàndard professional"
+        EXPERT_REVIEW = "expert_review", "Revisió experta"
+        OBSERVED_DATA = "observed_data", "Dades observades"
+
+    revision = models.ForeignKey(
+        ExerciseRevision,
+        on_delete=models.CASCADE,
+        related_name="prescription_guidelines",
+    )
+    population_stage = models.CharField(
+        max_length=20, choices=PopulationStage.choices, default=PopulationStage.ALL
+    )
+    experience_level = models.CharField(
+        max_length=20, choices=ExperienceLevel.choices, default=ExperienceLevel.ALL
+    )
+    objective = models.CharField(
+        max_length=30, choices=ExerciseObjective.Objective.choices
+    )
+    block_role = models.CharField(
+        max_length=20, choices=BlockRole.choices, default=BlockRole.ALL
+    )
+    dose_mode = models.CharField(max_length=20, choices=DoseMode.choices)
+    min_sets = models.PositiveSmallIntegerField(default=1)
+    default_sets = models.PositiveSmallIntegerField(default=2)
+    max_sets = models.PositiveSmallIntegerField(default=3)
+    min_repetitions = models.PositiveSmallIntegerField(null=True, blank=True)
+    default_repetitions = models.PositiveSmallIntegerField(null=True, blank=True)
+    max_repetitions = models.PositiveSmallIntegerField(null=True, blank=True)
+    min_duration_seconds = models.PositiveIntegerField(null=True, blank=True)
+    default_duration_seconds = models.PositiveIntegerField(null=True, blank=True)
+    max_duration_seconds = models.PositiveIntegerField(null=True, blank=True)
+    min_rest_seconds = models.PositiveSmallIntegerField(default=0)
+    default_rest_seconds = models.PositiveSmallIntegerField(default=60)
+    max_rest_seconds = models.PositiveSmallIntegerField(default=180)
+    min_rpe = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        null=True,
+        blank=True,
+        validators=(MinValueValidator(0), MaxValueValidator(10)),
+    )
+    max_rpe = models.DecimalField(
+        max_digits=3,
+        decimal_places=1,
+        null=True,
+        blank=True,
+        validators=(MinValueValidator(0), MaxValueValidator(10)),
+    )
+    setup_duration_seconds = models.PositiveSmallIntegerField(default=20)
+    seconds_per_repetition = models.DecimalField(
+        max_digits=4,
+        decimal_places=1,
+        null=True,
+        blank=True,
+        validators=(MinValueValidator(0.1),),
+    )
+    mechanical_impact = models.DecimalField(
+        max_digits=2, decimal_places=1, default=1, validators=(MinValueValidator(0), MaxValueValidator(5))
+    )
+    neuromuscular_load = models.DecimalField(
+        max_digits=2, decimal_places=1, default=1, validators=(MinValueValidator(0), MaxValueValidator(5))
+    )
+    metabolic_load = models.DecimalField(
+        max_digits=2, decimal_places=1, default=1, validators=(MinValueValidator(0), MaxValueValidator(5))
+    )
+    coordinative_load = models.DecimalField(
+        max_digits=2, decimal_places=1, default=1, validators=(MinValueValidator(0), MaxValueValidator(5))
+    )
+    quality_stop_rule = models.TextField(blank=True, default="")
+    evidence_type = models.CharField(max_length=30, choices=EvidenceType.choices)
+    source_title = models.CharField(max_length=240)
+    source_url = models.URLField(blank=True, default="")
+    source_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    rationale = models.TextField()
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = (
+            "revision_id",
+            "population_stage",
+            "experience_level",
+            "objective",
+            "block_role",
+        )
+        constraints = [
+            models.UniqueConstraint(
+                fields=(
+                    "revision",
+                    "population_stage",
+                    "experience_level",
+                    "objective",
+                    "block_role",
+                    "dose_mode",
+                ),
+                name="exercise_prescription_guideline_uniq",
+            )
+        ]
+
+    def parent_revision(self):
+        return self.revision
+
+    def clean(self):
+        super().clean()
+        errors = {}
+
+        def ordered(minimum, default, maximum, field):
+            values = (minimum, default, maximum)
+            present = [value is not None for value in values]
+            if any(present) and not all(present):
+                errors[field] = "El rang necessita mínim, valor habitual i màxim."
+            elif all(present) and not minimum <= default <= maximum:
+                errors[field] = "El rang ha de complir mínim ≤ habitual ≤ màxim."
+
+        ordered(self.min_sets, self.default_sets, self.max_sets, "default_sets")
+        ordered(
+            self.min_repetitions,
+            self.default_repetitions,
+            self.max_repetitions,
+            "default_repetitions",
+        )
+        ordered(
+            self.min_duration_seconds,
+            self.default_duration_seconds,
+            self.max_duration_seconds,
+            "default_duration_seconds",
+        )
+        ordered(
+            self.min_rest_seconds,
+            self.default_rest_seconds,
+            self.max_rest_seconds,
+            "default_rest_seconds",
+        )
+        if self.dose_mode == self.DoseMode.REPETITIONS and self.default_repetitions is None:
+            errors["default_repetitions"] = "La dosi per repeticions necessita un rang."
+        if self.dose_mode in {self.DoseMode.DURATION, self.DoseMode.HOLD} and self.default_duration_seconds is None:
+            errors["default_duration_seconds"] = "La dosi temporal necessita un rang."
+        if self.min_rpe is not None and self.max_rpe is not None and self.min_rpe > self.max_rpe:
+            errors["max_rpe"] = "L'RPE màxim no pot ser inferior al mínim."
+        if not self.source_title.strip():
+            errors["source_title"] = "La guideline necessita una font identificable."
+        if not self.rationale.strip():
+            errors["rationale"] = "Cal explicar l'aplicabilitat de la font."
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f"{self.revision} · {self.get_population_stage_display()} · {self.get_objective_display()}"
+
+
 class ExerciseGap(models.Model):
     """A durable completeness issue; proposed content is stored separately."""
 

@@ -12,6 +12,7 @@ from .models import (
     AthleteObservation,
     AthleteProfile,
     AthleteSportProfile,
+    BlockGenerationRun,
     CoachAthleteRelation,
     CoachProfile,
     ElementNotation,
@@ -50,6 +51,29 @@ class SessionParticipantPlanInline(admin.TabularInline):
 class SessionGoalInline(admin.TabularInline):
     model = SessionGoal
     extra = 0
+
+
+@admin.register(BlockGenerationRun)
+class BlockGenerationRunAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "session_revision",
+        "status",
+        "model_name",
+        "created_by",
+        "created_at",
+    )
+    list_filter = ("status", "model_name", "engine_version")
+    search_fields = ("prompt", "session_revision__title", "created_by__first_name", "created_by__last_name")
+    autocomplete_fields = ("session_revision", "created_by", "parent_run", "applied_block")
+    readonly_fields = (
+        "interpretation_payload",
+        "request_payload",
+        "proposal_payload",
+        "source_references",
+        "created_at",
+        "updated_at",
+    )
 
 
 @admin.register(SessionParticipantPlan)

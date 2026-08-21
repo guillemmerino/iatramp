@@ -1,10 +1,10 @@
 # Catàleg privat i explicable d'exercicis d'IA Train
 
 > **Estat:** base privada extensa implementada, importada i consultable des de la Biblioteca; revisions en `draft`
-> **Actualitzat:** 20 d'agost de 2026
+> **Actualitzat:** 21 d'agost de 2026
 > **Mòdul:** `iatrain_exercises`
 > **Abast actual:** exercicis de preparació física propietat d'una persona, connectats al coneixement anatòmic, cinemàtic i biomecànic.
-> **Fora d'abast actual:** catàleg professional comú, compartició entre entrenadors, prescripció de sèries i càrregues, planificació de rutines, observacions del tracker i connexió amb elements tècnics.
+> **Fora d'abast actual:** catàleg professional comú, compartició entre entrenadors, revisió massiva de guies de dosificació, observacions del tracker i connexió amb elements tècnics.
 
 ## 1. Objectiu
 
@@ -18,10 +18,10 @@ Coneixement professional comú (només lectura des del catàleg)
 └── iatrain_biomechanics: funcions musculars i estabilització
              ↓
 Catàleg privat de cada entrenador
-└── iatrain_exercises: exercicis, revisions, fases i connexions
-             ↓ futur
+└── iatrain_exercises: exercicis, revisions, fases, connexions i guidelines
+             ↓
 Prescripció i planificació
-└── rutines, sessions, dosificació i adaptació a l'esportista
+└── iatrain: motor, sessions, dosificació i adaptació a l'esportista
 ```
 
 `iatrain_exercises` és un mòdul intern del domini IA Train. Comparteix projecte i PostgreSQL amb la resta; la separació en app existeix per mantenir fronteres de models, govern, migracions i proves.
@@ -89,7 +89,13 @@ La base declara una expectativa funcional, no activació muscular observada ni m
 - `ExerciseObjective`: objectiu principal o secundari.
 - `ExerciseConstraint`: requisit, precaució o limitació pràctica. No és una prescripció clínica.
 
-Les sèries, repeticions, descans, intensitat i tempo no formen part de la identitat de l'exercici. S'afegiran a una capa posterior de prescripció.
+Les sèries, repeticions, descans, intensitat i tempo no formen part de la identitat de l'exercici. La dosi concreta viu a `PhysicalExercisePrescription`, dins d'una sessió.
+
+### 3.5. Envolupants de dosificació
+
+`ExercisePrescriptionGuideline` permet associar a una revisió rangs professionals segons etapa vital, experiència, objectiu i funció del bloc. Conserva procedència i justificació i forma part del govern de la revisió. No converteix sèries o repeticions en propietats universals: el motor resol un valor concret amb el perfil, el context i el temps disponibles.
+
+Quan falta una guia específica, el motor físic usa una baseline general versionada i ho declara a la proposta. El flux complet es documenta a [motor_generacio_fisica_iatrain.md](motor_generacio_fisica_iatrain.md).
 
 ## 4. Flux editorial i del LLM
 
@@ -412,7 +418,7 @@ Una revisió validada s'omet. Una revisió editada per l'entrenador es registra 
 - Les connexions musculars són inferències funcionals revisables, no EMG ni magnituds de força.
 - La lateralitat professional no diferencia encara totes les direccions de rotació del tronc.
 - Les variants de potència descriuen fases, però la qualitat de recepció i la velocitat requereixen observació externa.
-- La modalitat és una classificació funcional; la dosificació que determina l'adaptació continua fora del catàleg.
+- La modalitat és una classificació funcional. Les envolupants específiques viuen a `ExercisePrescriptionGuideline`, però la dosi concreta continua fora del catàleg i pertany a la sessió.
 - No hi ha encara una interfície de revisió massiva, resolució de conflictes o comparació de versions.
 - La base és extensa però no exhaustiva i continua pendent de revisió de `guillemmerino` i de validació professional de les dependències.
 

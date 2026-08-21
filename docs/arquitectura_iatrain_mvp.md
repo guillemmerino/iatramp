@@ -1,6 +1,6 @@
 # IA Train: arquitectura del primer MVP
 
-> **Nota d'evolució:** per a la base professional, les capes de coneixement, la rotació i notació, el coneixement propi de l'entrenador i la interacció prevista amb l'LLM, la font canònica actual és [`arquitectura_base_coneixement_iatrain.md`](arquitectura_base_coneixement_iatrain.md). En cas de conflicte, aquell document preval en aquest subsistema.
+> **Nota d'evolució:** aquest document descriu el primer MVP històric. Per a la base professional preval [`arquitectura_base_coneixement_iatrain.md`](arquitectura_base_coneixement_iatrain.md); per a sessions preval [`estructura_i_govern_sessions_iatrain.md`](estructura_i_govern_sessions_iatrain.md); i per a la generació física amb OpenAI preval [`motor_generacio_fisica_iatrain.md`](motor_generacio_fisica_iatrain.md).
 
 Aquest document és la font principal de context per continuar el desenvolupament d'`iatrain`. Descriu què existeix, quines regles protegeixen el domini i com fer créixer el model sense confondre identitat, coneixement expert, observacions i futures funcions d'IA.
 
@@ -16,7 +16,7 @@ IA Train prepara una base professional per registrar contextos d'entrenament, ob
 - exposa una entrada web de consulta amb estats buits coherents;
 - ofereix administració Django per mantenir dades inicials.
 
-No genera entrenaments, no consulta cap LLM, no conté encara un catàleg ampli i no necessita una base de dades grafal externa.
+En aquell primer lliurament no es generaven entrenaments ni es consultava cap LLM. Aquestes limitacions ja no descriuen l’estat actual del motor físic; es mantenen aquí només com a context històric.
 
 ## 2. Frontera entre Core i IA Train
 

@@ -80,6 +80,19 @@ def validate_extracted_facts(value):
             )
 
 
+def validate_catalog_equipment_codes(value):
+    """Validate the optional bridge from a gym inventory row to catalog codes."""
+    if not isinstance(value, list):
+        raise ValidationError("Els codis de material han de ser una llista.")
+    normalized = []
+    for code in value:
+        if not isinstance(code, str) or not normalize_vocabulary_token(code):
+            raise ValidationError("Cada codi de material ha de ser textual i no buit.")
+        normalized.append(normalize_vocabulary_token(code))
+    if len(normalized) != len(set(normalized)):
+        raise ValidationError("Els codis de material no es poden repetir.")
+
+
 class AthleteProfile(models.Model):
     person = models.OneToOneField(
         Person,
@@ -487,6 +500,15 @@ class GymEquipment(models.Model):
         default=Availability.AVAILABLE,
     )
     notes = models.TextField(blank=True, default="")
+    catalog_equipment_codes = models.JSONField(
+        blank=True,
+        default=list,
+        validators=(validate_catalog_equipment_codes,),
+        help_text=(
+            "Codis del material dels catàlegs d'exercicis equivalent a aquest inventari. "
+            "El motor també intenta resoldre equivalències pel nom."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1338,6 +1360,7 @@ from .training.models import (  # noqa: E402,F401
     SessionItemAthleteAdjustment,
     SessionParticipantPlan,
     TrainingBlock,
+    BlockGenerationRun,
     TrainingItemResult,
     TrainingSession,
     TrainingSessionExecution,
