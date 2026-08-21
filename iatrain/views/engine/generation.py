@@ -12,6 +12,7 @@ from iatrain.engine.services import (
     apply_generation_run,
     discard_generation_run,
     generate_block_run,
+    resume_generation_run,
 )
 from iatrain.models import BlockGenerationRun, TrainingSession, TrainingSessionRevision
 from iatrain.services import organizations_available_to_coach
@@ -83,7 +84,10 @@ def block_generation_create(request, pk):
         run = getattr(error, "run", None)
         messages.error(request, str(error))
     else:
-        messages.success(request, "Proposta preparada. Revisa-la abans d'afegir-la.")
+        if run.status == run.Status.AWAITING_DECISION:
+            messages.info(request, "Cal una decisió abans de completar la proposta.")
+        else:
+            messages.success(request, "Proposta preparada. Revisa-la abans d'afegir-la.")
     return redirect(_detail_url(session, revision, run))
 
 
@@ -94,7 +98,11 @@ def block_generation_refine(request, pk, run_pk):
     session = _session_for(request.user, pk)
     parent = _run_for(session, run_pk)
     revision = parent.session_revision
-    if parent.status != parent.Status.PROPOSED or revision.status != revision.Status.DRAFT:
+    refinable = parent.status == parent.Status.PROPOSED or (
+        parent.status == parent.Status.AWAITING_DECISION
+        and parent.decision_payload.get("kind") == "intent_clarification"
+    )
+    if not refinable or revision.status != revision.Status.DRAFT:
         raise PermissionDenied("Aquesta proposta ja no es pot reformular.")
     instruction = " ".join(request.POST.get("instruction", "").split())
     if not instruction:
@@ -117,6 +125,37 @@ def block_generation_refine(request, pk, run_pk):
     else:
         messages.success(request, "Proposta reformulada.")
     return redirect(_detail_url(session, revision, run or parent))
+
+
+@login_required
+@require_POST
+def block_generation_decide(request, pk, run_pk):
+    require_coach(request)
+    session = _session_for(request.user, pk)
+    run = _run_for(session, run_pk)
+    revision = run.session_revision
+    if revision.status != revision.Status.DRAFT:
+        raise PermissionDenied("Només es pot generar sobre una versió en esborrany.")
+    decisions = {
+        key.removeprefix("decision_"): value
+        for key, value in request.POST.items()
+        if key.startswith("decision_") and value
+    }
+    try:
+        run = resume_generation_run(
+            user=request.user,
+            run=run,
+            decisions=decisions,
+        )
+    except (GenerationBlocked, ValidationError) as error:
+        failed_run = getattr(error, "run", None)
+        messages.error(request, str(error))
+        return redirect(_detail_url(session, revision, failed_run or run))
+    if run.status == run.Status.AWAITING_DECISION:
+        messages.info(request, "Encara falta resoldre alguna decisió del grup.")
+    else:
+        messages.success(request, "Proposta personalitzada preparada.")
+    return redirect(_detail_url(session, revision, run))
 
 
 @login_required

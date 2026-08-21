@@ -9,6 +9,7 @@ from .models import (
     AthleteObservation,
     AthleteProfile,
     AthleteSportProfile,
+    BlockParticipantAssignment,
     CoachAthleteRelation,
     CoachProfile,
     ElementNotation,
@@ -182,6 +183,32 @@ def _merge_training_participant_plans(*, canonical_athlete, duplicate_athlete):
                 rationale=_joined_notes(existing.rationale, adjustment.rationale),
             )
             SessionItemAthleteAdjustment.objects.filter(pk=adjustment.pk).delete()
+
+        mode_priority = {"shared": 0, "personalized": 1, "excluded": 2}
+        for assignment in list(
+            BlockParticipantAssignment.objects.select_for_update().filter(
+                participant_plan=source
+            )
+        ):
+            existing = (
+                BlockParticipantAssignment.objects.select_for_update()
+                .filter(block=assignment.block, participant_plan=target)
+                .exclude(pk=assignment.pk)
+                .first()
+            )
+            if existing is None:
+                BlockParticipantAssignment.objects.filter(pk=assignment.pk).update(
+                    participant_plan=target
+                )
+                continue
+            safest_mode = max(
+                (existing.mode, assignment.mode), key=mode_priority.__getitem__
+            )
+            BlockParticipantAssignment.objects.filter(pk=existing.pk).update(
+                mode=safest_mode,
+                rationale=_joined_notes(existing.rationale, assignment.rationale),
+            )
+            BlockParticipantAssignment.objects.filter(pk=assignment.pk).delete()
 
         SessionParticipantPlan.objects.filter(pk=target.pk).update(
             individual_objective=_joined_notes(

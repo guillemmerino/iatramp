@@ -2,6 +2,7 @@ from .start import context_options, training_start
 from .generation import (
     block_generation_apply,
     block_generation_create,
+    block_generation_decide,
     block_generation_discard,
     block_generation_refine,
 )
@@ -9,6 +10,7 @@ from .generation import (
 __all__ = (
     "block_generation_apply",
     "block_generation_create",
+    "block_generation_decide",
     "block_generation_discard",
     "block_generation_refine",
     "context_options",

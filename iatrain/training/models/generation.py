@@ -9,6 +9,7 @@ class BlockGenerationRun(CleanOnSaveModel):
 
     class Status(models.TextChoices):
         PROCESSING = "processing", "Generant"
+        AWAITING_DECISION = "awaiting_decision", "Esperant decisió"
         PROPOSED = "proposed", "Proposta preparada"
         APPLIED = "applied", "Afegida a la sessió"
         DISCARDED = "discarded", "Descartada"
@@ -48,6 +49,8 @@ class BlockGenerationRun(CleanOnSaveModel):
     interpretation_payload = models.JSONField(blank=True, default=dict)
     request_payload = models.JSONField(blank=True, default=dict)
     proposal_payload = models.JSONField(blank=True, default=dict)
+    decision_payload = models.JSONField(blank=True, default=dict)
+    coach_decisions = models.JSONField(blank=True, default=dict)
     source_references = models.JSONField(blank=True, default=list)
     model_name = models.CharField(max_length=120, blank=True, default="")
     prompt_version = models.CharField(max_length=40, default="1.0")
@@ -83,6 +86,8 @@ class BlockGenerationRun(CleanOnSaveModel):
             "interpretation_payload",
             "request_payload",
             "proposal_payload",
+            "decision_payload",
+            "coach_decisions",
         ):
             if not isinstance(getattr(self, field_name), dict):
                 errors[field_name] = "Aquest camp ha de ser un objecte JSON."

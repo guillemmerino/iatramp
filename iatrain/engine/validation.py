@@ -16,6 +16,8 @@ from iatrain_exercises.models import ExerciseRevision
 from iatrain_exercises.models import ExerciseObjective
 
 from .contracts import (
+    ATHLETE_ADJUSTMENT_ACTIONS,
+    BLOCK_PARTICIPANT_MODES,
     AthleteAdjustmentProposal,
     BlockCoverage,
     BlockGenerationProposal,
@@ -23,6 +25,7 @@ from .contracts import (
     BlockItemProposal,
     BlockLoadEstimate,
     BlockObjective,
+    BlockParticipantProposal,
     ExerciseAlternativeProposal,
     ExerciseDoseProposal,
     PHYSICAL_BLOCK_HARD_CONSTRAINTS,
@@ -51,7 +54,7 @@ def validate_block_generation_request(request, *, revision=None):
     if not isinstance(request, BlockGenerationRequest):
         raise ValidationError("La petició no compleix el contracte BlockGenerationRequest.")
     errors = {}
-    if request.contract_version != "1.0":
+    if request.contract_version not in {"1.0", "2.0"}:
         _add(errors, "contract_version", "La versió del contracte no està suportada.")
     if not isinstance(request.session_revision_id, int) or request.session_revision_id < 1:
         _add(errors, "session_revision_id", "Cal una versió de sessió vàlida.")
@@ -101,6 +104,17 @@ def validate_block_generation_request(request, *, revision=None):
         errors, "participant_plan_ids", request.participant_plan_ids, required=True
     )
     _validate_unique_positive_ids(
+        errors,
+        "excluded_participant_plan_ids",
+        request.excluded_participant_plan_ids,
+    )
+    if set(request.participant_plan_ids) & set(request.excluded_participant_plan_ids):
+        _add(
+            errors,
+            "excluded_participant_plan_ids",
+            "Un participant no pot estar inclòs i exclòs alhora.",
+        )
+    _validate_unique_positive_ids(
         errors, "available_equipment_ids", request.available_equipment_ids
     )
     if len(request.hard_constraints) != len(_normalized(request.hard_constraints)):
@@ -121,11 +135,21 @@ def validate_block_generation_request(request, *, revision=None):
             expected_participants = set(
                 revision.participant_plans.values_list("pk", flat=True)
             )
-            if set(request.participant_plan_ids) != expected_participants:
+            requested_participants = set(request.participant_plan_ids)
+            excluded_participants = set(request.excluded_participant_plan_ids)
+            if request.contract_version == "1.0" and requested_participants != expected_participants:
                 _add(
                     errors,
                     "participant_plan_ids",
                     "El bloc ha d'incloure tots els participants de la versió.",
+                )
+            elif request.contract_version == "2.0" and (
+                requested_participants | excluded_participants
+            ) != expected_participants:
+                _add(
+                    errors,
+                    "participant_plan_ids",
+                    "La decisió del bloc ha de cobrir tots els participants de la versió.",
                 )
             if revision.blocks.filter(sequence_index=request.sequence_index).exists():
                 _add(errors, "sequence_index", "Ja existeix un bloc en aquesta posició.")
@@ -237,6 +261,8 @@ def _validate_adjustment(errors, path, adjustment: AthleteAdjustmentProposal, pa
         return
     if adjustment.participant_plan_id not in participants:
         _add(errors, f"{path}.participant_plan_id", "El gimnasta no participa en el bloc.")
+    if adjustment.action not in ATHLETE_ADJUSTMENT_ACTIONS:
+        _add(errors, f"{path}.action", "L'acció de personalització no és vàlida.")
     if not adjustment.rationale.strip():
         _add(errors, f"{path}.rationale", "L'ajustament necessita una justificació.")
     for field_name in ("sets", "repetitions", "duration_seconds"):
@@ -257,6 +283,8 @@ def _validate_adjustment(errors, path, adjustment: AthleteAdjustmentProposal, pa
         _add(errors, f"{path}.intensity_value", "La intensitat no pot ser negativa.")
     if adjustment.rest_between_sets_seconds is not None and adjustment.rest_between_sets_seconds < 0:
         _add(errors, f"{path}.rest_between_sets_seconds", "El descans no pot ser negatiu.")
+    if adjustment.action == "replace" and not adjustment.replacement_exercise_revision_id:
+        _add(errors, f"{path}.replacement_exercise_revision_id", "Cal indicar l'exercici substitutiu.")
     values = (
         adjustment.replacement_exercise_revision_id,
         adjustment.sets,
@@ -267,7 +295,9 @@ def _validate_adjustment(errors, path, adjustment: AthleteAdjustmentProposal, pa
         adjustment.rest_between_sets_seconds,
         adjustment.adaptation_notes.strip(),
     )
-    if not any(value is not None and value != "" for value in values):
+    if adjustment.action != "skip" and not any(
+        value is not None and value != "" for value in values
+    ):
         _add(errors, path, "L'ajustament no modifica cap element de la prescripció.")
 
 
@@ -303,7 +333,7 @@ def validate_block_generation_proposal(
         raise ValidationError("La proposta no compleix el contracte BlockGenerationProposal.")
     validate_block_generation_request(proposal.request, revision=revision)
     errors = {}
-    if proposal.contract_version != "1.0":
+    if proposal.contract_version not in {"1.0", "2.0"}:
         _add(errors, "contract_version", "La versió del contracte no està suportada.")
     if not proposal.items:
         _add(errors, "items", "La proposta necessita almenys un ítem.")
@@ -356,6 +386,35 @@ def validate_block_generation_proposal(
             _add(errors, "confidence", "La confiança ha d'estar entre 0 i 1.")
 
     participants = set(proposal.request.participant_plan_ids)
+    expected_assignment_ids = participants | set(
+        proposal.request.excluded_participant_plan_ids
+    )
+    if proposal.participants:
+        assignment_ids = []
+        for index, participant in enumerate(proposal.participants):
+            path = f"participants[{index}]"
+            if not isinstance(participant, BlockParticipantProposal):
+                _add(errors, path, "La participació no compleix el contracte.")
+                continue
+            assignment_ids.append(participant.participant_plan_id)
+            if participant.participant_plan_id not in expected_assignment_ids:
+                _add(errors, f"{path}.participant_plan_id", "El gimnasta no pertany al bloc.")
+            if participant.mode not in BLOCK_PARTICIPANT_MODES:
+                _add(errors, f"{path}.mode", "El mode de participació no és vàlid.")
+            if (
+                participant.participant_plan_id in proposal.request.excluded_participant_plan_ids
+                and participant.mode != "excluded"
+            ):
+                _add(errors, f"{path}.mode", "Un participant exclòs ha de constar com a exclòs.")
+            if (
+                participant.participant_plan_id in participants
+                and participant.mode == "excluded"
+            ):
+                _add(errors, f"{path}.mode", "Un participant actiu no pot constar com a exclòs.")
+        if len(assignment_ids) != len(set(assignment_ids)):
+            _add(errors, "participants", "No es pot repetir una assignació de participant.")
+        if set(assignment_ids) != expected_assignment_ids:
+            _add(errors, "participants", "Les assignacions han de cobrir tot el bloc.")
     for item_index, item in enumerate(proposal.items):
         path = f"items[{item_index}]"
         if not isinstance(item, BlockItemProposal):

@@ -68,8 +68,17 @@ def _condition_region_tokens(condition):
     return values
 
 
-def _group_profile(context):
-    profiles = [athlete.prescription_profile for athlete in context.athletes]
+def _request_athletes(context, request):
+    participant_ids = set(request.participant_plan_ids)
+    return tuple(
+        athlete
+        for athlete in context.athletes
+        if athlete.participant_plan_id in participant_ids
+    )
+
+
+def _group_profile(athletes):
+    profiles = [athlete.prescription_profile for athlete in athletes]
     if not profiles:
         return AthletePrescriptionProfile("all", "novice", None, None)
     experience = min(profiles, key=lambda item: EXPERIENCE_ORDER[item.experience_level]).experience_level
@@ -85,22 +94,42 @@ def _group_profile(context):
     )
 
 
-def _health_effect(context, candidate_regions):
+def condition_applies(condition, candidate_regions):
+    tokens = _condition_region_tokens(condition)
+    return not tokens or bool(candidate_regions & tokens)
+
+
+def athlete_candidate_compatibility(athlete, candidate_regions):
+    """Return whether an athlete may use a candidate as the shared prescription."""
+
+    for condition in athlete.payload.get("active_conditions", []):
+        impact = condition.get("training_impact")
+        if impact == "stop":
+            return False, "Indicació activa de no entrenar."
+        if impact == "avoid" and condition_applies(condition, candidate_regions):
+            return False, (
+                "Cal evitar " + condition.get("title", "una condició activa") + "."
+            )
+    return True, ""
+
+
+def _health_effect(athletes, candidate_regions):
     safety_penalty = 0
     warnings = []
-    for athlete in context.athletes:
+    for athlete in athletes:
         for condition in athlete.payload.get("active_conditions", []):
             impact = condition.get("training_impact")
             if impact == "stop":
                 raise GenerationBlocked(
                     "Hi ha una indicació activa de no entrenar. Revisa el perfil abans de generar el bloc."
                 )
-            overlap = candidate_regions & _condition_region_tokens(condition)
-            if not overlap:
+            if not condition_applies(condition, candidate_regions):
                 continue
             if impact == "avoid":
-                return None, (
-                    f"Exclòs per una condició confirmada que indica evitar {', '.join(sorted(overlap))}.",
+                safety_penalty += 5
+                warnings.append(
+                    f"El participant {athlete.participant_plan_id} necessita una substitució "
+                    f"per {condition.get('title', 'una condició activa')}."
                 )
             if impact == "modify":
                 safety_penalty += 4
@@ -113,10 +142,10 @@ def _health_effect(context, candidate_regions):
     return min(safety_penalty, 10), tuple(dict.fromkeys(warnings))
 
 
-def _recent_response_score(context, revision_id):
+def _recent_response_score(athletes, revision_id):
     score = Decimal("7")
     seen = 0
-    for athlete in context.athletes:
+    for athlete in athletes:
         for result in athlete.payload.get("recent_training_responses", []):
             if result.get("exercise_revision_id") != revision_id:
                 continue
@@ -134,7 +163,8 @@ def _recent_response_score(context, revision_id):
 
 
 def rank_exercise_candidates(*, context, request):
-    profile = _group_profile(context)
+    athletes = _request_athletes(context, request)
+    profile = _group_profile(athletes)
     objective = request.objective.primary_quality
     requested_patterns = set(request.objective.movement_patterns)
     hard = set(request.hard_constraints)
@@ -186,9 +216,7 @@ def rank_exercise_candidates(*, context, request):
             continue
 
         candidate_regions = frozenset(PATTERN_REGIONS.get(revision.movement_pattern, set()))
-        health_penalty, health_warnings = _health_effect(context, candidate_regions)
-        if health_penalty is None:
-            continue
+        health_penalty, health_warnings = _health_effect(athletes, candidate_regions)
         warnings.extend(health_warnings)
 
         difficulty_gap = DIFFICULTY_ORDER[revision.difficulty] - EXPERIENCE_ORDER[profile.experience_level]
@@ -216,7 +244,7 @@ def rank_exercise_candidates(*, context, request):
         safety = max(Decimal("0"), safety - Decimal(str(critical_constraints * 2)))
         logistics = Decimal("15") if not required_equipment else Decimal("12")
         coverage = Decimal("10") if not requested_patterns or revision.movement_pattern in requested_patterns else Decimal("6")
-        response = _recent_response_score(context, revision.pk)
+        response = _recent_response_score(athletes, revision.pk)
         editorial_penalty = Decimal("8") if revision.editorial_status != EditorialStatus.VALIDATED else Decimal("0")
         score = objective_score + suitability + safety + logistics + coverage + response - editorial_penalty
         preference_text = " ".join(request.preferences).casefold()

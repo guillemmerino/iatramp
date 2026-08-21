@@ -13,6 +13,7 @@ from .contracts import (
     BlockItemProposal,
     BlockLoadEstimate,
     BlockObjective,
+    BlockParticipantProposal,
     ExerciseAlternativeProposal,
     ExerciseDoseProposal,
 )
@@ -20,7 +21,12 @@ from .selection import TrainingSelection, build_training_selection
 from .context import BlockEngineContext, build_block_engine_context
 from .generation import ENGINE_VERSION, generate_block_proposal
 from .serialization import contract_to_payload, proposal_from_payload, request_from_payload
-from .services import apply_generation_run, discard_generation_run, generate_block_run
+from .services import (
+    apply_generation_run,
+    discard_generation_run,
+    generate_block_run,
+    resume_generation_run,
+)
 from .validation import (
     validate_block_generation_proposal,
     validate_block_generation_request,
@@ -35,6 +41,7 @@ __all__ = (
     "BlockItemProposal",
     "BlockLoadEstimate",
     "BlockObjective",
+    "BlockParticipantProposal",
     "ExerciseAlternativeProposal",
     "ExerciseDoseProposal",
     "TrainingSelection",
@@ -49,6 +56,7 @@ __all__ = (
     "apply_generation_run",
     "proposal_from_payload",
     "request_from_payload",
+    "resume_generation_run",
     "validate_block_generation_proposal",
     "validate_block_generation_request",
 )

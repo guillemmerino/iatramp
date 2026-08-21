@@ -3,6 +3,7 @@
 from .execution import SessionAttendance, TrainingItemResult, TrainingSessionExecution
 from .generation import BlockGenerationRun
 from .planning import (
+    BlockParticipantAssignment,
     PhysicalExercisePrescription,
     SessionGoal,
     SessionItemAlternative,
@@ -14,6 +15,7 @@ from .planning import (
 from .sessions import TrainingSession, TrainingSessionRevision
 
 __all__ = (
+    "BlockParticipantAssignment",
     "BlockGenerationRun",
     "PhysicalExercisePrescription",
     "SessionAttendance",

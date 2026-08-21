@@ -1,6 +1,6 @@
 # Motor de generació física d’IA Train
 
-> **Estat:** primera versió funcional implementada
+> **Estat:** versió 2.0 funcional amb decisions i personalització per gimnasta
 > **Actualitzat:** 21 d’agost de 2026
 > **Domini:** `iatrain.engine`, integrat dins de l’aplicació `iatrain`
 > **Abast:** generar, revisar, reformular i aplicar blocs de preparació física
@@ -15,9 +15,14 @@ Des de la pàgina d’una versió de sessió en esborrany, l’entrenador pot:
 1. descriure en llenguatge natural què vol treballar;
 2. indicar durada i funció del bloc;
 3. obtenir una proposta d’exercicis del seu catàleg;
-4. revisar objectiu interpretat, dosi, càrrega estimada, justificacions, advertiments, alternatives, adaptacions individuals i fonts;
-5. demanar una reformulació en llenguatge natural;
-6. descartar la proposta o afegir-la a la sessió.
+4. resoldre incidències individuals sense perdre la generació: excloure només del bloc,
+   continuar conservadorament o revisar el perfil;
+5. obtenir exercicis substitutius, dosis individuals o omissions per ítem quan el bloc
+   compartit no és compatible amb una gimnasta;
+6. revisar objectiu interpretat, càrrega, justificacions, participació, alternatives,
+   adaptacions i fonts;
+7. demanar una reformulació en llenguatge natural;
+8. descartar la proposta o afegir-la a la sessió.
 
 La proposta no modifica la sessió fins que l’entrenador prem **Afegir a la sessió**. L’aplicació es fa dins d’una transacció i crea els models relacionals normals de sessió; el JSON de la proposta només és una traça auditable.
 
@@ -32,9 +37,15 @@ OpenAI interpreta el context i crea BlockGenerationRequest
                 ↓
 validador canònic del servidor
                 ↓
+preflight determinista per gimnasta
+        ↙                    ↘
+awaiting_decision       participants admissibles
+        ↓                    ↓
+decisió humana ──────────────┘
+                ↓
 consulta privada del catàleg + filtres obligatoris
                 ↓
-puntuació explicable + dosificador
+puntuació explicable + base compartida + variants individuals
                 ↓
 BlockGenerationProposal validada
                 ↓
@@ -60,6 +71,7 @@ TrainingSession
     ├── SessionGoal
     ├── BlockGenerationRun
     └── TrainingBlock
+        ├── BlockParticipantAssignment
         └── TrainingSessionItem
             ├── PhysicalExercisePrescription
             ├── SessionItemAlternative
@@ -71,6 +83,9 @@ TrainingSession
 - `PhysicalExercisePrescription` fixa l’exercici i la dosi concreta d’aquell dia.
 - `SessionItemAlternative` conserva substitucions preparades.
 - `SessionItemAthleteAdjustment` sobreescriu la dosi o l’exercici per a un participant.
+- `BlockParticipantAssignment` registra si cada gimnasta usa la prescripció `shared`,
+  `personalized` o queda `excluded` només d’aquell bloc.
+- `SessionItemAthleteAdjustment.action` distingeix `modify`, `replace` i `skip`.
 
 La documentació completa d’aquesta branca continua a [estructura_i_govern_sessions_iatrain.md](estructura_i_govern_sessions_iatrain.md).
 
@@ -81,10 +96,12 @@ La documentació completa d’aquesta branca continua a [estructura_i_govern_ses
 - versió de sessió i persona creadora;
 - petició original i instrucció de reformulació;
 - relació amb la proposta anterior, si n’és una reformulació;
-- interpretació, request i proposal serialitzades;
+- interpretació, request, decisions i proposal serialitzades;
+- incidències pendents a `decision_payload` i respostes explícites de l’entrenador a
+  `coach_decisions`;
 - fonts declarades per la interpretació;
 - model, versió del prompt, del motor i del contracte;
-- estat `processing`, `proposed`, `applied`, `discarded` o `failed`;
+- estat `processing`, `awaiting_decision`, `proposed`, `applied`, `discarded` o `failed`;
 - error operatiu concís;
 - bloc aplicat, si l’entrenador l’ha acceptat.
 
@@ -119,9 +136,12 @@ Els value objects de `iatrain/engine/contracts.py` formen la capa intermèdia en
 
 ### Entrada: `BlockGenerationRequest`
 
+La versió nova del contracte és `2.0`; el lector conserva compatibilitat amb propostes
+`1.0` que ja estiguessin desades.
+
 Inclou:
 
-- identificador, ordre i participants de la versió;
+- identificador, ordre, participants actius i participants exclosos del bloc;
 - nom, funció, domini i durada del bloc;
 - `BlockObjective`: descripció, qualitat principal, qualitats secundàries, patrons i regions;
 - mode d’execució, rondes i descans;
@@ -151,6 +171,7 @@ Inclou:
 - request original validada;
 - ítems ordenats amb dosi;
 - alternatives i adaptacions individuals;
+- `BlockParticipantProposal` per persistir participació compartida, personalitzada o exclosa;
 - durada estimada;
 - `BlockLoadEstimate` en quatre dimensions relatives;
 - `BlockCoverage` de qualitats, patrons i regions;
@@ -159,7 +180,10 @@ Inclou:
 - confiança de la selecció;
 - `generator_reference` amb versions de motor i guies.
 
-El validador rebutja una proposta amb participants incorrectes, temps excedit, posicions duplicades, exercicis inexistents o aliens, dosi incoherent, adaptacions fora de la sessió o qualsevol restricció obligatòria no satisfeta.
+El validador exigeix que participants actius i exclosos cobreixin exactament la versió,
+que no se solapin i que quedi almenys una gimnasta activa. També rebutja temps excedit,
+posicions duplicades, exercicis inexistents o aliens, dosis incoherents, adaptacions fora
+del bloc o qualsevol restricció obligatòria no satisfeta.
 
 ## 5. Context viu de l’esportista
 
@@ -178,12 +202,14 @@ El perfil separa dues dimensions que no s’han de confondre:
 - **etapa vital:** infant, adolescent, adult o adult gran;
 - **experiència:** inicial, intermèdia o avançada.
 
-Per tant, un infant de competició d’alt rendiment pot ser `child + advanced`, mentre que un adult sedentari serà `adult + novice`. El grup adopta l’envolupant més conservadora quan hi ha perfils diferents, i després crea ajustaments individuals quan correspon.
+Per tant, un infant de competició d’alt rendiment pot ser `child + advanced`, mentre que un adult sedentari serà `adult + novice`. El grup adopta una envolupant conservadora per construir la base logística. Després cada exercici es comprova contra cada gimnasta i pot mantenir-se, modificar-se, substituir-se o ometre’s individualment.
 
 El motor no diagnostica. Les condicions confirmades tenen una semàntica operativa explícita:
 
-- `stop`: bloqueja la generació;
-- `avoid`: exclou candidats que coincideixen amb la regió afectada;
+- `stop`: crea una decisió pendent; permet excloure només del bloc o revisar el perfil,
+  però no prescriure una variant mentre continuï vigent;
+- `avoid`: manté el bloc per al grup i busca una substitució individual compatible; si no
+  existeix, crea un `skip` justificat;
 - `modify`: redueix dosi/intensitat i augmenta descans per al participant;
 - `monitor`: manté el candidat amb una penalització de seguretat.
 
@@ -201,7 +227,7 @@ El LLM pot:
 
 - entendre llenguatge natural i sinònims;
 - escollir valors del vocabulari ofert;
-- detectar si falta una dada imprescindible;
+- demanar aclariment només quan la intenció del bloc és realment ininterpretable;
 - proposar objectiu, patrons, intensitat, preferències i restriccions;
 - explicar breument la interpretació i aportar fonts.
 
@@ -215,6 +241,11 @@ El LLM no pot:
 - aprovar una sessió;
 - substituir una decisió clínica o professional.
 
+Les incidències de salut, l’edat absent i les accions disponibles no provenen del text
+generat: les calcula `iatrain.engine.eligibility`. La continuació després d’una decisió es
+fa amb l’estat desat a IA Train i no necessita una segona crida a OpenAI. La crida continua
+usant `store: false` i Structured Outputs.
+
 ## 7. Recuperació i puntuació d’exercicis
 
 El recuperador consulta únicament variants actives dels catàlegs privats de la persona entrenadora. Exclou revisions retirades i aplica filtres obligatoris abans de puntuar:
@@ -222,8 +253,8 @@ El recuperador consulta únicament variants actives dels catàlegs privats de la
 1. estat editorial si s’ha demanat `validated_only`;
 2. material obligatori disponible;
 3. restriccions de pes corporal, salts o impacte;
-4. regions afectades per condicions `avoid`;
-5. indicacions `stop`;
+4. penalitzacions i incompatibilitats individuals per condicions `avoid` i `modify`;
+5. exclusió prèvia, confirmada per l’entrenador, de les indicacions `stop`;
 6. una dificultat clarament incompatible amb l’experiència del grup.
 
 Els candidats elegibles reben una puntuació explicable sobre 100:
@@ -239,7 +270,10 @@ Els candidats elegibles reben una puntuació explicable sobre 100:
 
 Una revisió encara en esborrany rep una penalització editorial de 8 punts i genera un advertiment. Això permet provar el motor amb el catàleg actual, però una versió de sessió no es podrà aprovar fins que tots els exercicis principals, alternatius i substitutius estiguin validats editorialment.
 
-La puntuació ordena candidats; no és una probabilitat clínica ni una mesura d’eficàcia. La confiança mostrada a la proposta deriva de la puntuació mitjana dels exercicis seleccionats.
+La puntuació ordena candidats per construir una base compartida. Per a cada gimnasta
+incompatible, el generador prioritza una substitució del mateix patró i, si no n’hi ha,
+una altra candidata segura del mateix objectiu. Si no existeix cap candidata segura,
+omet només aquell ítem per a la gimnasta. La confiança no és una probabilitat clínica.
 
 ## 8. Dosificació
 
@@ -270,12 +304,15 @@ La UI és a la pàgina de detall de sessió:
 1. l’entrenador crea una sessió i hi afegeix participants;
 2. a **Generar un bloc**, escriu la petició, la durada i la funció;
 3. mentre es genera, el botó queda bloquejat;
-4. la proposta apareix fora de la llista de blocs i encara no modifica la sessió;
-5. l’entrenador pot reformular-la amb una frase;
-6. **Descartar** només tanca la proposta;
-7. **Afegir a la sessió** crea el bloc i tot el seu graf de dades;
-8. el bloc aplicat continua sent editable amb els formularis manuals existents;
-9. la versió segueix el flux normal de proposta i aprovació.
+4. si hi ha incidències, el run passa a `awaiting_decision`, no a `failed`;
+5. l’entrenador pot excloure del bloc, continuar conservadorament o obrir el perfil en una
+   pestanya nova i reanalitzar-lo;
+6. la proposta mostra el mode de participació de cada gimnasta i les accions per ítem;
+7. l’entrenador pot reformular-la amb una frase sense perdre decisions anteriors;
+8. **Descartar** només tanca la proposta;
+9. **Afegir a la sessió** crea el bloc, assignacions, prescripcions i ajustaments;
+10. el bloc aplicat continua sent editable amb els formularis manuals existents;
+11. la versió segueix el flux normal de proposta i aprovació.
 
 Si no hi ha clau, la UI explica l’única configuració pendent i desactiva el botó de generació. La resta de creació manual continua operativa.
 
@@ -306,6 +343,7 @@ No s’ha d’escriure la clau al codi, als tests, a `BlockGenerationRun` ni a c
 
 - contractes: `iatrain/engine/contracts.py`;
 - context temporal: `iatrain/engine/context.py`;
+- preflight de participants: `iatrain/engine/eligibility.py`;
 - interpretació OpenAI: `iatrain/engine/openai.py`;
 - recuperació i puntuació: `iatrain/engine/scoring.py`;
 - guies i perfils de prescripció: `iatrain/engine/guidelines.py`;
@@ -320,8 +358,9 @@ No s’ha d’escriure la clau al codi, als tests, a `BlockGenerationRun` ni a c
 - plantilla: `iatrain/templates/iatrain/sessions/detail.html`;
 - comportament de client: `iatrain/static/iatrain/session_generation.js`;
 - estils: `iatrain/static/iatrain/overview.css`;
-- proves principals: `iatrain/tests/test_engine_block_contracts.py` i `iatrain/tests/test_profile_session_ui.py`;
-- migracions: `iatrain/migrations/0011_blockgenerationrun_equipment_codes.py` i `iatrain_exercises/migrations/0003_exerciseprescriptionguideline.py`.
+- proves principals: `iatrain/tests/test_engine_block_contracts.py`,
+  `iatrain/tests/test_personalized_block_generation.py` i `iatrain/tests/test_profile_session_ui.py`;
+- migració del flux personalitzat: `iatrain/migrations/0012_personalized_block_generation.py`.
 
 ## 12. Decisions que s’han de preservar
 
@@ -335,6 +374,10 @@ No s’ha d’escriure la clau al codi, als tests, a `BlockGenerationRun` ni a c
 8. El planificat i l’executat no se sobreescriuen.
 9. Les dades clíniques no s’han de deduir ni ampliar amb el LLM.
 10. La futura part tècnica ha de compartir sessió, blocs i context, però tenir contractes i selectors especialitzats.
+11. «Bloc compartit» significa objectiu, temps i logística compartits; no obliga a prescriure
+    el mateix exercici ni la mateixa dosi a totes les gimnastes.
+12. `failed` és un error tècnic o de contracte; una decisió humana pendent és
+    `awaiting_decision`.
 
 ## 13. Buits coneguts i següents passos
 
@@ -345,7 +388,8 @@ La primera versió és funcional, però encara no és el motor final:
 - ampliar el mapa entre patrons i regions amb el graf anatòmic-cinemàtic, en lloc del mapa conservador actual;
 - interpretar semànticament `ExerciseConstraint`; ara les crítiques penalitzen, però només les restriccions canòniques tenen garantia dura;
 - incorporar fatiga i càrrega acumulada a escala de microcicle, no només respostes recents;
-- millorar la selecció de grup amb estacions, material limitat i concurrència real;
+- agrupar automàticament gimnastes amb la mateixa substitució per presentar subgrups o
+  estacions, en lloc de repetir targetes individuals;
 - afegir edició directa d’una proposta abans d’aplicar-la, a més de la reformulació natural;
 - crear avaluacions amb casos esperats i mètriques de selecció, seguretat, temps i estabilitat;
 - verificar i normalitzar automàticament les referències retornades per la cerca abans de considerar-les evidència governada;

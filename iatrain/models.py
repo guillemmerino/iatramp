@@ -1353,6 +1353,7 @@ class AthleteObservation(models.Model):
 # Training is split by domain internally while preserving the conventional
 # ``iatrain.models`` import surface used by Django and the rest of the project.
 from .training.models import (  # noqa: E402,F401
+    BlockParticipantAssignment,
     PhysicalExercisePrescription,
     SessionAttendance,
     SessionGoal,

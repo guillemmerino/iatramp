@@ -13,6 +13,7 @@ from .models import (
     AthleteProfile,
     AthleteSportProfile,
     BlockGenerationRun,
+    BlockParticipantAssignment,
     CoachAthleteRelation,
     CoachProfile,
     ElementNotation,
@@ -70,6 +71,8 @@ class BlockGenerationRunAdmin(admin.ModelAdmin):
         "interpretation_payload",
         "request_payload",
         "proposal_payload",
+        "decision_payload",
+        "coach_decisions",
         "source_references",
         "created_at",
         "updated_at",
@@ -155,6 +158,13 @@ class TrainingBlockAdmin(admin.ModelAdmin):
     autocomplete_fields = ("session_revision",)
 
 
+@admin.register(BlockParticipantAssignment)
+class BlockParticipantAssignmentAdmin(admin.ModelAdmin):
+    list_display = ("block", "participant_plan", "mode")
+    list_filter = ("mode",)
+    autocomplete_fields = ("block", "participant_plan")
+
+
 @admin.register(TrainingSessionItem)
 class TrainingSessionItemAdmin(admin.ModelAdmin):
     list_display = ("title", "block", "sequence_index", "item_type", "is_optional")
@@ -179,7 +189,13 @@ class SessionItemAlternativeAdmin(admin.ModelAdmin):
 
 @admin.register(SessionItemAthleteAdjustment)
 class SessionItemAthleteAdjustmentAdmin(admin.ModelAdmin):
-    list_display = ("session_item", "participant_plan", "replacement_exercise_revision")
+    list_display = (
+        "session_item",
+        "participant_plan",
+        "action",
+        "replacement_exercise_revision",
+    )
+    list_filter = ("action",)
     autocomplete_fields = (
         "session_item",
         "participant_plan",

@@ -4,6 +4,7 @@ from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, Validat
 from django.db import transaction
 
 from iatrain.models import (
+    BlockParticipantAssignment,
     PhysicalExercisePrescription,
     SessionItemAlternative,
     SessionItemAthleteAdjustment,
@@ -15,7 +16,7 @@ from iatrain.models import (
 from iatrain.services import organizations_available_to_coach, person_for_user
 from iatrain_exercises.models import ExerciseRevision
 
-from .contracts import BlockGenerationProposal
+from .contracts import BlockGenerationProposal, BlockParticipantProposal
 from .validation import (
     referenced_exercise_revision_ids,
     validate_block_generation_proposal,
@@ -67,7 +68,10 @@ def apply_block_generation_proposal(*, user, proposal):
         referenced_exercise_revision_ids(proposal)
     )
     participant_plans = SessionParticipantPlan.objects.in_bulk(
-        proposal.request.participant_plan_ids
+        (
+            *proposal.request.participant_plan_ids,
+            *proposal.request.excluded_participant_plan_ids,
+        )
     )
     request = proposal.request
     block = TrainingBlock.objects.create(
@@ -84,6 +88,23 @@ def apply_block_generation_proposal(*, user, proposal):
         rounds=request.rounds,
         rest_between_rounds_seconds=request.rest_between_rounds_seconds,
     )
+
+    participant_rows = proposal.participants
+    if not participant_rows:
+        participant_rows = tuple(
+            BlockParticipantProposal(participant_plan_id=value, mode="shared")
+            for value in request.participant_plan_ids
+        ) + tuple(
+            BlockParticipantProposal(participant_plan_id=value, mode="excluded")
+            for value in request.excluded_participant_plan_ids
+        )
+    for participant in participant_rows:
+        BlockParticipantAssignment.objects.create(
+            block=block,
+            participant_plan=participant_plans[participant.participant_plan_id],
+            mode=participant.mode,
+            rationale=participant.rationale,
+        )
 
     for proposed_item in sorted(proposal.items, key=lambda item: item.sequence_index):
         item = TrainingSessionItem.objects.create(
@@ -133,6 +154,7 @@ def apply_block_generation_proposal(*, user, proposal):
             SessionItemAthleteAdjustment.objects.create(
                 session_item=item,
                 participant_plan=participant_plans[adjustment.participant_plan_id],
+                action=adjustment.action,
                 replacement_exercise_revision=(
                     exercise_revisions[adjustment.replacement_exercise_revision_id]
                     if adjustment.replacement_exercise_revision_id

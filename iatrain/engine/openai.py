@@ -21,7 +21,7 @@ from .contracts import (
 from .validation import validate_block_generation_request
 
 
-PROMPT_VERSION = "physical-block-interpreter-1.0"
+PROMPT_VERSION = "physical-block-interpreter-2.0"
 class OpenAITrainingError(Exception):
     code = "openai_error"
 
@@ -37,10 +37,11 @@ class OpenAITrainingUnavailable(OpenAITrainingError):
 class InterpretationNeedsClarification(OpenAITrainingError):
     code = "clarification_needed"
 
-    def __init__(self, question, *, payload=None):
+    def __init__(self, question, *, payload=None, model_name=""):
         super().__init__(question)
         self.question = question
         self.payload = payload or {}
+        self.model_name = model_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +80,10 @@ def _schema():
         "applicability": {"type": "string"},
     }
     properties = {
-        "clarification_needed": {"type": "boolean"},
+        "intent_status": {
+            "type": "string",
+            "enum": ["ready", "needs_clarification"],
+        },
         "clarification_question": {"type": "string"},
         "reasoning_summary": {"type": "string"},
         "request": {
@@ -247,9 +251,11 @@ parells. Retorna fonts concretes i explica breument l'aplicabilitat; no presenti
 d'adults sans com si fos específica per infants. No diagnostiquis ni prescriguis tractament.
 
 Només usa les hard_constraints canòniques disponibles. Les altres instruccions van a
-preferences o instructions. Demana aclariment únicament si falta una dada que impedeix una
-proposta segura. reasoning_summary és una justificació breu i visible, no una cadena de
-pensament interna. Escriu en català.
+preferences o instructions. No aturis la interpretació per diferències, condicions de salut
+o dades incompletes dels participants: el motor determinista revisarà cada gimnasta i podrà
+crear variants, exclusions o decisions per a l'entrenador. Usa needs_clarification només si
+la intenció del bloc és realment impossible d'interpretar. reasoning_summary és una
+justificació breu i visible, no una cadena de pensament interna. Escriu en català.
 """.strip()
 
 
@@ -299,9 +305,14 @@ def interpret_block_prompt(
         instructions=_instructions(),
         user_input=json.dumps(session_payload, ensure_ascii=False, default=str),
     )
-    if interpreted.get("clarification_needed"):
+    if (
+        interpreted.get("intent_status") == "needs_clarification"
+        or interpreted.get("clarification_needed") is True
+    ):
         question = interpreted.get("clarification_question") or "Cal concretar la petició."
-        raise InterpretationNeedsClarification(question, payload=interpreted)
+        raise InterpretationNeedsClarification(
+            question, payload=interpreted, model_name=model
+        )
     interpreted["sources"] = _safe_sources(interpreted.get("sources", []))
     row = interpreted["request"]
     # Duration and ownership-sensitive identifiers remain server-authoritative.
@@ -326,6 +337,7 @@ def interpret_block_prompt(
         participant_plan_ids=tuple(
             revision.participant_plans.values_list("pk", flat=True)
         ),
+        excluded_participant_plan_ids=(),
         execution_mode=row["execution_mode"],
         target_intensity=row["target_intensity"],
         available_equipment_ids=context.available_equipment_ids,
@@ -334,6 +346,7 @@ def interpret_block_prompt(
         instructions=row["instructions"],
         rounds=row["rounds"],
         rest_between_rounds_seconds=row["rest_between_rounds_seconds"],
+        contract_version="2.0",
     )
     validate_block_generation_request(request, revision=revision)
     return InterpretedBlockRequest(

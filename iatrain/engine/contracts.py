@@ -10,6 +10,8 @@ from decimal import Decimal
 
 
 TARGET_INTENSITIES = ("low", "moderate", "high", "very_high")
+BLOCK_PARTICIPANT_MODES = ("shared", "personalized", "excluded")
+ATHLETE_ADJUSTMENT_ACTIONS = ("modify", "replace", "skip")
 PHYSICAL_BLOCK_HARD_CONSTRAINTS = (
     "validated_only",
     "bodyweight_only",
@@ -39,6 +41,7 @@ class BlockGenerationRequest:
     planned_duration_minutes: int
     objective: BlockObjective
     participant_plan_ids: tuple[int, ...]
+    excluded_participant_plan_ids: tuple[int, ...] = field(default_factory=tuple)
     execution_mode: str = "sequential"
     domain: str = "physical"
     target_intensity: str = "moderate"
@@ -85,6 +88,7 @@ class ExerciseAlternativeProposal:
 class AthleteAdjustmentProposal:
     participant_plan_id: int
     rationale: str
+    action: str = "modify"
     replacement_exercise_revision_id: int | None = None
     sets: int | None = None
     repetitions: int | None = None
@@ -132,12 +136,20 @@ class BlockCoverage:
 
 
 @dataclass(frozen=True, slots=True)
+class BlockParticipantProposal:
+    participant_plan_id: int
+    mode: str
+    rationale: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class BlockGenerationProposal:
     request: BlockGenerationRequest
     items: tuple[BlockItemProposal, ...]
     estimated_duration_seconds: int
     estimated_load: BlockLoadEstimate
     coverage: BlockCoverage
+    participants: tuple[BlockParticipantProposal, ...] = field(default_factory=tuple)
     satisfied_constraints: tuple[str, ...] = field(default_factory=tuple)
     warnings: tuple[str, ...] = field(default_factory=tuple)
     unmet_constraints: tuple[str, ...] = field(default_factory=tuple)

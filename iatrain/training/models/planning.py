@@ -156,6 +156,46 @@ class TrainingBlock(RevisionOwnedModel):
         return f"{self.sequence_index}. {self.name}"
 
 
+class BlockParticipantAssignment(RevisionOwnedModel):
+    """Participation decision for one gymnast within one training block."""
+
+    class Mode(models.TextChoices):
+        SHARED = "shared", "Prescripció compartida"
+        PERSONALIZED = "personalized", "Prescripció personalitzada"
+        EXCLUDED = "excluded", "Exclosa del bloc"
+
+    block = models.ForeignKey(
+        TrainingBlock, on_delete=models.CASCADE, related_name="participant_assignments"
+    )
+    participant_plan = models.ForeignKey(
+        SessionParticipantPlan,
+        on_delete=models.PROTECT,
+        related_name="block_assignments",
+    )
+    mode = models.CharField(max_length=20, choices=Mode.choices)
+    rationale = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ("block_id", "participant_plan_id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("block", "participant_plan"),
+                name="iatrain_block_participant_uniq",
+            )
+        ]
+
+    def owning_revision(self):
+        return self.block.session_revision if self.block_id else None
+
+    def clean(self):
+        super().clean()
+        if self.block_id and self.participant_plan_id:
+            if self.block.session_revision_id != self.participant_plan.session_revision_id:
+                raise ValidationError(
+                    {"participant_plan": "El bloc i el participant han de ser de la mateixa versió."}
+                )
+
+
 class TrainingSessionItem(RevisionOwnedModel):
     class ItemType(models.TextChoices):
         PHYSICAL_EXERCISE = "physical_exercise", "Exercici físic"
@@ -364,6 +404,11 @@ class SessionItemAlternative(RevisionOwnedModel):
 
 
 class SessionItemAthleteAdjustment(RevisionOwnedModel):
+    class Action(models.TextChoices):
+        MODIFY = "modify", "Modificar dosi"
+        REPLACE = "replace", "Substituir exercici"
+        SKIP = "skip", "No participa en l'ítem"
+
     session_item = models.ForeignKey(
         TrainingSessionItem, on_delete=models.CASCADE, related_name="athlete_adjustments"
     )
@@ -376,6 +421,9 @@ class SessionItemAthleteAdjustment(RevisionOwnedModel):
         null=True,
         blank=True,
         related_name="training_adjustments",
+    )
+    action = models.CharField(
+        max_length=20, choices=Action.choices, default=Action.MODIFY
     )
     sets = models.PositiveSmallIntegerField(null=True, blank=True, validators=(MinValueValidator(1),))
     repetitions = models.PositiveSmallIntegerField(
@@ -435,5 +483,24 @@ class SessionItemAthleteAdjustment(RevisionOwnedModel):
             errors["load_unit"] = "El valor i la unitat de càrrega s'han d'indicar conjuntament."
         if self.intensity_value is not None and not self.intensity_metric:
             errors["intensity_metric"] = "Cal indicar la mètrica d'intensitat."
+        if self.action == self.Action.REPLACE and not self.replacement_exercise_revision_id:
+            errors["replacement_exercise_revision"] = "La substitució necessita un exercici."
+        if self.action == self.Action.SKIP:
+            has_prescription = any(
+                value is not None and value != ""
+                for value in (
+                    self.replacement_exercise_revision_id,
+                    self.sets,
+                    self.repetitions,
+                    self.duration_seconds,
+                    self.load_value,
+                    self.load_unit,
+                    self.intensity_metric,
+                    self.intensity_value,
+                    self.rest_between_sets_seconds,
+                )
+            )
+            if has_prescription:
+                errors["action"] = "Un ítem omès no pot contenir una prescripció alternativa."
         if errors:
             raise ValidationError(errors)

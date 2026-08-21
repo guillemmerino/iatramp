@@ -92,6 +92,18 @@ def _generation_preview(run, revision):
         plan.pk: plan.athlete_profile.person.display_name
         for plan in revision.participant_plans.all()
     }
+    participant_modes = {
+        "shared": "Compartida",
+        "personalized": "Personalitzada",
+        "excluded": "Exclosa del bloc",
+    }
+    for participant in payload.get("participants", []):
+        participant["participant_name"] = participant_labels.get(
+            participant["participant_plan_id"], "Gimnasta"
+        )
+        participant["mode_label"] = participant_modes.get(
+            participant.get("mode"), participant.get("mode", "")
+        )
     exercise_ids = set()
     for item in payload.get("items", []):
         dose = item.get("dose") or {}
@@ -126,6 +138,23 @@ def _generation_preview(run, revision):
         payload["confidence_percent"] = int(float(payload.get("confidence") or 0) * 100)
     except (TypeError, ValueError):
         payload["confidence_percent"] = 0
+    return payload
+
+
+def _generation_decision_preview(run, revision):
+    if not run or run.status != run.Status.AWAITING_DECISION:
+        return None
+    payload = deepcopy(run.decision_payload)
+    plans = {
+        plan.pk: plan
+        for plan in revision.participant_plans.select_related("athlete_profile__person")
+    }
+    for issue in payload.get("issues", []):
+        plan = plans.get(issue.get("participant_plan_id"))
+        issue["participant_name"] = (
+            plan.athlete_profile.person.display_name if plan else "Gimnasta"
+        )
+        issue["athlete_profile_id"] = plan.athlete_profile_id if plan else None
     return payload
 
 
@@ -205,6 +234,7 @@ def session_detail(request, pk):
             "blocks__items__alternatives__exercise_revision__exercise",
             "blocks__items__athlete_adjustments__participant_plan__athlete_profile__person",
             "blocks__items__athlete_adjustments__replacement_exercise_revision__exercise",
+            "blocks__participant_assignments__participant_plan__athlete_profile__person",
         )
         .get()
     )
@@ -239,6 +269,9 @@ def session_detail(request, pk):
             "generation_form": generation_form,
             "generation_run": selected_generation,
             "generation_preview": _generation_preview(selected_generation, revision),
+            "generation_decisions": _generation_decision_preview(
+                selected_generation, revision
+            ),
             "openai_training_configured": bool(getattr(settings, "OPENAI_API_KEY", "")),
         }
     )

@@ -32,6 +32,7 @@ TrainingSession
     ├── SessionGoal
     ├── BlockGenerationRun
     └── TrainingBlock
+        ├── BlockParticipantAssignment
         └── TrainingSessionItem
             ├── PhysicalExercisePrescription
             ├── SessionItemAlternative
@@ -137,7 +138,13 @@ Això permet, per exemple, tenir un bloc `preparation + physical` i un altre `ma
 
 També conserva ordre, durada, transició, objectiu, instruccions, opcionalitat, rondes, descans entre rondes i mode d’execució: seqüencial, circuit, estacions, supersèrie o paral·lel.
 
-### 6.2. `TrainingSessionItem`
+### 6.2. `BlockParticipantAssignment`
+
+Registra la participació de cada gimnasta dins d’un bloc concret, sense retirar-la de la
+sessió. El mode pot ser `shared`, `personalized` o `excluded`, sempre amb una justificació
+auditable. Això separa la pertinença a la sessió de l’admissibilitat en un bloc físic.
+
+### 6.3. `TrainingSessionItem`
 
 És la unitat executable ordenada dins d’un bloc. Pot representar:
 
@@ -187,7 +194,9 @@ Defineix exercicis substitutius preparats abans de començar. Cada alternativa t
 
 ### 7.3. `SessionItemAthleteAdjustment`
 
-Personalitza un ítem per a un participant concret. Pot substituir l’exercici o sobreescriure sèries, repeticions, durada, càrrega, intensitat i descans.
+Personalitza un ítem per a un participant concret. L’acció explícita pot ser `modify`,
+`replace` o `skip`: pot sobreescriure la dosi, substituir l’exercici o indicar que la
+gimnasta no participa només en aquell ítem.
 
 L’ajust i el participant han de pertànyer a la mateixa versió. La justificació i les notes d’adaptació permeten que el futur motor expliqui per què dos gimnastes reben una dosi diferent dins del mateix grup.
 

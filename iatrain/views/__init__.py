@@ -3,6 +3,7 @@ from .dashboard import home
 from .engine import (
     block_generation_apply,
     block_generation_create,
+    block_generation_decide,
     block_generation_discard,
     block_generation_refine,
     context_options,
@@ -53,6 +54,7 @@ __all__ = (
     "athlete_list",
     "block_generation_apply",
     "block_generation_create",
+    "block_generation_decide",
     "block_generation_discard",
     "block_generation_refine",
     "context_options",

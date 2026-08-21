@@ -12,15 +12,22 @@ from .contracts import (
     BlockGenerationProposal,
     BlockItemProposal,
     BlockLoadEstimate,
+    BlockParticipantProposal,
     ExerciseAlternativeProposal,
     ExerciseDoseProposal,
 )
 from .guidelines import GUIDELINE_VERSION
-from .scoring import EXPERIENCE_ORDER, GenerationBlocked, rank_exercise_candidates
+from .scoring import (
+    EXPERIENCE_ORDER,
+    GenerationBlocked,
+    athlete_candidate_compatibility,
+    condition_applies,
+    rank_exercise_candidates,
+)
 from .validation import validate_block_generation_proposal
 
 
-ENGINE_VERSION = "physical-block-engine-1.0"
+ENGINE_VERSION = "physical-block-engine-2.0"
 
 
 def _target_position(target):
@@ -124,10 +131,7 @@ def _condition_adjustment(athlete, candidate, dose):
     for condition in athlete.payload.get("active_conditions", []):
         if condition.get("training_impact") != "modify":
             continue
-        body = condition.get("body_region") or {}
-        code = str(body.get("code", "")).casefold().replace("-", "_")
-        tokens = {code, *code.split("_")} if code else set()
-        if regions & tokens:
+        if condition_applies(condition, regions):
             modify_titles.append(condition.get("title", "condició activa"))
     if modify_titles:
         repetitions = max(1, int(dose.repetitions * Decimal("0.8"))) if dose.repetitions else None
@@ -160,6 +164,57 @@ def _experience_adjustment(athlete, candidate, dose, minimum_experience):
     )
 
 
+def _replacement_adjustment(athlete, candidate, candidates, request, maximum_seconds):
+    compatible = []
+    for replacement in candidates:
+        if replacement.revision.pk == candidate.revision.pk:
+            continue
+        is_compatible, _ = athlete_candidate_compatibility(
+            athlete, replacement.region_codes
+        )
+        if not is_compatible:
+            continue
+        same_pattern = (
+            replacement.revision.movement_pattern
+            == candidate.revision.movement_pattern
+        )
+        compatible.append((not same_pattern, replacement))
+    if not compatible:
+        _, reason = athlete_candidate_compatibility(athlete, candidate.region_codes)
+        return AthleteAdjustmentProposal(
+            participant_plan_id=athlete.participant_plan_id,
+            action="skip",
+            rationale=reason or "No hi ha cap variant segura disponible.",
+            adaptation_notes="No participa en aquest ítem; revisa el perfil o el catàleg.",
+        )
+    _, replacement = sorted(
+        compatible, key=lambda row: (row[0], -row[1].score, row[1].revision.pk)
+    )[0]
+    replacement_dose = _reduce_to_budget(
+        replacement, _dose_for(replacement, request), maximum_seconds
+    )
+    return AthleteAdjustmentProposal(
+        participant_plan_id=athlete.participant_plan_id,
+        action="replace",
+        replacement_exercise_revision_id=replacement.revision.pk,
+        sets=replacement_dose.sets,
+        repetitions=replacement_dose.repetitions,
+        duration_seconds=replacement_dose.duration_seconds,
+        intensity_metric=(
+            replacement_dose.intensity_metric
+            if replacement_dose.intensity_value is not None
+            else ""
+        ),
+        intensity_value=replacement_dose.intensity_value,
+        rest_between_sets_seconds=replacement_dose.rest_between_sets_seconds,
+        rationale=(
+            "Substitució individual perquè l'exercici compartit no és compatible "
+            "amb una restricció activa."
+        ),
+        adaptation_notes="Mantén l'objectiu i la durada de la franja compartida.",
+    )
+
+
 def _select_candidates(candidates, desired_count, requested_patterns):
     selected = []
     families = set()
@@ -188,6 +243,12 @@ def _select_candidates(candidates, desired_count, requested_patterns):
 
 
 def generate_block_proposal(*, context, request):
+    active_participant_ids = set(request.participant_plan_ids)
+    athletes = tuple(
+        athlete
+        for athlete in context.athletes
+        if athlete.participant_plan_id in active_participant_ids
+    )
     candidates = rank_exercise_candidates(context=context, request=request)
     if not candidates:
         raise GenerationBlocked(
@@ -202,7 +263,7 @@ def generate_block_proposal(*, context, request):
         raise GenerationBlocked("No s'ha pogut construir una combinació d'exercicis.")
 
     minimum_experience = min(
-        (athlete.prescription_profile.experience_level for athlete in context.athletes),
+        (athlete.prescription_profile.experience_level for athlete in athletes),
         key=lambda value: EXPERIENCE_ORDER[value],
         default="novice",
     )
@@ -235,9 +296,17 @@ def generate_block_proposal(*, context, request):
             )
             break
         adjustments = []
-        for athlete in context.athletes:
-            adjustment = _condition_adjustment(athlete, candidate, dose)
-            if adjustment is None:
+        for athlete in athletes:
+            is_compatible, _ = athlete_candidate_compatibility(
+                athlete, candidate.region_codes
+            )
+            if not is_compatible:
+                adjustment = _replacement_adjustment(
+                    athlete, candidate, candidates, request, fair_share
+                )
+            else:
+                adjustment = _condition_adjustment(athlete, candidate, dose)
+            if adjustment is None and is_compatible:
                 adjustment = _experience_adjustment(
                     athlete, candidate, dose, minimum_experience
                 )
@@ -299,6 +368,33 @@ def generate_block_proposal(*, context, request):
     )
     average_score = sum(item.score for item in selected[: len(items)]) / Decimal(len(items))
     confidence = max(Decimal("0"), min(Decimal("1"), average_score / Decimal("100")))
+    personalized_ids = {
+        adjustment.participant_plan_id
+        for item in items
+        for adjustment in item.athlete_adjustments
+    }
+    participant_rows = []
+    for participant_id in request.participant_plan_ids:
+        personalized = participant_id in personalized_ids
+        participant_rows.append(
+            BlockParticipantProposal(
+                participant_plan_id=participant_id,
+                mode="personalized" if personalized else "shared",
+                rationale=(
+                    "Conté una dosi, substitució o omissió individual."
+                    if personalized
+                    else "Compatible amb la prescripció compartida."
+                ),
+            )
+        )
+    for participant_id in request.excluded_participant_plan_ids:
+        participant_rows.append(
+            BlockParticipantProposal(
+                participant_plan_id=participant_id,
+                mode="excluded",
+                rationale="Exclusió confirmada per l'entrenador durant la generació.",
+            )
+        )
     proposal = BlockGenerationProposal(
         request=request,
         items=tuple(items),
@@ -315,10 +411,12 @@ def generate_block_proposal(*, context, request):
             movement_patterns=patterns,
             body_region_codes=regions,
         ),
+        participants=tuple(participant_rows),
         satisfied_constraints=tuple(request.hard_constraints),
         warnings=tuple(dict.fromkeys(all_warnings)),
         confidence=confidence.quantize(Decimal("0.01")),
         generator_reference=f"{ENGINE_VERSION} · {GUIDELINE_VERSION}",
+        contract_version=request.contract_version,
     )
     validate_block_generation_proposal(
         proposal,

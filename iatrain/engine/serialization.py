@@ -9,6 +9,7 @@ from .contracts import (
     BlockItemProposal,
     BlockLoadEstimate,
     BlockObjective,
+    BlockParticipantProposal,
     ExerciseAlternativeProposal,
     ExerciseDoseProposal,
 )
@@ -49,6 +50,9 @@ def request_from_payload(payload):
             body_region_codes=tuple(objective.get("body_region_codes", [])),
         ),
         participant_plan_ids=tuple(int(value) for value in payload["participant_plan_ids"]),
+        excluded_participant_plan_ids=tuple(
+            int(value) for value in payload.get("excluded_participant_plan_ids", [])
+        ),
         execution_mode=payload.get("execution_mode", "sequential"),
         domain=payload.get("domain", "physical"),
         target_intensity=payload.get("target_intensity", ""),
@@ -103,6 +107,7 @@ def _adjustment(payload):
     return AthleteAdjustmentProposal(
         participant_plan_id=int(payload["participant_plan_id"]),
         rationale=payload["rationale"],
+        action=payload.get("action", "modify"),
         replacement_exercise_revision_id=int(replacement) if replacement else None,
         sets=payload.get("sets"),
         repetitions=payload.get("repetitions"),
@@ -141,8 +146,25 @@ def proposal_from_payload(payload):
         )
     load = payload["estimated_load"]
     coverage = payload["coverage"]
+    request = request_from_payload(payload["request"])
+    participants = tuple(
+        BlockParticipantProposal(
+            participant_plan_id=int(row["participant_plan_id"]),
+            mode=row["mode"],
+            rationale=row.get("rationale", ""),
+        )
+        for row in payload.get("participants", [])
+    )
+    if not participants:
+        participants = tuple(
+            BlockParticipantProposal(participant_plan_id=value, mode="shared")
+            for value in request.participant_plan_ids
+        ) + tuple(
+            BlockParticipantProposal(participant_plan_id=value, mode="excluded")
+            for value in request.excluded_participant_plan_ids
+        )
     return BlockGenerationProposal(
-        request=request_from_payload(payload["request"]),
+        request=request,
         items=tuple(items),
         estimated_duration_seconds=int(payload["estimated_duration_seconds"]),
         estimated_load=BlockLoadEstimate(
@@ -157,6 +179,7 @@ def proposal_from_payload(payload):
             movement_patterns=tuple(coverage.get("movement_patterns", [])),
             body_region_codes=tuple(coverage.get("body_region_codes", [])),
         ),
+        participants=participants,
         satisfied_constraints=tuple(payload.get("satisfied_constraints", [])),
         warnings=tuple(payload.get("warnings", [])),
         unmet_constraints=tuple(payload.get("unmet_constraints", [])),
