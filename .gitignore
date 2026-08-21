@@ -3,6 +3,7 @@ __pycache__/
 *.pyo
 .env.prod
 .env.intern
+.env.*.local
 docker-compose.prod.yml
 docker-compose.intern.yml
 # Carpeta font enganxada temporalment; la app integrada viu a certificats/.

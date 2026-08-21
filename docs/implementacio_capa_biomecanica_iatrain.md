@@ -1,7 +1,7 @@
 # Implementació de la capa biomecànica funcional d'IA Train
 
-> **Estat:** implementació funcional completa en `draft`, pendent de revisió professional
-> **Actualitzat:** 20 d'agost de 2026
+> **Estat:** implementació funcional validada editorialment per a proves internes del motor
+> **Actualitzat:** 21 d'agost de 2026
 > **Abast:** musculatura anatòmica, funcions musculars qualitatives, estabilització, context, evidència, raonament de contracció i projecció visual.
 > **No inclou:** activació muscular observada, EMG, forces internes, braços de moment quantitatius ni simulació musculoesquelètica. La capa privada d'exercicis ja està implementada separadament a [`implementacio_cataleg_privat_exercicis_iatrain.md`](implementacio_cataleg_privat_exercicis_iatrain.md).
 
@@ -140,7 +140,9 @@ Tots els músculs sembrats:
 - declaren almenys una articulació travessada;
 - tenen almenys una funció d'acció o estabilització;
 - conserven font, procedència i limitacions;
-- romanen en `draft` fins a revisió professional.
+- es creen en `draft` i només passen a `validated` mitjançant els serveis editorials auditats.
+
+El 21 d’agost de 2026 es van validar els 3 contextos, les 129 funcions múscul-acció i les 16 funcions estabilitzadores després d’obtenir 0 incidències a l’auditoria biomecànica. La validació va generar una traça editorial individual per registre.
 
 Les fonts inicials són Uberon com a correspondència ontològica i seccions anatòmiques d'OpenStax per extremitat inferior, extremitat superior i musculatura axial. Són punt de partida documental, no una validació automàtica de cada jerarquia funcional.
 
@@ -192,9 +194,9 @@ La projecció biomecànica és de consulta. El govern detallat d'afirmacions, co
 
 ## 8. Límits professionals actuals
 
-La base és funcionalment completa per començar a estructurar preparació física, però no s'ha de presentar encara com a coneixement professional validat. Falta:
+La base es considera vàlida per a les proves internes de preparació física. Aquesta decisió editorial no equival a una certificació científica externa ni elimina els límits del model qualitatiu. Encara falta:
 
-- revisió per professionals d'anatomia, biomecànica i preparació física;
+- revisió externa independent si es vol elevar l’abast més enllà de les proves internes;
 - fonts específiques per a afirmacions dependents de postura o qualificades com `variable`;
 - rangs angulars contextuals revisats;
 - mapatge del tracker i validació de les mesures reals;

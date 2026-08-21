@@ -4,7 +4,9 @@ services:
       context: .
       dockerfile: Dockerfile
     env_file:
-      - .env.${APP_ENV:-dev}
+      - path: .env.${APP_ENV:-dev}
+      - path: .env.${APP_ENV:-dev}.local
+        required: false
     volumes:
       - .:/app
       - media_data:/data/media

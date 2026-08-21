@@ -281,13 +281,17 @@ Si no hi ha clau, la UI explica l’única configuració pendent i desactiva el 
 
 ## 10. Configuració
 
-L’únic secret necessari és la clau d’OpenAI. A `.env.dev` ja hi ha preparada la variable:
+L’únic secret necessari és la clau d’OpenAI. En desenvolupament s’ha de desar
+únicament a `.env.dev.local`, un fitxer ignorat per Git que Docker Compose carrega
+automàticament després de `.env.dev`:
 
 ```env
 OPENAI_API_KEY=
 ```
 
-Cal afegir-hi el valor i recrear o reiniciar el servei web perquè rebi l’entorn. La resta té valors per defecte:
+Cal afegir-hi el valor i recrear el servei web amb `docker compose up -d web` perquè
+rebi l’entorn. No cal indicar `--env-file`. Un simple `docker compose restart web`
+no torna a llegir els fitxers d’entorn. La resta té valors per defecte a `.env.dev`:
 
 ```env
 OPENAI_TRAINING_MODEL=gpt-5.6

@@ -1,7 +1,8 @@
 # Implementació del graf anatòmic-cinemàtic i l'esquelet canònic d'IA Train
 
 > **Estat del document:** registre canònic de la implementació actual  
-> **Actualitzat:** 20 d'agost de 2026
+> **Actualitzat:** 21 d'agost de 2026
+> **Estat editorial de les dades:** graf anatòmic-cinemàtic i esquelet canònic validats per a proves internes del motor; 0 incidències a les auditories estructurals.
 > **Abast implementat:** vocabulari anatòmic-cinemàtic i muscular, relacions semàntiques, esquelet funcional canònic, biomecànica funcional, govern editorial, llavors de dades i visualització dels subgrafs.
 > **Fora de l'abast actual:** mapatge de trackers, seqüències observades, especificacions temporals d'elements, corpus, normativa i biomecànica quantitativa. La musculatura i la biomecànica funcional ja estan implementades i es documenten a [`implementacio_capa_biomecanica_iatrain.md`](implementacio_capa_biomecanica_iatrain.md).
 
@@ -196,7 +197,7 @@ No és una mesura d'un vídeo. És la definició estable que permetrà calcular 
 
 ### 5.1. Vocabulari `functional_anatomy_v1`
 
-La llavor anatòmica crea, en estat `draft`:
+La llavor anatòmica crea inicialment en estat `draft`:
 
 - **169 nodes totals:** 13 segments, 9 articulacions, 40 accions articulars, 3 plans, 3 eixos, 70 músculs i 31 grups musculars;
 - **360 relacions** tipades i auditades després de les llavors anatòmica i biomecànica.
@@ -239,7 +240,7 @@ El pont correcte serà la futura `ElementMotionSpecification`: apuntarà a l'ele
 
 ## 7. Govern editorial i creixement segur
 
-Totes les dades sembrades entren com a `draft`. La llavor no les converteix en veritat professional validada.
+Totes les dades sembrades entren com a `draft`; la llavor no les valida automàticament. El 21 d’agost de 2026, després de superar les auditories, els 169 conceptes, les 360 relacions i l’esquema canònic es van validar editorialment per habilitar proves internes del motor. Cada transició conserva revisor, data, motiu i snapshot.
 
 El govern implementat aplica aquests principis:
 
@@ -272,9 +273,9 @@ Aquest selector mostra dues projeccions professionals diferents i evita barrejar
 
 ## 9. Límits actuals
 
-La implementació està preparada estructuralment per créixer, però encara no s'ha de considerar una ontologia anatòmica completa ni un sistema biomecànic validat. Falta:
+La implementació està validada editorialment per a proves internes, però no és una ontologia exhaustiva ni una certificació científica externa. Encara falta:
 
-- revisió i validació per professionals del domini;
+- revisió externa independent si s’ha d’utilitzar fora de l’entorn intern de proves;
 - inventari del tracker real i de la qualitat de les seves coordenades;
 - mapatge de punts de proveïdor a punts canònics;
 - regles de confiança, oclusió, calibratge i dades absents;
@@ -282,14 +283,14 @@ La implementació està preparada estructuralment per créixer, però encara no 
 - connexió persistent amb elements tècnics;
 - corpus multivídeo;
 - criteris normatius i reglamentaris;
-- validació professional de músculs i funcions; forces, càrregues internes i braços de moment quantitatius;
+- forces, càrregues internes i braços de moment quantitatius;
 - ampliació anatòmica guiada per casos d'ús reals.
 
 ## 10. Passos futurs recomanats
 
 L'ordre recomanat és el següent:
 
-1. **Revisar professionalment la base actual.** Corregir noms, definicions, topologia, convencions angulars i capacitats geomètriques abans de validar la versió.
+1. **Mantenir la revisió editorial.** La base actual està validada per a proves; qualsevol ampliació o correcció ha de tornar a passar les auditories i el govern editorial.
 2. **Inventariar el tracker real.** Documentar punts disponibles, 2D o 3D, referencial, unitats, confiança, oclusions, interpolacions i versions del pipeline.
 3. **Implementar `TrackerSchema` i `TrackerJointMapping`.** Cada correspondència indicarà quin punt del proveïdor alimenta quin `CanonicalLandmark`, o com es deriva, amb versió i procedència.
 4. **Normalitzar determinísticament una postura.** Convertir unitats i coordenades, aplicar calibratge, calcular punts derivats i emetre indicadors de qualitat sense inventar graus de llibertat absents.
@@ -298,7 +299,7 @@ L'ordre recomanat és el següent:
 7. **Construir un tall vertical.** Descriure una variant exacta i ben delimitada de Barani de cap a cap abans d'expandir el catàleg.
 8. **Afegir seqüències i corpus.** Conservar fora del graf les sèries massives i mantenir a PostgreSQL metadades, versions, permisos, anotacions i procedència.
 9. **Afegir la capa normativa.** Separar identitat de l'element, patró observat i criteri de bona execució; versionar qualsevol dependència del reglament.
-10. **Biomecànica funcional — implementada en `draft`.** Revisar professionalment la llavor descrita a [`implementacio_capa_biomecanica_iatrain.md`](implementacio_capa_biomecanica_iatrain.md) i ampliar condicions o evidència només amb casos verificables. La biomecànica quantitativa continua sent futura.
+10. **Biomecànica funcional — validada per a proves internes.** Ampliar condicions o evidència només amb casos verificables. La biomecànica quantitativa continua sent futura.
 11. **Catàleg privat d'exercicis — primera estructura implementada.** Revisar i ampliar els exemples seguint [`implementacio_cataleg_privat_exercicis_iatrain.md`](implementacio_cataleg_privat_exercicis_iatrain.md), sense crear encara un catàleg professional comú.
 
 ## 11. Criteris mínims del futur mapatge de tracker

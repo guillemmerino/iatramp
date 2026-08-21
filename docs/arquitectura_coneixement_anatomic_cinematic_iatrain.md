@@ -1,9 +1,9 @@
 # Arquitectura del coneixement anatòmic, cinemàtic i d'execució d'IA Train
 
 > **Estat del document:** arquitectura canònica; primera fase del subgraf anatòmic-cinemàtic implementada
-> **Actualitzat:** 20 d'agost de 2026
+> **Actualitzat:** 21 d'agost de 2026
 > **Abast:** anatomia funcional, descripció cinemàtica dels elements, corpus professional multivídeo, criteris d'execució i reconeixement futur.  
-> **Implementació actual:** vocabulari anatòmic-cinemàtic, musculatura, relacions tipades, esquelet canònic mesurable versionat, biomecànica funcional, govern editorial i llavors revisables. Encara no hi ha mapatge de trackers, especificacions d'elements, corpus, biomecànica quantitativa ni capa normativa.
+> **Implementació actual:** vocabulari anatòmic-cinemàtic, musculatura, relacions tipades, esquelet canònic mesurable versionat i biomecànica funcional validats editorialment per a proves internes. Encara no hi ha mapatge de trackers, especificacions d'elements, corpus, biomecànica quantitativa ni capa normativa.
 
 ## 1. Propòsit
 
