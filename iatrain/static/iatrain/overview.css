@@ -480,6 +480,8 @@ body:has(.iatrain-app) .avatar-helper:not(.is-open) .avatar-helper__hide { opaci
 .iatrain-generation-status { padding: 6px 10px; border-radius: 999px; background: #dcfce7; color: #166534; font-size: .56rem; font-weight: 850; }
 .iatrain-generation-proposal.is-failed .iatrain-generation-status { background: #fff1f2; color: #be123c; }
 .iatrain-generation-proposal.is-awaiting_decision .iatrain-generation-status { background: #fef3c7; color: #92400e; }
+.iatrain-generation-proposal.is-review_required { border-color: #fbbf24; }
+.iatrain-generation-proposal.is-review_required .iatrain-generation-status { background: #fef3c7; color: #92400e; }
 .iatrain-generation-proposal.is-processing .iatrain-generation-status { background: #dbeafe; color: #1d4ed8; }
 .iatrain-generation-live { display: grid; padding: 22px; gap: 18px; background: linear-gradient(135deg,#f8fbff,#fff); }
 .iatrain-generation-live-current { display: flex; align-items: center; gap: 12px; }
@@ -514,6 +516,13 @@ body:has(.iatrain-app) .avatar-helper:not(.is-open) .avatar-helper__hide { opaci
 .iatrain-generation-metrics strong { color: var(--it-ink); font-size: .83rem; }
 .iatrain-generation-warnings { padding: 11px 22px; border-bottom: 1px solid #fde68a; background: #fffbeb; }
 .iatrain-generation-warnings p { margin: 3px 0; color: #92400e; font-size: .58rem; line-height: 1.45; }
+.iatrain-generation-review-issues { display: grid; padding: 16px 22px; border-bottom: 1px solid #fcd34d; gap: 9px; background: #fffbeb; }
+.iatrain-generation-review-issues > div strong { color: #92400e; font-size: .7rem; }
+.iatrain-generation-review-issues > div p, .iatrain-generation-review-issues article p { margin: 4px 0 0; color: #78350f; font-size: .55rem; line-height: 1.45; }
+.iatrain-generation-review-issues article { padding: 11px 12px; border: 1px solid #fcd34d; border-radius: 9px; background: #fff; }
+.iatrain-generation-review-issues article header { display: flex; justify-content: space-between; gap: 8px; }
+.iatrain-generation-review-issues article header b, .iatrain-generation-review-issues article header span { color: #92400e; font-size: .54rem; text-transform: uppercase; }
+.iatrain-generation-review-issues article small { display: inline-block; margin: 4px 6px 0 0; color: var(--it-muted); font-size: .5rem; }
 .iatrain-generation-decisions { display: grid; padding: 20px 22px; gap: 15px; background: #fffbeb; }
 .iatrain-generation-decision-intro p { margin: 5px 0 0; color: #78350f; font-size: .62rem; }
 .iatrain-generation-decisions form { display: grid; gap: 10px; }
@@ -561,6 +570,8 @@ body:has(.iatrain-app) .avatar-helper:not(.is-open) .avatar-helper__hide { opaci
 .iatrain-generation-review-actions input { min-width: 0; min-height: 40px; padding: 9px 11px; flex: 1; border: 1px solid #d0d5dd; border-radius: 9px 0 0 9px; font: inherit; font-size: .64rem; }
 .iatrain-generation-review-actions > form button { border-radius: 0 9px 9px 0; }
 .iatrain-generation-review-actions > div { display: flex; gap: 8px; }
+.iatrain-generation-review-ack { display: flex !important; margin-bottom: 5px; align-items: center; gap: 6px; color: #92400e !important; }
+.iatrain-generation-review-ack input { width: auto; min-height: auto; padding: 0; flex: 0 0 auto; }
 .iatrain-saved-adjustments { display: flex; margin-top: 7px; flex-wrap: wrap; gap: 5px; }
 .iatrain-saved-adjustments span { padding: 4px 7px; border-radius: 7px; background: #fff1f2; color: #9f1239; font-size: .5rem; }
 
@@ -646,3 +657,17 @@ body:has(.iatrain-app) .avatar-helper:not(.is-open) .avatar-helper__hide { opaci
 @media (prefers-reduced-motion: reduce) {
   .iatrain-app * { scroll-behavior: auto !important; transition: none !important; }
 }
+.iatrain-knowledge-support,
+.iatrain-individual-support {
+  margin-top: .75rem;
+  padding: .65rem .8rem;
+  border: 1px solid color-mix(in srgb, var(--iatrain-accent, #176b57) 22%, transparent);
+  border-radius: .7rem;
+  background: color-mix(in srgb, var(--iatrain-accent, #176b57) 5%, transparent);
+}
+
+.iatrain-knowledge-support summary,
+.iatrain-individual-support summary { cursor: pointer; font-weight: 700; }
+.iatrain-knowledge-support small,
+.iatrain-individual-support small { display: block; margin-top: .35rem; }
+.iatrain-individual-support { margin-top: .55rem; background: #fff; }

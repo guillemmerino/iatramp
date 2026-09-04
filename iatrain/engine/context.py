@@ -116,3 +116,55 @@ def build_block_engine_context(*, user, revision):
         available_equipment_codes=equipment_codes(inventory),
         warnings=tuple(warnings),
     )
+
+
+def build_group_engine_summary(context, participant_ids):
+    """Return a small factual group projection; no missing datum becomes a restriction."""
+
+    active = {int(value) for value in participant_ids}
+    stages = {}
+    experience = {}
+    conditions = []
+    last_training = {}
+    response_counts = {}
+    health_unavailable = []
+    for athlete in context.athletes:
+        participant_id = athlete.participant_plan_id
+        if participant_id not in active:
+            continue
+        stage = athlete.prescription_profile.population_stage
+        level = athlete.prescription_profile.experience_level
+        stages[stage] = stages.get(stage, 0) + 1
+        experience[level] = experience.get(level, 0) + 1
+        payload = athlete.payload
+        if not payload.get("scope", {}).get("health_data_available", False):
+            health_unavailable.append(participant_id)
+        for condition in payload.get("active_conditions", []):
+            conditions.append(
+                {
+                    "participant_plan_id": participant_id,
+                    "condition_id": condition.get("id"),
+                    "training_impact": condition.get("training_impact"),
+                    "laterality": condition.get("laterality"),
+                    "body_region_code": (
+                        condition.get("body_region") or {}
+                    ).get("code", ""),
+                }
+            )
+        responses = payload.get("recent_training_responses", [])
+        response_counts[str(participant_id)] = len(responses)
+        last_training[str(participant_id)] = (
+            responses[0].get("recorded_at") if responses else None
+        )
+    return {
+        "participant_count": len(active),
+        "population_stages": stages,
+        "experience_levels": experience,
+        "active_condition_impacts": conditions,
+        "health_data_unavailable_participant_ids": sorted(health_unavailable),
+        "recent_response_counts": response_counts,
+        "last_training_at": last_training,
+        "detail_policy": (
+            "Una absència és incertesa; amplia només les participants necessàries."
+        ),
+    }

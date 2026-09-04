@@ -223,6 +223,16 @@ ExerciseRevision
 
 Això ja permet consultar exercicis privats per moviment o musculatura i explicar el perquè. Les mostres i el protocol d'ampliació es documenten a [`implementacio_cataleg_privat_exercicis_iatrain.md`](implementacio_cataleg_privat_exercicis_iatrain.md).
 
+Des del motor agentiu `3.10`, aquesta connexió és productiva. Els detalls són compactes i
+`get_exercise_knowledge_support` projecta només dependències professionals validades,
+conserven les limitacions sobre activació no observada i generen identificadors de claim
+que el servidor verifica abans d'acceptar una justificació.
+
+Els contractes `3.4` i `3.5` reutilitzen aquests `claim_id` dins de les adaptacions individuals. La
+base fonamenta l'acció, múscul, funció i fase de l'exercici; la relació amb una condició
+personal continua declarada com una inferència de planificació amb monitoratge i criteris
+d'aturada explícits.
+
 ## 10. Mapa del codi
 
 - `iatrain_biomechanics/models.py`: contextos, evidència i funcions musculars.

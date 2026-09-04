@@ -19,6 +19,9 @@ from iatrain.engine import (
     BlockParticipantProposal,
     ExerciseAlternativeProposal,
     ExerciseDoseProposal,
+    ExerciseKnowledgeSupport,
+    IndividualAdjustmentSupport,
+    ProfessionalKnowledgeClaim,
     apply_block_generation_proposal,
     validate_block_generation_proposal,
 )
@@ -227,6 +230,175 @@ class EngineBlockContractTests(TestCase):
                 exercise_owner=self.person,
             )
         self.assertFalse(TrainingBlock.objects.exists())
+
+    def test_contract_33_requires_and_persists_professional_support(self):
+        base = self._proposal()
+        request = replace(base.request, contract_version="3.3")
+        without_support = replace(base, request=request, contract_version="3.3")
+        with self.assertRaises(ValidationError):
+            validate_block_generation_proposal(
+                without_support,
+                revision=self.revision,
+                exercise_owner=self.person,
+            )
+
+        physical = replace(
+            base.items[0],
+            knowledge_support=ExerciseKnowledgeSupport(
+                status="hypothesis",
+                summary="La base no cobreix encara aquesta revisió de prova.",
+            ),
+        )
+        proposal = replace(
+            base,
+            request=request,
+            items=(physical, base.items[1]),
+            contract_version="3.3",
+        )
+        block = apply_block_generation_proposal(user=self.user, proposal=proposal)
+        saved = block.items.get(sequence_index=1)
+        self.assertEqual(saved.knowledge_support["status"], "hypothesis")
+
+    def test_contract_34_requires_and_persists_individual_professional_chain(self):
+        base = self._proposal()
+        claim = ProfessionalKnowledgeClaim(
+            claim_id=f"exercise:{self.exercise.pk}:phase_action:1",
+            exercise_revision_id=self.exercise.pk,
+            phase_code="ascent",
+            claim_type="joint_action",
+            action_code="knee_extension",
+            basis_type="motion_concept",
+            basis_code="knee_extension",
+            verification_state="inferred",
+            limitations=("No és una mesura cinemàtica observada.",),
+        )
+        support = IndividualAdjustmentSupport(
+            condition_ids=(),
+            profile_factor_codes=("return_after_inactivity",),
+            professional_claim_ids=(claim.claim_id,),
+            affected_phase_codes=("ascent",),
+            biomechanical_relevance=(
+                "La fase d'ascens inclou extensió de genoll i la tolerància actual "
+                "encara és incerta."
+            ),
+            adaptation_goal="Reduir l'exposició inicial sense canviar el patró.",
+            monitoring_criteria=("Conservar l'alineació del genoll.",),
+            stop_criteria=("Aturar davant dolor o pèrdua de control.",),
+            evidence_status="grounded",
+        )
+        physical = replace(
+            base.items[0],
+            alternatives=(),
+            knowledge_support=ExerciseKnowledgeSupport(
+                status="grounded",
+                summary="Acció de la fase fonamentada.",
+                claims=(claim,),
+            ),
+            athlete_adjustments=(
+                replace(
+                    base.items[0].athlete_adjustments[0],
+                    professional_justification=support,
+                ),
+            ),
+        )
+        proposal = replace(
+            base,
+            request=replace(base.request, contract_version="3.4"),
+            items=(physical, base.items[1]),
+            contract_version="3.4",
+        )
+
+        block = apply_block_generation_proposal(user=self.user, proposal=proposal)
+
+        saved = block.items.get(sequence_index=1).athlete_adjustments.get()
+        self.assertEqual(
+            saved.professional_justification["professional_claim_ids"],
+            [claim.claim_id],
+        )
+
+    def test_contract_34_rejects_an_individual_chain_with_an_unknown_claim(self):
+        base = self._proposal()
+        chain = IndividualAdjustmentSupport(
+            condition_ids=(99,),
+            profile_factor_codes=(),
+            professional_claim_ids=("invented-claim",),
+            affected_phase_codes=("effort",),
+            biomechanical_relevance="Inferència individual.",
+            adaptation_goal="Reduir demanda.",
+            monitoring_criteria=("Control tècnic.",),
+            stop_criteria=("Aturar davant dolor.",),
+            evidence_status="grounded",
+        )
+        physical = replace(
+            base.items[0],
+            alternatives=(),
+            knowledge_support=ExerciseKnowledgeSupport(
+                status="hypothesis",
+                summary="No hi ha afirmacions recuperades.",
+            ),
+            athlete_adjustments=(
+                replace(
+                    base.items[0].athlete_adjustments[0],
+                    professional_justification=chain,
+                ),
+            ),
+        )
+        proposal = replace(
+            base,
+            request=replace(base.request, contract_version="3.4"),
+            items=(physical, base.items[1]),
+            contract_version="3.4",
+        )
+
+        with self.assertRaisesMessage(ValidationError, "invented-claim"):
+            validate_block_generation_proposal(
+                proposal,
+                revision=self.revision,
+                exercise_owner=self.person,
+            )
+
+    def test_shorter_individual_station_dose_requires_a_remainder_action(self):
+        base = self._proposal()
+        dose = replace(
+            base.items[0].dose,
+            dose_mode="duration",
+            sets=1,
+            repetitions=None,
+            duration_seconds=30,
+            rest_between_sets_seconds=0,
+        )
+        adjustment = AthleteAdjustmentProposal(
+            participant_plan_id=self.participant.pk,
+            duration_seconds=20,
+            rationale="Volum individual reduït.",
+        )
+        item = replace(
+            base.items[0], dose=dose, athlete_adjustments=(adjustment,)
+        )
+        proposal = replace(
+            base,
+            request=replace(base.request, contract_version="3.2"),
+            items=(item, *base.items[1:]),
+        )
+
+        with self.assertRaisesMessage(ValidationError, "resta de l'estació"):
+            validate_block_generation_proposal(
+                proposal,
+                revision=self.revision,
+                exercise_owner=self.person,
+            )
+
+        valid_item = replace(
+            item,
+            athlete_adjustments=(
+                replace(adjustment, station_remainder_action="rest"),
+            ),
+        )
+        validate_block_generation_proposal(
+            replace(proposal, items=(valid_item, *base.items[1:])),
+            revision=self.revision,
+            exercise_owner=self.person,
+        )
 
     def test_v31_rejects_personalized_participant_without_structured_adjustment(self):
         base = self._proposal()

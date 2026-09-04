@@ -1,9 +1,11 @@
 """Agentic OpenAI boundary for complete physical block planning."""
 
 import json
+import re
+import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -21,6 +23,7 @@ from iatrain_exercises.models import (
 )
 
 from .agent_tools import AgentToolExecutor, TOOL_VERSION, tool_definitions
+from .context import build_group_engine_summary
 from .contracts import PHYSICAL_BLOCK_HARD_CONSTRAINTS, TARGET_INTENSITIES
 from .openai import (
     InterpretationNeedsClarification,
@@ -28,6 +31,7 @@ from .openai import (
     OpenAITrainingUnavailable,
     _response_output_text,
 )
+from .planning import planning_payload_bytes, proposal_alignment_errors
 from .serialization import (
     contract_to_payload,
     proposal_from_payload,
@@ -37,8 +41,8 @@ from .scoring import PATTERN_REGIONS, condition_applies
 from .validation import referenced_exercise_revision_ids, validate_block_generation_proposal
 
 
-AGENT_PROMPT_VERSION = "physical-block-agent-3.3"
-AGENT_ENGINE_VERSION = "physical-block-agent-engine-3.3"
+AGENT_PROMPT_VERSION = "physical-block-agent-3.10"
+AGENT_ENGINE_VERSION = "physical-block-agent-engine-3.10"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +54,9 @@ class AgentBlockResult:
     response_ids: tuple[str, ...]
     usage_payload: dict
     validation_payload: dict
+    planning_payload: dict = field(default_factory=dict)
+    review_required: bool = False
+    review_issues: tuple[dict, ...] = ()
 
 
 class AgentNeedsCoachDecision(Exception):
@@ -63,6 +70,16 @@ class AgentNeedsCoachDecision(Exception):
         self.usage_payload = {}
         self.validation_payload = {}
         self.model_name = ""
+
+
+class OpenAITrainingRateLimited(OpenAITrainingUnavailable):
+    """Retryable Responses API TPM/RPM limit."""
+
+    code = "openai_rate_limited"
+
+    def __init__(self, message, *, retry_after_seconds=1.0):
+        super().__init__(message)
+        self.retry_after_seconds = max(0.0, float(retry_after_seconds))
 
 
 def _array(items):
@@ -172,11 +189,30 @@ def _proposal_schema():
             "priority": {"type": "integer", "minimum": 1},
         }
     )
+    individual_support = _strict_object(
+        {
+            "condition_ids": _array({"type": "integer"}),
+            "profile_factor_codes": _array({"type": "string"}),
+            "professional_claim_ids": _array({"type": "string"}),
+            "affected_phase_codes": _array({"type": "string"}),
+            "biomechanical_relevance": {"type": "string"},
+            "adaptation_goal": {"type": "string"},
+            "monitoring_criteria": _array({"type": "string"}),
+            "stop_criteria": _array({"type": "string"}),
+            "evidence_status": {
+                "type": "string",
+                "enum": ["grounded", "hypothesis"],
+            },
+        }
+    )
     adjustment = _strict_object(
         {
             "participant_plan_id": {"type": "integer"},
             "rationale": {"type": "string"},
-            "action": {"type": "string", "enum": ["modify", "replace", "skip"]},
+            "action": {
+                "type": "string",
+                "enum": ["monitor", "modify", "replace", "skip"],
+            },
             "replacement_exercise_revision_id": _nullable("integer"),
             "sets": _nullable("integer"),
             "repetitions": _nullable("integer"),
@@ -192,7 +228,57 @@ def _proposal_schema():
             },
             "intensity_value": _nullable("number"),
             "rest_between_sets_seconds": _nullable("integer"),
+            "station_remainder_action": {
+                "type": "string",
+                "enum": ["", "rest", "reset", "monitor"],
+            },
             "adaptation_notes": {"type": "string"},
+            "professional_justification": individual_support,
+        }
+    )
+    knowledge_claim = _strict_object(
+        {
+            "claim_id": {"type": "string"},
+            "exercise_revision_id": {"type": "integer"},
+            "phase_code": {"type": "string"},
+            "claim_type": {
+                "type": "string",
+                "enum": ["joint_action", "muscle_role"],
+            },
+            "action_code": {"type": "string"},
+            "muscle_code": {"type": "string"},
+            "basis_type": {
+                "type": "string",
+                "enum": [
+                    "motion_concept",
+                    "action_function",
+                    "stabilization_function",
+                ],
+            },
+            "basis_code": {"type": "string"},
+            "expected_contraction": {
+                "type": "string",
+                "enum": [
+                    "concentric", "eccentric", "isometric", "variable",
+                    "indeterminate", "not_applicable",
+                ],
+            },
+            "verification_state": {
+                "type": "string",
+                "enum": ["confirmed", "inferred"],
+            },
+            "evidence_codes": _array({"type": "string"}),
+            "limitations": _array({"type": "string"}),
+        }
+    )
+    knowledge_support = _strict_object(
+        {
+            "status": {
+                "type": "string",
+                "enum": ["grounded", "hypothesis", "not_applicable"],
+            },
+            "summary": {"type": "string"},
+            "claims": _array(knowledge_claim),
         }
     )
     item = _strict_object(
@@ -209,6 +295,7 @@ def _proposal_schema():
             "planned_duration_seconds": {"type": "integer", "minimum": 1},
             "rest_after_seconds": {"type": "integer", "minimum": 0},
             "selection_rationale": {"type": "string"},
+            "knowledge_support": knowledge_support,
             "is_optional": {"type": "boolean"},
             "dose": dose,
             "alternatives": _array(alternative),
@@ -289,12 +376,51 @@ professionals del bloc: interpretes les premisses, decideixes quants exercicis c
 explores el catàleg, compares candidats, tries exercicis i variants, decideixes la
 seqüència, les sèries, repeticions, descansos i personalitzacions, i ajustes el pla al temps.
 
+Abans de consultar qualsevol altra eina, registra submit_block_planning_brief. Aquest pla
+previ defineix resultats, no exercicis: objectiu, criteris d'èxit, cobertura, intensitat,
+temps, estratègia compartida, prioritats individuals, abast de restriccions, preguntes
+professionals i estratègia de cerca. No hi posis identificadors d'exercici. Les preferències
+globals han d'indicar si provenen de coach_prompt, session_goal, coach_decision o
+planning_inference; una
+condició individual mai no es converteix en una preferència global. Conserva el pla durant
+el run i fes que la proposta final el compleixi.
+En una petició full body, exigeix només els dominis lower_body, upper_body i trunk. Deixa
+els patrons concrets a preferred_movement_patterns, tret que l'entrenador n'hagi demanat
+un explícitament. global_hard_constraints només pot repetir restriccions literals de la
+petició o ja autoritzades; les precaucions que infereixis van a global_preferences amb
+source=planning_inference. No declaris validated_only si hi ha autorització d'esborranys.
+
 Has d'usar search_exercises abans de seleccionar res. Pots fer tantes cerques diferents
 com necessitis, paginar i ampliar o relaxar filtres si hi ha pocs candidats. Consulta els
 detalls, la compatibilitat i les guies dels finalistes. Abans d'entregar, crida
 calculate_block_timing amb la dosificació exacta final. Pots usar audit_block_draft com a
 màxim dues vegades; després entrega la proposta perquè el servidor faci la validació final.
 No inventis mai identificadors: només pots usar revisions retornades per search_exercises.
+
+La base professional anatòmica-biomecànica és la font dels fets sobre moviment i
+musculatura. Si la petició parla d'accions, articulacions, músculs, grups musculars o
+contraccions, usa search_professional_concepts i reutilitza només els codis retornats als
+filtres de search_exercises. Per a un grup muscular, usa els codis dels músculs membres
+retornats per les relacions incoming member_of_muscle_group. «Concèntric», «excèntric» o
+«isomètric» descriu una fase i una funció muscular prevista, no tot l'exercici de manera
+absoluta. get_exercise_details és compacte i no inclou claims. Consulta
+get_exercise_knowledge_support una sola vegada per cada exercici finalista, alternativa o
+substitució; el servidor ja conserva els claims i no els tornarà a enviar si repeteixes la
+consulta.
+
+Cada ítem necessita knowledge_support. Usa grounded només si copies claim_id i la resta de
+camps exactament dels camins retornats, i cobreix tots els exercicis referenciats a l'ítem.
+Si la base no conté un camí suficient, usa hypothesis, explica el buit, redueix la confiança
+i afegeix un avís: l'absència no és una prohibició. Usa not_applicable només quan la raó de
+tria no formula cap afirmació anatòmica, però igualment consulta el paquet professional.
+No converteixis una inferència funcional en activació observada, força interna o risc.
+
+Cada athlete_adjustment necessita professional_justification. Enllaça la condició activa
+o un factor explícit del perfil amb claim_id i phase_code exactes del knowledge_support de
+l'ítem, explica per separat la rellevància biomecànica inferida, l'objectiu de l'adaptació,
+què s'ha de monitorar i quan cal aturar o canviar. grounded només vol dir que els fets de
+l'exercici estan fonamentats: no atribueix a la font anatòmica una conclusió clínica. Si
+falta un camí professional suficient, usa hypothesis, redueix confiança i mostra un avís.
 
 Relaxa les cerques progressivament, una dimensió cada vegada. Si no hi ha candidats
 validats, no passis silenciosament a esborranys: explora primer el catàleg i, si els
@@ -309,8 +435,13 @@ Abans de qualsevol skip has de cridar find_compatible_alternatives per aquella p
 No entreguis mai un bloc on una participant activa ometi tots els exercicis. Si després de
 buscar no hi ha cap sortida real, demana una aclariment en lloc de dissimular el bloqueig.
 Explica breument l'efecte de premisses com inactivitat, estat anímic, càrrega recent,
-experiència o incertesa. No diagnostiquis ni prescriguis tractament. Una condició stop ja
-ha estat resolta pel servidor; avoid, modify i monitor s'han de respectar explícitament.
+experiència o incertesa. Una dada absent és incertesa, no una prohibició: continua amb una
+decisió prudent, redueix la confiança i afegeix un avís si és rellevant, però no demanis
+aclariments només perquè falta edat, experiència, càrrega, regió corporal o una altra dada.
+No diagnostiquis ni prescriguis tractament. Una condició stop ja ha estat resolta pel
+servidor; avoid, modify i monitor s'han de respectar explícitament. Una condició monitor
+necessita sempre una condition_decision: usa action=monitor i un athlete_adjustment amb
+criteris de seguiment i aturada quan no cal canviar la dosi, o modify/replace/skip si sí.
 
 Les guies són envolupants, no receptes deterministes: decideix dins d'elles o justifica
 qualsevol desviació prudent. estimated_duration_seconds ha de coincidir exactament amb
@@ -320,27 +451,48 @@ almenys un athlete_adjustment real, i qualsevol participant amb ajustament ha de
 personalized. No escriguis indicacions individuals dins instructions, coaching_cues o
 execution_notes compartides: posa-les sempre a athlete_adjustments.
 
-Per a cada condició activa avoid o modify, crea una condition_decision. Si no afecta cap
-ítem, usa not_applicable i justifica-ho; modify, replace o skip han de correspondre amb
-athlete_adjustments als sequence_index indicats. Cada exercici seleccionat, incloses
+Abans de substituir, comprova si l'exercici original ja evita realment el risc i si és
+possible conservar-lo modificant rang, càrrega, palanca o dosi. Una substitució ha de
+preservar l'objectiu, la regió corporal i preferentment el patró de moviment; un exercici
+segur però funcionalment irrellevant no és una alternativa. Cerca primer amb
+same_pattern_only=true. Quan incorporis un exercici o una nova parella
+exercici-participant, demana junts en una mateixa ronda tots els detalls, compatibilitats
+i guies pendents. La Responses API pot retornar diverses function calls en aquella ronda.
+
+Per a cada condició activa avoid, modify o monitor, crea una condition_decision. Si no afecta cap
+ítem, usa not_applicable i justifica-ho. Una condició avoid no obliga automàticament a
+substituir: pots usar modify si l'ajust elimina explícitament el risc concret (per exemple
+rang, impacte, càrrega, palanca, tempo o volum), replace si l'alternativa redueix aquell
+risc, o skip com a última via. La justificació i adaptation_notes han de dir quin risc es
+resol i com; compartir regió corporal o patró no demostra per si sol incompatibilitat.
+modify, replace o skip han de correspondre amb athlete_adjustments als sequence_index
+indicats. Cada exercici seleccionat, incloses
 alternatives i substitucions, necessita detalls, compatibilitat i guia consultats. Copia
 setup_seconds i planned_duration_seconds de l'últim calculate_block_timing perquè el temps
-visible i el calculat siguin idèntics. unmet_constraints ha de quedar buit.
+visible i el calculat siguin idèntics. planned_duration_seconds és el total d'una passada
+per l'ítem i JA INCLOU setup_seconds, el treball, els descansos entre sèries i
+rest_after_seconds; no tornis a sumar aquests components. unmet_constraints ha de quedar buit.
+
+En circuits o estacions, duration_seconds d'un ajustament és temps de treball dins el
+temps compartit, no una nova durada d'estació. Si és inferior a la dosi comuna, indica
+station_remainder_action=rest, reset o monitor i descriu l'ús del temps restant. No pot
+superar la durada comuna.
 
 No tens cerca web en aquesta fase. No inventis bibliografia. planning_summary és una
 justificació visible i concisa, no una cadena de pensament. Escriu en català.
-Contracte: 3.1. Eines: {TOOL_VERSION}.
+Contracte: 3.5. Pla previ: 1.1. Eines: {TOOL_VERSION}.
 """.strip()
 
 
-def _athlete_payload(context, active_ids, excluded_ids):
+def _athlete_payload(context, active_ids, excluded_ids, *, detail=False):
     rows = []
     active = set(active_ids)
     excluded = set(excluded_ids)
     for athlete in context.athletes:
         payload = athlete.payload
-        rows.append(
-            {
+        recent_responses = payload.get("recent_training_responses", [])
+        observations = payload.get("current_observations", [])
+        row = {
                 "participant_plan_id": athlete.participant_plan_id,
                 "participation_state": (
                     "active" if athlete.participant_plan_id in active else "excluded"
@@ -353,7 +505,18 @@ def _athlete_payload(context, active_ids, excluded_ids):
                     if athlete.prescription_profile.training_years is not None
                     else None
                 ),
-                "sport_profiles": payload.get("sport_profiles", []),
+                "sport_profiles": [
+                    {
+                        key: sport.get(key)
+                        for key in (
+                            "discipline",
+                            "level_code",
+                            "training_started_on",
+                            "preferred_laterality",
+                        )
+                    }
+                    for sport in payload.get("sport_profiles", [])
+                ],
                 "active_conditions": [
                     {
                         key: condition.get(key)
@@ -371,15 +534,65 @@ def _athlete_payload(context, active_ids, excluded_ids):
                     }
                     for condition in payload.get("active_conditions", [])
                 ],
-                "confirmed_insights": payload.get("confirmed_insights", []),
-                "current_observations": payload.get("current_observations", [])[:8],
-                "recent_training_responses": payload.get("recent_training_responses", [])[:12],
+                "confirmed_insights": [
+                    {
+                        key: insight.get(key)
+                        for key in ("id", "kind", "statement", "confidence", "valid_until")
+                    }
+                    for insight in payload.get("confirmed_insights", [])[:5]
+                ],
+                "recent_state": {
+                    "observation_count": len(observations),
+                    "training_response_count": len(recent_responses),
+                    "last_training_at": (
+                        recent_responses[0].get("recorded_at")
+                        if recent_responses
+                        else None
+                    ),
+                    "latest_observations": [
+                        {
+                            key: observation.get(key)
+                            for key in (
+                                "id",
+                                "category",
+                                "narrative",
+                                "status",
+                                "confidence",
+                                "intensity",
+                                "observed_at",
+                            )
+                        }
+                        for observation in observations[:3]
+                    ],
+                    "latest_training_responses": [
+                        {
+                            key: response.get(key)
+                            for key in (
+                                "id",
+                                "item_title",
+                                "completion_status",
+                                "perceived_exertion",
+                                "execution_quality",
+                                "pain_response",
+                                "recorded_at",
+                            )
+                            if key in response
+                        }
+                        for response in recent_responses[:3]
+                    ],
+                },
                 "health_data_available": payload.get("scope", {}).get(
                     "health_data_available", False
                 ),
+                "detail_available_via": "get_participant_context",
                 "excluded_by_coach": athlete.participant_plan_id in excluded,
             }
-        )
+        if detail:
+            row["current_observations"] = observations[:8]
+            row["recent_training_responses"] = recent_responses[:12]
+            row["latest_measurements"] = payload.get("latest_measurements", [])
+            row["proposed_insights"] = payload.get("proposed_insights", [])
+        rows.append(row)
     return rows
 
 
@@ -420,6 +633,7 @@ def _initial_payload(
             "excluded_participant_plan_ids": list(excluded_ids),
         },
         "athletes": _athlete_payload(context, active_ids, excluded_ids),
+        "group_summary": build_group_engine_summary(context, active_ids),
         "context_warnings": list(context.warnings),
         "coach_decisions": dict(coach_decisions or {}),
         "coach_prompt": prompt,
@@ -452,11 +666,29 @@ def _post_responses_api(payload):
         ) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
+        retry_after = 0.0
+        try:
+            retry_after = float(exc.headers.get("Retry-After", 0) or 0)
+        except (TypeError, ValueError, AttributeError):
+            retry_after = 0.0
         try:
             detail = json.loads(exc.read().decode("utf-8", errors="ignore"))
             message = detail.get("error", {}).get("message", "")
         except (ValueError, AttributeError):
             message = ""
+        if exc.code == 429:
+            if retry_after <= 0:
+                match = re.search(
+                    r"try again in\s+([0-9]+(?:\.[0-9]+)?)s",
+                    message,
+                    flags=re.IGNORECASE,
+                )
+                retry_after = float(match.group(1)) if match else 1.0
+            raise OpenAITrainingRateLimited(
+                "OpenAI ha limitat temporalment els tokens per minut"
+                + (f": {message[:240]}" if message else "."),
+                retry_after_seconds=retry_after,
+            ) from exc
         raise OpenAITrainingUnavailable(
             "OpenAI no ha pogut completar la planificació"
             + (f": {message[:240]}" if message else ".")
@@ -481,9 +713,15 @@ def _review_schema():
     issue = _strict_object(
         {
             "code": {"type": "string"},
-            "severity": {"type": "string", "enum": ["error", "warning"]},
+            "severity": {
+                "type": "string",
+                "enum": ["critical", "error", "warning"],
+            },
             "message": {"type": "string"},
             "correction": {"type": "string"},
+            "participant_plan_ids": _array({"type": "integer"}),
+            "sequence_indices": _array({"type": "integer"}),
+            "exercise_revision_ids": _array({"type": "integer"}),
         }
     )
     return _strict_object(
@@ -499,7 +737,9 @@ def _review_schema():
     )
 
 
-def _review_packet(*, proposal, context, executor, active_ids, excluded_ids):
+def _review_packet(
+    *, proposal, context, executor, active_ids, excluded_ids, request_context=None
+):
     exercise_ids = referenced_exercise_revision_ids(proposal)
     revisions = ExerciseRevision.objects.filter(pk__in=exercise_ids).select_related(
         "exercise"
@@ -529,25 +769,219 @@ def _review_packet(*, proposal, context, executor, active_ids, excluded_ids):
     ]
     athletes = [
         row
-        for row in _athlete_payload(context, active_ids, excluded_ids)
+        for row in _athlete_payload(context, active_ids, excluded_ids, detail=True)
         if row["participation_state"] == "active"
     ]
+    request_context = request_context or {}
+    timing_errors = _validate_timing_evidence(
+        proposal=proposal,
+        executor=executor,
+    )
     return {
+        "planning_brief": dict(executor.planning_brief or {}),
+        "request_context": {
+            "coach_prompt": request_context.get("coach_prompt", ""),
+            "refinement_instruction": request_context.get(
+                "refinement_instruction", ""
+            ),
+            "coach_decisions": request_context.get("coach_decisions", {}),
+            "server_authority": request_context.get("server_authority", {}),
+            "session": request_context.get("session", {}),
+            "context_warnings": request_context.get("context_warnings", []),
+        },
         "proposal": contract_to_payload(proposal),
         "active_athletes": athletes,
         "selected_exercises": exercises,
         "evidence": {
             "detail_exercise_ids": sorted(executor.detail_exercise_ids),
+            "professional_knowledge": {
+                "exercise_revision_ids": sorted(executor.knowledge_exercise_ids),
+                "claims": list(executor.knowledge_claims.values()),
+                "sources": list(executor.knowledge_sources.values()),
+                "interpretation_policy": {
+                    "activation_is_observed": False,
+                    "absence_is_not_prohibition": True,
+                },
+            },
             "guidance_pairs": sorted([list(value) for value in executor.guidance_pairs]),
             "compatibility_pairs": sorted(
                 [list(value) for value in executor.compatibility_pairs]
             ),
             "timing": executor.last_timing,
+            "timing_contract": {
+                "planned_duration_seconds_semantics": (
+                    "Total d'una passada per l'ítem; inclou setup_seconds, treball, "
+                    "descansos entre sèries i rest_after_seconds."
+                ),
+                "equation": (
+                    "planned_duration_seconds = setup + work + between_sets + rest_after"
+                ),
+                "components_are_already_included": True,
+                "server_timing_valid": not timing_errors,
+                "server_timing_errors": timing_errors,
+                "numerical_authority": "calculate_block_timing + server validation",
+            },
         },
     }
 
 
-def _request_independent_review(*, proposal, context, executor, active_ids, excluded_ids):
+def _compact_repair_history(
+    *, initial, final, errors, executor, context, active_ids, excluded_ids,
+    proposal=None, source="server", required_tool_calls=None,
+):
+    """Start a fresh repair turn with only current state and retained evidence."""
+
+    selected_exercises = []
+    if proposal is not None:
+        selected_exercises = _review_packet(
+            proposal=proposal,
+            context=context,
+            executor=executor,
+            active_ids=active_ids,
+            excluded_ids=excluded_ids,
+        )["selected_exercises"]
+    trace_summary = [
+        {
+            "tool": row.get("tool"),
+            "status": row.get("status"),
+            "exercise_revision_ids": row.get("exercise_revision_ids", []),
+            "total_matches": row.get("total_matches"),
+            "audit_valid": row.get("audit_valid"),
+        }
+        for row in executor.trace[-30:]
+    ]
+    packet = {
+        "mode": "repair_current_proposal",
+        "repair_source": source,
+        "original_request": initial,
+        "current_proposal": final,
+        "errors_to_fix": list(errors),
+        "retained_evidence": {
+            "planning_brief": dict(executor.planning_brief or {}),
+            "selected_exercises": selected_exercises,
+            "allowed_exercise_revision_ids": sorted(executor.allowed_exercise_ids),
+            "detail_exercise_ids": sorted(executor.detail_exercise_ids),
+            "knowledge_exercise_ids": sorted(executor.knowledge_exercise_ids),
+            "knowledge_claim_ids": sorted(executor.knowledge_claims),
+            "compatibility_pairs": sorted(
+                [list(value) for value in executor.compatibility_pairs]
+            ),
+            "guidance_pairs": sorted([list(value) for value in executor.guidance_pairs]),
+            "last_timing": executor.last_timing,
+            "tool_trace_summary": trace_summary,
+        },
+        "required_tool_calls": list(required_tool_calls or []),
+        "repair_instruction": (
+            "Executa primer totes les required_tool_calls pendents, preferentment juntes "
+            "en una sola resposta amb múltiples function calls. Conserva la proposta si "
+            "l'evidència la confirma; si revela una incompatibilitat o exigeix canviar la "
+            "dosi, fes només aquell ajust, completa l'evidència nova i recalcula el temps. "
+            "Després retorna el contracte complet."
+            if source == "tool_evidence"
+            else
+            "Corregeix només les incidències indicades. Conserva les decisions vàlides, "
+            "reutilitza l'evidència retinguda i torna a consultar eines només si canvies "
+            "un exercici o la dosi. Si has canviat exercicis o participants afectats, "
+            "demana junts detalls, compatibilitat i guia. Retorna el contracte complet."
+        ),
+    }
+    return [
+        {
+            "role": "user",
+            "content": json.dumps(packet, ensure_ascii=False, default=str),
+        }
+    ]
+
+
+def _compact_live_history(*, initial, executor, context, active_ids, excluded_ids):
+    """Replace accumulated tool transcripts with a factual server-side ledger."""
+
+    revisions = (
+        ExerciseRevision.objects.filter(pk__in=executor.allowed_exercise_ids)
+        .select_related("exercise")
+        .prefetch_related("objectives", "constraints")
+        .order_by("pk")
+    )
+    candidates = []
+    for revision in revisions:
+        row = {
+            "exercise_revision_id": revision.pk,
+            "name": revision.exercise.name,
+            "editorial_status": revision.editorial_status,
+            "modality": revision.modality,
+            "difficulty": revision.difficulty,
+            "movement_pattern": revision.movement_pattern,
+            "laterality": revision.laterality,
+            "objectives": [item.objective for item in revision.objectives.all()],
+            "details_loaded": revision.pk in executor.detail_exercise_ids,
+            "knowledge_loaded": revision.pk in executor.knowledge_exercise_ids,
+        }
+        if revision.pk in executor.detail_exercise_ids:
+            row.update(
+                {
+                    "description": revision.description,
+                    "setup": revision.setup,
+                    "execution": revision.execution,
+                    "coaching_cues": revision.coaching_cues,
+                    "safety_notes": revision.safety_notes,
+                    "constraints": [
+                        {
+                            "code": item.code,
+                            "severity": item.severity,
+                            "statement": item.statement,
+                        }
+                        for item in revision.constraints.all()
+                    ],
+                }
+            )
+        candidates.append(row)
+    packet = {
+        "mode": "continue_from_compacted_tool_ledger",
+        "original_request": initial,
+        "planning_brief": dict(executor.planning_brief or {}),
+        "athletes": _athlete_payload(context, active_ids, excluded_ids),
+        "candidate_ledger": candidates,
+        "professional_evidence": {
+            "claims": list(executor.knowledge_claims.values()),
+            "sources": list(executor.knowledge_sources.values()),
+        },
+        "guidance": list(executor.guidance_packets),
+        "compatibility": list(executor.compatibility_packets),
+        "evidence_status": {
+            "detail_exercise_ids": sorted(executor.detail_exercise_ids),
+            "knowledge_exercise_ids": sorted(executor.knowledge_exercise_ids),
+            "guidance_pairs": sorted([list(value) for value in executor.guidance_pairs]),
+            "compatibility_pairs": sorted(
+                [list(value) for value in executor.compatibility_pairs]
+            ),
+            "last_timing": executor.last_timing,
+        },
+        "tool_trace_summary": [
+            {
+                "tool": row.get("tool"),
+                "status": row.get("status"),
+                "exercise_revision_ids": row.get("exercise_revision_ids", []),
+                "total_matches": row.get("total_matches"),
+            }
+            for row in executor.trace
+        ],
+        "continue_instruction": (
+            "Continua des d'aquest registre. No repeteixis consultes marcades com a "
+            "carregades. Completa només l'evidència pendent, calcula el temps final i "
+            "retorna la proposta completa alineada amb planning_brief."
+        ),
+    }
+    return [
+        {
+            "role": "user",
+            "content": json.dumps(packet, ensure_ascii=False, default=str),
+        }
+    ]
+
+
+def _request_independent_review(
+    *, proposal, context, executor, active_ids, excluded_ids, request_context=None
+):
     model = getattr(
         settings,
         "OPENAI_TRAINING_REVIEW_MODEL",
@@ -558,12 +992,32 @@ def _request_independent_review(*, proposal, context, executor, active_ids, excl
         "instructions": (
             "Ets el revisor independent d'una proposta física d'IA Train. No planifiques "
             "de nou ni inventes exercicis. Avalua críticament només l'evidència rebuda: "
-            "coherència amb la petició, cobertura real, nivell i inactivitat, dosificació, "
+            "coherència amb la petició i amb planning_brief, cobertura real, nivell i "
+            "inactivitat, dosificació, "
             "seguretat, condicions individuals, alternatives i correspondència entre "
-            "justificacions i ajustaments estructurats. Marca revise davant qualsevol "
-            "error material i dona correccions concretes. Usa needs_clarification només "
-            "si falta una dada imprescindible o no hi ha cap sortida viable; no ho usis "
-            "per preferències. Un warning no bloqueja per si sol. Respon en català amb "
+            "justificacions i ajustaments estructurats. Comprova també que les afirmacions "
+            "anatòmiques de knowledge_support coincideixin amb professional_knowledge, "
+            "respectin verification_state i mantinguin les limitacions; una hipòtesi no "
+            "es pot presentar com un fet. Revisa també cada professional_justification: "
+            "la condició o factor de perfil, les afirmacions i fases citades, l'objectiu "
+            "de l'adaptació i els criteris de monitoratge/aturada han de correspondre. "
+            "Per temporització, timing_contract és autoritatiu: planned_duration_seconds "
+            "ja inclou setup, treball, descansos entre sèries i rest_after. No els sumis "
+            "una segona vegada. Només marca un error numèric si server_timing_valid és "
+            "false; encara pots marcar una contradicció real del text operatiu. "
+            "Marca revise davant qualsevol "
+            "error material i dona correccions concretes. Usa severity=critical només "
+            "davant un risc greu no resolt, una restricció mèdica incompatible o una "
+            "proposta que no es podria executar amb seguretat. Usa severity=error per "
+            "incoherències locals corregibles manualment, com equivalència, cobertura o "
+            "dosi individual. Per cada incidència identifica participant_plan_ids, "
+            "sequence_indices i exercise_revision_ids afectats quan es coneguin. Usa "
+            "No confonguis una dada absent amb una restricció ni contradiguis una premissa "
+            "explícita de request_context. La manca de dades no bloqueja: comprova que la "
+            "proposta sigui prudent, redueixi confiança o mostri un avís quan calgui. Usa "
+            "Per incertesa o dades absents usa revise amb severity=error perquè la proposta "
+            "quedi disponible per a revisió humana; reserva needs_clarification per "
+            "compatibilitats històriques. Un warning no bloqueja per si sol. Respon en català amb "
             "observacions breus i auditables, sense cadena de pensament."
         ),
         "input": [
@@ -576,6 +1030,7 @@ def _request_independent_review(*, proposal, context, executor, active_ids, excl
                         executor=executor,
                         active_ids=active_ids,
                         excluded_ids=excluded_ids,
+                        request_context=request_context,
                     ),
                     ensure_ascii=False,
                     default=str,
@@ -600,7 +1055,27 @@ def _request_independent_review(*, proposal, context, executor, active_ids, excl
             }
         },
     }
-    data = _post_responses_api(payload)
+    retries = 0
+    max_retries = max(
+        0, getattr(settings, "OPENAI_TRAINING_MAX_RATE_LIMIT_RETRIES", 2)
+    )
+    max_wait = max(
+        1, getattr(settings, "OPENAI_TRAINING_MAX_RATE_LIMIT_WAIT_SECONDS", 60)
+    )
+    while True:
+        try:
+            data = _post_responses_api(payload)
+            break
+        except OpenAITrainingRateLimited as error:
+            wait = error.retry_after_seconds + 0.5
+            if retries >= max_retries or wait > max_wait:
+                raise OpenAITrainingUnavailable(
+                    "El revisor ha superat el límit temporal d'OpenAI després dels "
+                    "reintents configurats."
+                ) from error
+            retries += 1
+            time.sleep(wait)
+    data["iatrain_rate_limit_retries"] = retries
     text = _response_output_text(data)
     try:
         review = json.loads(text)
@@ -618,6 +1093,9 @@ def _server_proposal_payload(
     sequence_index = (
         max(revision.blocks.values_list("sequence_index", flat=True), default=0) + 1
     )
+    planning_enabled = getattr(
+        settings, "OPENAI_TRAINING_PLANNING_BRIEF_ENABLED", True
+    )
     return proposal_payload_from_agent_output(
         final=final,
         session_revision_id=revision.pk,
@@ -628,6 +1106,7 @@ def _server_proposal_payload(
         excluded_participant_plan_ids=excluded_ids,
         available_equipment_ids=context.available_equipment_ids,
         generator_reference=f"{AGENT_ENGINE_VERSION} · {TOOL_VERSION}",
+        contract_version="3.5" if planning_enabled else "3.4",
     )
 
 
@@ -693,7 +1172,10 @@ def _validate_agent_context_invariants(*, proposal, context):
         }
         for item in proposal.items
     }
-    if proposal.contract_version == "3.1":
+    if proposal.contract_version in {"3.1", "3.2", "3.3", "3.4", "3.5"}:
+        required_condition_impacts = {"avoid", "modify"}
+        if proposal.contract_version in {"3.4", "3.5"}:
+            required_condition_impacts.add("monitor")
         for participant_id, athlete in athletes.items():
             participant = participant_rows.get(participant_id)
             if participant is None:
@@ -702,7 +1184,7 @@ def _validate_agent_context_invariants(*, proposal, context):
                 int(condition["id"]): condition
                 for condition in athlete.payload.get("active_conditions", [])
                 if condition.get("id")
-                and condition.get("training_impact") in {"avoid", "modify"}
+                and condition.get("training_impact") in required_condition_impacts
             }
             decisions = {
                 decision.condition_id: decision
@@ -725,11 +1207,9 @@ def _validate_agent_context_invariants(*, proposal, context):
                 if condition is None:
                     continue
                 impact = condition.get("training_impact")
-                allowed_actions = (
-                    {"not_applicable", "replace", "skip"}
-                    if impact == "avoid"
-                    else {"not_applicable", "modify", "replace", "skip"}
-                )
+                allowed_actions = {
+                    "not_applicable", "monitor", "modify", "replace", "skip"
+                }
                 if decision.action not in allowed_actions:
                     errors.append(
                         f"La resposta {decision.action} no resol la condició "
@@ -755,6 +1235,42 @@ def _validate_agent_context_invariants(*, proposal, context):
                             f"La condició {condition_id} declara {decision.action} a l'ítem "
                             f"{sequence_index}, però no hi ha l'athlete_adjustment corresponent."
                         )
+                        continue
+                    support = adjustment.professional_justification
+                    if (
+                        proposal.contract_version in {"3.4", "3.5"}
+                        and (
+                            support is None
+                            or condition_id not in support.condition_ids
+                        )
+                    ):
+                        errors.append(
+                            f"La justificació individual de la condició {condition_id} "
+                            f"no està vinculada a l'ítem {sequence_index}."
+                        )
+                    if proposal.contract_version == "3.5" and support is not None:
+                        laterality = condition.get("laterality", "")
+                        laterality_tokens = {
+                            "left": ("esquerr", "left"),
+                            "right": ("dret", "dreta", "right"),
+                        }.get(laterality)
+                        if laterality_tokens:
+                            monitoring_text = " ".join(
+                                [
+                                    adjustment.rationale,
+                                    adjustment.adaptation_notes,
+                                    *support.monitoring_criteria,
+                                    *support.stop_criteria,
+                                ]
+                            ).casefold()
+                            if not any(
+                                token in monitoring_text
+                                for token in laterality_tokens
+                            ):
+                                errors.append(
+                                    f"La condició {condition_id} és {laterality}: "
+                                    "l'ajustament i el monitoratge han d'explicitar el costat."
+                                )
     for item in proposal.items:
         if item.dose is None:
             continue
@@ -775,35 +1291,18 @@ def _validate_agent_context_invariants(*, proposal, context):
                     f"El participant {participant_id} conserva una indicació stop activa."
                 )
             if "avoid" in impacts and (
-                adjustment is None or adjustment.action not in {"replace", "skip"}
+                adjustment is None
+                or adjustment.action not in {"modify", "replace", "skip"}
             ):
                 errors.append(
-                    f"El participant {participant_id} necessita substituir o ometre "
-                    f"l'exercici {base.pk}."
+                    f"El participant {participant_id} necessita resoldre explícitament "
+                    f"el risc a l'exercici {base.pk} mitjançant modify, replace o skip."
                 )
             if "modify" in impacts and adjustment is None:
                 errors.append(
                     f"El participant {participant_id} necessita una adaptació explícita "
                     f"per a l'exercici {base.pk}."
                 )
-            if adjustment and adjustment.action == "replace":
-                replacement = revisions.get(adjustment.replacement_exercise_revision_id)
-                if replacement is None:
-                    continue
-                replacement_regions = PATTERN_REGIONS.get(
-                    replacement.movement_pattern, set()
-                )
-                incompatible = [
-                    condition
-                    for condition in athlete.payload.get("active_conditions", [])
-                    if condition.get("training_impact") in {"stop", "avoid"}
-                    and condition_applies(condition, replacement_regions)
-                ]
-                if incompatible:
-                    errors.append(
-                        f"La substitució {replacement.pk} continua sent incompatible amb "
-                        f"el participant {participant_id}."
-                    )
     if errors:
         raise ValidationError(errors)
 
@@ -863,6 +1362,176 @@ def _required_tool_evidence(proposal):
                     (replacement_id, adjustment.participant_plan_id)
                 )
     return detail_ids, participant_pairs
+
+
+def _missing_tool_evidence(*, proposal, executor):
+    required_detail_ids, required_pairs = _required_tool_evidence(proposal)
+    return {
+        "details": required_detail_ids - executor.detail_exercise_ids,
+        "knowledge": required_detail_ids - executor.knowledge_exercise_ids,
+        "compatibility": required_pairs - executor.compatibility_pairs,
+        "guidance": required_pairs - executor.guidance_pairs,
+    }
+
+
+def _evidence_messages(missing):
+    messages = []
+    if missing["details"]:
+        messages.append(
+            "Falten detalls dels exercicis seleccionats: "
+            f"{sorted(missing['details'])}."
+        )
+    if missing["knowledge"]:
+        messages.append(
+            "Falta consultar el suport professional dels exercicis: "
+            f"{sorted(missing['knowledge'])}."
+        )
+    if missing["compatibility"]:
+        messages.append(
+            "Falten comprovacions de compatibilitat exercici-participant: "
+            f"{sorted(missing['compatibility'])}."
+        )
+    if missing["guidance"]:
+        messages.append(
+            "Falten guies de dosificació exercici-participant: "
+            f"{sorted(missing['guidance'])}."
+        )
+    return messages
+
+
+def _required_evidence_tool_calls(*, proposal, missing):
+    calls = []
+    if missing["details"]:
+        calls.append(
+            {
+                "name": "get_exercise_details",
+                "arguments": {
+                    "exercise_revision_ids": sorted(missing["details"]),
+                },
+            }
+        )
+    knowledge_only = missing["knowledge"] - missing["details"]
+    if knowledge_only:
+        calls.append(
+            {
+                "name": "get_exercise_knowledge_support",
+                "arguments": {
+                    "exercise_revision_ids": sorted(knowledge_only),
+                },
+            }
+        )
+    if missing["compatibility"]:
+        calls.append(
+            {
+                "name": "check_participant_compatibility",
+                "arguments": {
+                    "exercise_revision_ids": sorted(
+                        {exercise_id for exercise_id, _ in missing["compatibility"]}
+                    ),
+                    "participant_plan_ids": sorted(
+                        {participant_id for _, participant_id in missing["compatibility"]}
+                    ),
+                },
+                "required_pairs": sorted([list(value) for value in missing["compatibility"]]),
+            }
+        )
+    if missing["guidance"]:
+        calls.append(
+            {
+                "name": "get_prescription_guidance",
+                "arguments": {
+                    "objective": proposal.request.objective.primary_quality,
+                    "block_role": proposal.request.block_role,
+                    "exercise_revision_ids": sorted(
+                        {exercise_id for exercise_id, _ in missing["guidance"]}
+                    ),
+                    "participant_plan_ids": sorted(
+                        {participant_id for _, participant_id in missing["guidance"]}
+                    ),
+                },
+                "required_pairs": sorted([list(value) for value in missing["guidance"]]),
+            }
+        )
+    return calls
+
+
+def _validate_professional_knowledge_evidence(*, proposal, executor):
+    """Ensure the model cites only exact claims returned by professional tools."""
+
+    errors = []
+    comparable_fields = (
+        "exercise_revision_id",
+        "phase_code",
+        "claim_type",
+        "action_code",
+        "muscle_code",
+        "basis_type",
+        "basis_code",
+        "expected_contraction",
+        "verification_state",
+    )
+    for item in proposal.items:
+        if item.dose is None or item.knowledge_support is None:
+            continue
+        support = item.knowledge_support
+        for claim in support.claims:
+            returned = executor.knowledge_claims.get(claim.claim_id)
+            if returned is None:
+                errors.append(
+                    f"L'ítem {item.sequence_index} cita una afirmació professional "
+                    f"no recuperada: {claim.claim_id}."
+                )
+                continue
+            for field_name in comparable_fields:
+                if getattr(claim, field_name) != returned.get(field_name, ""):
+                    errors.append(
+                        f"L'afirmació {claim.claim_id} altera el camp {field_name} "
+                        "retornat per la base professional."
+                    )
+            if tuple(claim.evidence_codes) != tuple(returned.get("evidence_codes", [])):
+                errors.append(
+                    f"L'afirmació {claim.claim_id} altera les fonts professionals."
+                )
+            if tuple(claim.limitations) != tuple(returned.get("limitations", [])):
+                errors.append(
+                    f"L'afirmació {claim.claim_id} omet o altera les limitacions."
+                )
+    return errors
+
+
+def _hydrate_professional_claims(*, final, executor):
+    """Replace copied professional facts with the server-held canonical claims."""
+
+    hydrated = 0
+    for item in final.get("items", []):
+        support = item.get("knowledge_support") or {}
+        exact_claims = []
+        for claim in support.get("claims", []):
+            claim_id = claim.get("claim_id", "")
+            exact = executor.knowledge_claims.get(claim_id)
+            if exact is None:
+                exact_claims.append(claim)
+                continue
+            exact_claims.append(dict(exact))
+            hydrated += 1
+        support["claims"] = exact_claims
+        if support.get("status") == "grounded" and exact_claims:
+            fragments = []
+            for claim in exact_claims[:8]:
+                phase = claim.get("phase_code") or "fase no especificada"
+                if claim.get("claim_type") == "joint_action":
+                    fact = f"acció {claim.get('action_code') or 'no especificada'}"
+                else:
+                    fact = (
+                        f"{claim.get('muscle_code') or 'múscul no especificat'} "
+                        f"({claim.get('expected_contraction') or 'indeterminada'})"
+                    )
+                fragments.append(f"{phase}: {fact}")
+            suffix = "; …" if len(exact_claims) > 8 else ""
+            support["summary"] = "Camins professionals recuperats: " + "; ".join(
+                fragments
+            ) + suffix
+    return hydrated
 
 
 def _validate_timing_evidence(*, proposal, executor):
@@ -961,11 +1630,21 @@ def plan_block_with_agent(
     active_ids = tuple(int(value) for value in active_participant_ids)
     excluded_ids = tuple(int(value) for value in excluded_participant_ids)
     decisions = dict(coach_decisions or {})
+    planning_enabled = getattr(
+        settings, "OPENAI_TRAINING_PLANNING_BRIEF_ENABLED", True
+    )
     request_hint = {
         "planned_duration_minutes": duration,
         "block_role": block_role,
         "active_participant_plan_ids": list(active_ids),
         "excluded_participant_plan_ids": list(excluded_ids),
+        "coach_prompt": prompt,
+        "coach_decisions": decisions,
+        "previous_hard_constraints": list(
+            ((previous_proposal or {}).get("request") or {}).get(
+                "hard_constraints", []
+            )
+        ),
     }
     executor = AgentToolExecutor(
         context=context,
@@ -977,6 +1656,7 @@ def plan_block_with_agent(
         allow_drafts=(
             decisions.get("catalog_drafts") == "allow_draft_exercises"
         ),
+        require_planning=planning_enabled,
     )
     initial = _initial_payload(
         context=context,
@@ -989,6 +1669,7 @@ def plan_block_with_agent(
         refinement=refinement,
         coach_decisions=decisions,
     )
+    initial_payload_bytes = planning_payload_bytes(initial)
     history = [
         {
             "role": "user",
@@ -996,14 +1677,44 @@ def plan_block_with_agent(
         }
     ]
     model = getattr(settings, "OPENAI_TRAINING_MODEL", "gpt-5.6-luna")
-    max_rounds = max(2, getattr(settings, "OPENAI_TRAINING_MAX_TOOL_ROUNDS", 20))
+    max_rounds = max(2, getattr(settings, "OPENAI_TRAINING_MAX_TOOL_ROUNDS", 20)) + (
+        1 if planning_enabled else 0
+    )
     max_calls = max(1, getattr(settings, "OPENAI_TRAINING_MAX_TOOL_CALLS", 50))
     max_repairs = max(0, getattr(settings, "OPENAI_TRAINING_MAX_REPAIRS", 2))
+    max_evidence_rounds = max(
+        0, getattr(settings, "OPENAI_TRAINING_MAX_EVIDENCE_ROUNDS", 3)
+    )
+    max_review_repairs = max(
+        0, getattr(settings, "OPENAI_TRAINING_MAX_REVIEW_REPAIRS", 1)
+    )
+    max_live_history_bytes = max(
+        20000,
+        getattr(settings, "OPENAI_TRAINING_MAX_LIVE_HISTORY_BYTES", 100000),
+    )
+    max_rate_limit_retries = max(
+        0, getattr(settings, "OPENAI_TRAINING_MAX_RATE_LIMIT_RETRIES", 2)
+    )
+    max_rate_limit_wait = max(
+        1, getattr(settings, "OPENAI_TRAINING_MAX_RATE_LIMIT_WAIT_SECONDS", 60)
+    )
     call_count = 0
     repairs = 0
+    evidence_rounds = 0
+    review_repairs = 0
+    live_compactions = 0
+    rate_limit_retries = 0
     response_ids = []
-    usage = {}
-    validation_payload = {"attempts": []}
+    usage = {"planner": {}, "reviewer": {}}
+    validation_payload = {
+        "attempts": [],
+        "context_metrics": {
+            "initial_payload_bytes": initial_payload_bytes,
+            "planning_enabled": planning_enabled,
+            "live_compactions": 0,
+            "rate_limit_retries": 0,
+        },
+    }
     actual_model = model
 
     def emit(stage, message, **extra):
@@ -1055,10 +1766,34 @@ def plan_block_with_agent(
 
     emit("analyzing", "Analitzant el grup, les premisses i el temps disponible…")
     for round_index in range(max_rounds):
+        history_bytes = planning_payload_bytes(history)
+        if (
+            executor.planning_brief is not None
+            and history_bytes > max_live_history_bytes
+        ):
+            history = _compact_live_history(
+                initial=initial,
+                executor=executor,
+                context=context,
+                active_ids=active_ids,
+                excluded_ids=excluded_ids,
+            )
+            live_compactions += 1
+            validation_payload["context_metrics"].update(
+                {
+                    "live_compactions": live_compactions,
+                    "last_pre_compaction_bytes": history_bytes,
+                    "last_post_compaction_bytes": planning_payload_bytes(history),
+                }
+            )
+            emit(
+                "compacting",
+                "Compactant l'evidència acumulada abans de continuar…",
+            )
         payload = {
             "model": model,
             "instructions": _instructions(),
-            "input": history,
+            "input": list(history),
             "reasoning": {
                 "effort": getattr(
                     settings, "OPENAI_TRAINING_REASONING_EFFORT", "medium"
@@ -1072,11 +1807,19 @@ def plan_block_with_agent(
             "tools": [
                 tool
                 for tool in tool_definitions()
-                if tool.get("name") != "audit_block_draft" or executor.audit_calls < 2
+                if (
+                    (planning_enabled or tool.get("name") != "submit_block_planning_brief")
+                    and (
+                        tool.get("name") != "audit_block_draft"
+                        or executor.audit_calls < 2
+                    )
+                )
             ],
             "tool_choice": (
-                {"type": "function", "name": "search_exercises"}
-                if round_index == 0
+                {"type": "function", "name": "submit_block_planning_brief"}
+                if planning_enabled and executor.planning_brief is None
+                else {"type": "function", "name": "search_exercises"}
+                if not planning_enabled and round_index == 0
                 else "auto"
             ),
             "parallel_tool_calls": True,
@@ -1089,11 +1832,54 @@ def plan_block_with_agent(
                 }
             },
         }
-        data = _post_responses_api(payload)
+        while True:
+            try:
+                data = _post_responses_api(payload)
+                break
+            except OpenAITrainingRateLimited as error:
+                if rate_limit_retries >= max_rate_limit_retries:
+                    exhausted = runtime_error(str(error))
+                    exhausted.code = "openai_rate_limited"
+                    raise exhausted from error
+                requested_wait = error.retry_after_seconds + 0.5
+                if requested_wait > max_rate_limit_wait:
+                    exhausted = runtime_error(
+                        "El límit d'OpenAI requereix esperar massa temps per a aquesta run: "
+                        f"{requested_wait:.1f} segons."
+                    )
+                    exhausted.code = "openai_rate_limited"
+                    raise exhausted from error
+                rate_limit_retries += 1
+                history = _compact_live_history(
+                    initial=initial,
+                    executor=executor,
+                    context=context,
+                    active_ids=active_ids,
+                    excluded_ids=excluded_ids,
+                )
+                payload["input"] = list(history)
+                validation_payload["context_metrics"].update(
+                    {
+                        "rate_limit_retries": rate_limit_retries,
+                        "rate_limit_retry_payload_bytes": planning_payload_bytes(
+                            history
+                        ),
+                    }
+                )
+                emit(
+                    "rate_limited",
+                    (
+                        "OpenAI ha limitat temporalment la run; reintent automàtic "
+                        f"{rate_limit_retries}/{max_rate_limit_retries} en "
+                        f"{requested_wait:.1f} segons…"
+                    ),
+                )
+                time.sleep(requested_wait)
         actual_model = data.get("model") or actual_model
         if data.get("id"):
             response_ids.append(data["id"])
         _usage_total(usage, data.get("usage"))
+        _usage_total(usage["planner"], data.get("usage"))
         emit(
             "reasoning",
             "El model està valorant la informació disponible…",
@@ -1114,7 +1900,28 @@ def plan_block_with_agent(
                     result = executor.execute(function_call.get("name", ""), arguments)
                     envelope = {"ok": True, "result": result}
                     tool_name = function_call.get("name", "")
-                    if tool_name == "search_exercises":
+                    if tool_name == "search_professional_concepts":
+                        emit(
+                            "knowledge",
+                            (
+                                "Base professional consultada: "
+                                f"{len(result.get('results', []))} conceptes validats."
+                            ),
+                        )
+                    elif tool_name == "submit_block_planning_brief":
+                        emit(
+                            "planning",
+                            "Pla previ validat; iniciant la cerca de solucions…",
+                            planning_payload=dict(executor.planning_brief or {}),
+                        )
+                    elif tool_name == "get_participant_context":
+                        emit(
+                            "context",
+                            "Ampliant només el context individual necessari…",
+                        )
+                    elif tool_name == "get_group_training_summary":
+                        emit("context", "Actualitzant el resum factual del grup…")
+                    elif tool_name == "search_exercises":
                         emit(
                             "searching",
                             (
@@ -1126,6 +1933,14 @@ def plan_block_with_agent(
                         emit(
                             "comparing",
                             f"Comparant en detall {len(result.get('results', []))} exercicis…",
+                        )
+                    elif tool_name == "get_exercise_knowledge_support":
+                        emit(
+                            "knowledge",
+                            (
+                                "Verificant el fonament professional de "
+                                f"{len(result.get('results', []))} exercicis…"
+                            ),
                         )
                     elif tool_name == "get_prescription_guidance":
                         emit("dosing", "Revisant rangs de dosificació professionals…")
@@ -1192,6 +2007,9 @@ def plan_block_with_agent(
         text = _response_output_text(data)
         if not text:
             raise runtime_error("OpenAI no ha retornat una proposta utilitzable.")
+        proposal = None
+        review_required = False
+        review_issues = []
         try:
             final = json.loads(text)
         except json.JSONDecodeError as error:
@@ -1246,6 +2064,8 @@ def plan_block_with_agent(
                 model_name=actual_model,
             )
         try:
+            if planning_enabled and executor.planning_brief is None:
+                raise ValidationError("L'agent no ha registrat el pla previ obligatori.")
             if not any(row.get("tool") == "search_exercises" and row.get("status") == "ok" for row in executor.trace):
                 raise ValidationError("L'agent no ha consultat el catàleg.")
             if executor.last_timing is None:
@@ -1256,6 +2076,10 @@ def plan_block_with_agent(
                 raise ValidationError(
                     "La durada final no coincideix amb l'últim càlcul temporal."
                 )
+            hydrated_claims = _hydrate_professional_claims(
+                final=final,
+                executor=executor,
+            )
             proposal_payload = _server_proposal_payload(
                 final=final,
                 context=context,
@@ -1270,25 +2094,9 @@ def plan_block_with_agent(
                 raise ValidationError(
                     f"La proposta usa exercicis no retornats per les eines: {sorted(unknown_ids)}."
                 )
-            required_detail_ids, required_pairs = _required_tool_evidence(proposal)
-            missing_details = required_detail_ids - executor.detail_exercise_ids
-            if missing_details:
-                raise ValidationError(
-                    "Falten detalls dels exercicis seleccionats: "
-                    f"{sorted(missing_details)}."
-                )
-            missing_compatibility = required_pairs - executor.compatibility_pairs
-            if missing_compatibility:
-                raise ValidationError(
-                    "Falten comprovacions de compatibilitat exercici-participant: "
-                    f"{sorted(missing_compatibility)}."
-                )
-            missing_guidance = required_pairs - executor.guidance_pairs
-            if missing_guidance:
-                raise ValidationError(
-                    "Falten guies de dosificació exercici-participant: "
-                    f"{sorted(missing_guidance)}."
-                )
+            missing_evidence = _missing_tool_evidence(
+                proposal=proposal, executor=executor
+            )
             timing_errors = _validate_timing_evidence(
                 proposal=proposal, executor=executor
             )
@@ -1351,6 +2159,65 @@ def plan_block_with_agent(
                 exercise_owner=context.owner,
             )
             _validate_agent_context_invariants(proposal=proposal, context=context)
+            alignment_errors = proposal_alignment_errors(
+                brief=executor.planning_brief,
+                proposal=proposal,
+            )
+            if alignment_errors:
+                raise ValidationError(alignment_errors)
+            evidence_messages = _evidence_messages(missing_evidence)
+            if evidence_messages:
+                required_tool_calls = _required_evidence_tool_calls(
+                    proposal=proposal, missing=missing_evidence
+                )
+                validation_payload.setdefault("evidence_attempts", []).append(
+                    {
+                        "complete": False,
+                        "missing": {
+                            "details": sorted(missing_evidence["details"]),
+                            "knowledge": sorted(missing_evidence["knowledge"]),
+                            "compatibility": sorted(
+                                [list(value) for value in missing_evidence["compatibility"]]
+                            ),
+                            "guidance": sorted(
+                                [list(value) for value in missing_evidence["guidance"]]
+                            ),
+                        },
+                        "required_tool_calls": required_tool_calls,
+                    }
+                )
+                if evidence_rounds >= max_evidence_rounds:
+                    raise runtime_error(
+                        "L'agent no ha completat l'evidència obligatòria: "
+                        + "; ".join(evidence_messages)
+                    )
+                evidence_rounds += 1
+                emit(
+                    "evidence",
+                    (
+                        "Completant conjuntament detalls, compatibilitat i guies "
+                        f"({evidence_rounds}/{max_evidence_rounds})…"
+                    ),
+                    validation_errors=evidence_messages,
+                )
+                history = _compact_repair_history(
+                    initial=initial,
+                    final=final,
+                    errors=evidence_messages,
+                    executor=executor,
+                    context=context,
+                    active_ids=active_ids,
+                    excluded_ids=excluded_ids,
+                    proposal=proposal,
+                    source="tool_evidence",
+                    required_tool_calls=required_tool_calls,
+                )
+                continue
+            knowledge_errors = _validate_professional_knowledge_evidence(
+                proposal=proposal, executor=executor
+            )
+            if knowledge_errors:
+                raise ValidationError(knowledge_errors)
             independent_review = None
             if getattr(settings, "OPENAI_TRAINING_REVIEW_ENABLED", True):
                 emit(
@@ -1363,41 +2230,86 @@ def plan_block_with_agent(
                     executor=executor,
                     active_ids=active_ids,
                     excluded_ids=excluded_ids,
+                    request_context=initial,
                 )
                 if review_data.get("id"):
                     response_ids.append(review_data["id"])
                 _usage_total(usage, review_data.get("usage"))
+                _usage_total(usage["reviewer"], review_data.get("usage"))
+                usage["reviewer_model"] = review_data.get("model") or getattr(
+                    settings, "OPENAI_TRAINING_REVIEW_MODEL", model
+                )
+                validation_payload["context_metrics"][
+                    "reviewer_rate_limit_retries"
+                ] = int(review_data.get("iatrain_rate_limit_retries", 0) or 0)
                 validation_payload.setdefault("review_attempts", []).append(
                     independent_review
                 )
                 if independent_review["verdict"] == "needs_clarification":
                     question = independent_review.get("clarification_question") or (
-                        "El revisor necessita una dada imprescindible abans de continuar."
+                        "El revisor recomana completar informació abans d'aplicar el bloc."
                     )
-                    raise InterpretationNeedsClarification(
-                        question,
-                        payload={
-                            "planning_summary": final.get("planning_summary", ""),
-                            "premise_effects": final.get("premise_effects", []),
-                            "review_summary": independent_review.get("summary", ""),
-                            "review_issues": independent_review.get("issues", []),
-                        },
-                        model_name=actual_model,
-                    )
+                    review_required = True
+                    review_issues = independent_review.get("issues", []) or [
+                        {
+                            "code": "REVIEWER-CONTEXT-UNCERTAINTY",
+                            "severity": "error",
+                            "message": question,
+                            "correction": (
+                                "Revisa la proposta prudent i completa el perfil quan sigui "
+                                "possible; la dada absent no bloqueja la previsualització."
+                            ),
+                            "participant_plan_ids": [],
+                            "sequence_indices": [],
+                            "exercise_revision_ids": [],
+                        }
+                    ]
                 if independent_review["verdict"] == "revise":
-                    blocking_issues = [
+                    material_issues = [
                         row
                         for row in independent_review.get("issues", [])
-                        if row.get("severity") == "error"
-                    ] or independent_review.get("issues", [])
-                    raise ValidationError(
-                        [
-                            f"Revisor {row.get('code', 'semantic')}: "
-                            f"{row.get('message', '')} Correcció: "
-                            f"{row.get('correction', '')}"
-                            for row in blocking_issues
-                        ]
-                    )
+                        if row.get("severity") in {"critical", "error"}
+                    ]
+                    review_messages = [
+                        f"Revisor {row.get('code', 'semantic')}: "
+                        f"{row.get('message', '')} Correcció: "
+                        f"{row.get('correction', '')}"
+                        for row in material_issues
+                    ]
+                    if material_issues and review_repairs < max_review_repairs:
+                        review_repairs += 1
+                        emit(
+                            "repairing",
+                            (
+                                "Revisió independent: corregint incidències "
+                                f"({review_repairs}/{max_review_repairs})…"
+                            ),
+                            validation_errors=review_messages[:3],
+                        )
+                        history = _compact_repair_history(
+                            initial=initial,
+                            final=final,
+                            errors=review_messages,
+                            executor=executor,
+                            context=context,
+                            active_ids=active_ids,
+                            excluded_ids=excluded_ids,
+                            proposal=proposal,
+                            source="independent_reviewer",
+                        )
+                        continue
+                    critical_issues = [
+                        row for row in material_issues
+                        if row.get("severity") == "critical"
+                    ]
+                    if critical_issues:
+                        raise runtime_error(
+                            "La proposta conserva un risc crític després de la revisió: "
+                            + "; ".join(review_messages[:3])
+                        )
+                    if material_issues:
+                        review_required = True
+                        review_issues = material_issues
         except (KeyError, TypeError, ValueError, ValidationError) as error:
             messages = _validation_messages(error)
             validation_payload["attempts"].append(
@@ -1413,15 +2325,16 @@ def plan_block_with_agent(
                 f"Validació del servidor: corregint la proposta ({repairs}/{max_repairs})…",
                 validation_errors=messages[:3],
             )
-            history.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "La proposta no supera la validació del servidor. Corregeix-la, "
-                        "torna a consultar eines o recalcula el temps si cal, i entrega el "
-                        "contracte complet. Errors: " + json.dumps(messages, ensure_ascii=False)
-                    ),
-                }
+            history = _compact_repair_history(
+                initial=initial,
+                final=final,
+                errors=messages,
+                executor=executor,
+                context=context,
+                active_ids=active_ids,
+                excluded_ids=excluded_ids,
+                proposal=proposal,
+                source="server_validation",
             )
             continue
         validation_payload["attempts"].append({"valid": True, "errors": []})
@@ -1430,6 +2343,61 @@ def plan_block_with_agent(
         )
         validation_payload["last_timing"] = executor.last_timing
         validation_payload["independent_review"] = independent_review
+        validation_payload["review_required"] = review_required
+        validation_payload["review_issues"] = list(review_issues)
+        validation_payload["planning"] = {
+            "contract_version": (
+                executor.planning_brief or {}
+            ).get("contract_version", ""),
+            "accepted": bool(executor.planning_brief),
+            "alignment_valid": True,
+        }
+        validation_payload["context_metrics"].update(
+            {
+                "tool_result_bytes": sum(
+                    int(row.get("result_bytes", 0) or 0)
+                    for row in executor.trace
+                ),
+                "participant_context_calls": len(
+                    executor.participant_context_calls
+                ),
+                "group_context_calls": executor.group_context_calls,
+            }
+        )
+        cited_claim_ids = {
+            claim.claim_id
+            for item in proposal.items
+            if item.knowledge_support is not None
+            for claim in item.knowledge_support.claims
+        }
+        cited_evidence_codes = {
+            code
+            for item in proposal.items
+            if item.knowledge_support is not None
+            for claim in item.knowledge_support.claims
+            for code in claim.evidence_codes
+        }
+        validation_payload["professional_knowledge"] = {
+            "exercise_revision_ids": sorted(executor.knowledge_exercise_ids),
+            "retrieved_claim_ids": sorted(executor.knowledge_claims),
+            "cited_claim_ids": sorted(cited_claim_ids),
+            "sources": [
+                source
+                for code, source in executor.knowledge_sources.items()
+                if code in cited_evidence_codes
+            ],
+            "professional_concept_searches": executor.professional_concept_calls,
+            "server_hydrated_claims": hydrated_claims,
+        }
+        if evidence_rounds:
+            validation_payload.setdefault("evidence_attempts", []).append(
+                {"complete": True, "missing": {}, "required_tool_calls": []}
+            )
+        validation_payload["repair_counts"] = {
+            "server": repairs,
+            "evidence": evidence_rounds,
+            "reviewer": review_repairs,
+        }
         interpretation = {
             "intent_status": "ready",
             "planning_summary": final["planning_summary"],
@@ -1443,15 +2411,25 @@ def plan_block_with_agent(
                 else "Revisió independent desactivada."
             ),
         }
-        emit("completed", "Proposta preparada i validada.")
+        emit(
+            "completed",
+            (
+                "Proposta preparada; requereix revisió de l'entrenador."
+                if review_required
+                else "Proposta preparada i validada."
+            ),
+        )
         return AgentBlockResult(
             proposal=proposal,
             interpretation_payload=interpretation,
+            planning_payload=dict(executor.planning_brief or {}),
             model_name=actual_model,
             tool_trace=tuple(executor.trace),
             response_ids=tuple(response_ids),
             usage_payload=usage,
             validation_payload=validation_payload,
+            review_required=review_required,
+            review_issues=tuple(review_issues),
         )
     if not executor.allowed_exercise_ids:
         if not executor.allow_drafts and executor.draft_matches_available > 0:

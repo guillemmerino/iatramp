@@ -17,6 +17,7 @@ from iatrain.services import organizations_available_to_coach, person_for_user
 from iatrain_exercises.models import ExerciseRevision
 
 from .contracts import BlockGenerationProposal, BlockParticipantProposal
+from .serialization import contract_to_payload
 from .validation import (
     referenced_exercise_revision_ids,
     validate_block_generation_proposal,
@@ -129,6 +130,11 @@ def apply_block_generation_proposal(*, user, proposal):
             planned_duration_seconds=proposed_item.planned_duration_seconds,
             rest_after_seconds=proposed_item.rest_after_seconds,
             selection_rationale=proposed_item.selection_rationale,
+            knowledge_support=(
+                contract_to_payload(proposed_item.knowledge_support)
+                if proposed_item.knowledge_support is not None
+                else {}
+            ),
             is_optional=proposed_item.is_optional,
         )
         if proposed_item.dose is None:
@@ -180,7 +186,13 @@ def apply_block_generation_proposal(*, user, proposal):
                 intensity_metric=adjustment.intensity_metric,
                 intensity_value=adjustment.intensity_value,
                 rest_between_sets_seconds=adjustment.rest_between_sets_seconds,
+                station_remainder_action=adjustment.station_remainder_action,
                 adaptation_notes=adjustment.adaptation_notes,
                 rationale=adjustment.rationale,
+                professional_justification=(
+                    contract_to_payload(adjustment.professional_justification)
+                    if adjustment.professional_justification is not None
+                    else {}
+                ),
             )
     return block

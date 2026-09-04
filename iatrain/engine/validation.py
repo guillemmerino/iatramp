@@ -20,6 +20,9 @@ from .contracts import (
     ATHLETE_ADJUSTMENT_ACTIONS,
     BLOCK_PARTICIPANT_MODES,
     CONDITION_DECISION_ACTIONS,
+    INDIVIDUAL_SUPPORT_STATUSES,
+    KNOWLEDGE_SUPPORT_STATUSES,
+    STATION_REMAINDER_ACTIONS,
     AthleteAdjustmentProposal,
     BlockCoverage,
     BlockGenerationProposal,
@@ -30,7 +33,10 @@ from .contracts import (
     BlockParticipantProposal,
     ExerciseAlternativeProposal,
     ExerciseDoseProposal,
+    ExerciseKnowledgeSupport,
+    IndividualAdjustmentSupport,
     ParticipantConditionDecision,
+    ProfessionalKnowledgeClaim,
     PHYSICAL_BLOCK_HARD_CONSTRAINTS,
     TARGET_INTENSITIES,
 )
@@ -57,7 +63,7 @@ def validate_block_generation_request(request, *, revision=None):
     if not isinstance(request, BlockGenerationRequest):
         raise ValidationError("La petició no compleix el contracte BlockGenerationRequest.")
     errors = {}
-    if request.contract_version not in {"1.0", "2.0", "3.0", "3.1"}:
+    if request.contract_version not in {"1.0", "2.0", "3.0", "3.1", "3.2", "3.3", "3.4", "3.5"}:
         _add(errors, "contract_version", "La versió del contracte no està suportada.")
     if not isinstance(request.session_revision_id, int) or request.session_revision_id < 1:
         _add(errors, "session_revision_id", "Cal una versió de sessió vàlida.")
@@ -258,7 +264,16 @@ def _validate_dose(errors, path, dose: ExerciseDoseProposal):
         _add(errors, f"{path}.rest_between_sets_seconds", "El descans no pot ser negatiu.")
 
 
-def _validate_adjustment(errors, path, adjustment: AthleteAdjustmentProposal, participants):
+def _validate_adjustment(
+    errors,
+    path,
+    adjustment: AthleteAdjustmentProposal,
+    participants,
+    *,
+    professional_claims=None,
+    base_exercise_revision_id=None,
+    require_professional=False,
+):
     if not isinstance(adjustment, AthleteAdjustmentProposal):
         _add(errors, path, "L'ajustament no compleix el contracte AthleteAdjustmentProposal.")
         return
@@ -268,6 +283,133 @@ def _validate_adjustment(errors, path, adjustment: AthleteAdjustmentProposal, pa
         _add(errors, f"{path}.action", "L'acció de personalització no és vàlida.")
     if not adjustment.rationale.strip():
         _add(errors, f"{path}.rationale", "L'ajustament necessita una justificació.")
+    support = adjustment.professional_justification
+    if require_professional:
+        if not isinstance(support, IndividualAdjustmentSupport):
+            _add(
+                errors,
+                f"{path}.professional_justification",
+                "L'ajustament necessita una cadena professional estructurada.",
+            )
+        else:
+            if support.evidence_status not in INDIVIDUAL_SUPPORT_STATUSES:
+                _add(
+                    errors,
+                    f"{path}.professional_justification.evidence_status",
+                    "L'estat de l'evidència individual no és vàlid.",
+                )
+            _validate_unique_positive_ids(
+                errors,
+                f"{path}.professional_justification.condition_ids",
+                support.condition_ids,
+            )
+            if len(support.condition_ids) != len(set(support.condition_ids)):
+                _add(
+                    errors,
+                    f"{path}.professional_justification.condition_ids",
+                    "No es pot repetir una condició.",
+                )
+            if not support.condition_ids and not support.profile_factor_codes:
+                _add(
+                    errors,
+                    f"{path}.professional_justification",
+                    "Cal vincular l'ajustament a una condició o factor del perfil.",
+                )
+            if any(
+                not str(value).strip() for value in support.profile_factor_codes
+            ) or len(support.profile_factor_codes) != len(
+                set(support.profile_factor_codes)
+            ):
+                _add(
+                    errors,
+                    f"{path}.professional_justification.profile_factor_codes",
+                    "Els factors del perfil han de ser únics i no buits.",
+                )
+            for field_name in ("biomechanical_relevance", "adaptation_goal"):
+                if not getattr(support, field_name).strip():
+                    _add(
+                        errors,
+                        f"{path}.professional_justification.{field_name}",
+                        "Aquest camp és obligatori.",
+                    )
+            for field_name in (
+                "affected_phase_codes",
+                "monitoring_criteria",
+                "stop_criteria",
+            ):
+                values = getattr(support, field_name)
+                if not values or any(not str(value).strip() for value in values):
+                    _add(
+                        errors,
+                        f"{path}.professional_justification.{field_name}",
+                        "Cal indicar almenys un valor concret.",
+                    )
+                if len(values) != len(set(values)):
+                    _add(
+                        errors,
+                        f"{path}.professional_justification.{field_name}",
+                        "No es poden repetir valors.",
+                    )
+            claim_ids = support.professional_claim_ids
+            if len(claim_ids) != len(set(claim_ids)) or any(
+                not str(value).strip() for value in claim_ids
+            ):
+                _add(
+                    errors,
+                    f"{path}.professional_justification.professional_claim_ids",
+                    "Les afirmacions professionals han de ser úniques i vàlides.",
+                )
+            available_claims = professional_claims or {}
+            unknown_claims = set(claim_ids) - set(available_claims)
+            if unknown_claims:
+                _add(
+                    errors,
+                    f"{path}.professional_justification.professional_claim_ids",
+                    "L'ajustament cita afirmacions que no consten a l'ítem: "
+                    f"{sorted(unknown_claims)}.",
+                )
+            if support.evidence_status == "grounded":
+                if not claim_ids:
+                    _add(
+                        errors,
+                        f"{path}.professional_justification.professional_claim_ids",
+                        "Una cadena fonamentada necessita afirmacions professionals.",
+                    )
+                cited_phases = {
+                    available_claims[claim_id].phase_code
+                    for claim_id in claim_ids
+                    if claim_id in available_claims
+                    and available_claims[claim_id].phase_code
+                }
+                missing_phases = set(support.affected_phase_codes) - cited_phases
+                if missing_phases:
+                    _add(
+                        errors,
+                        f"{path}.professional_justification.affected_phase_codes",
+                        "Les fases no estan cobertes per les afirmacions citades: "
+                        f"{sorted(missing_phases)}.",
+                    )
+                cited_exercise_ids = {
+                    available_claims[claim_id].exercise_revision_id
+                    for claim_id in claim_ids
+                    if claim_id in available_claims
+                }
+                required_exercise_ids = {
+                    value
+                    for value in (
+                        base_exercise_revision_id,
+                        adjustment.replacement_exercise_revision_id,
+                    )
+                    if value
+                }
+                missing_exercises = required_exercise_ids - cited_exercise_ids
+                if missing_exercises:
+                    _add(
+                        errors,
+                        f"{path}.professional_justification.professional_claim_ids",
+                        "La cadena no cobreix tots els exercicis de l'adaptació: "
+                        f"{sorted(missing_exercises)}.",
+                    )
     for field_name in ("sets", "repetitions", "duration_seconds"):
         value = getattr(adjustment, field_name)
         if value is not None and (not isinstance(value, int) or value < 1):
@@ -286,6 +428,18 @@ def _validate_adjustment(errors, path, adjustment: AthleteAdjustmentProposal, pa
         _add(errors, f"{path}.intensity_value", "La intensitat no pot ser negativa.")
     if adjustment.rest_between_sets_seconds is not None and adjustment.rest_between_sets_seconds < 0:
         _add(errors, f"{path}.rest_between_sets_seconds", "El descans no pot ser negatiu.")
+    if adjustment.station_remainder_action not in STATION_REMAINDER_ACTIONS:
+        _add(
+            errors,
+            f"{path}.station_remainder_action",
+            "L'acció durant la resta de l'estació no és vàlida.",
+        )
+    if adjustment.action == "skip" and adjustment.station_remainder_action:
+        _add(
+            errors,
+            f"{path}.station_remainder_action",
+            "Un ítem omès no pot prescriure una acció de final d'estació.",
+        )
     if adjustment.action == "replace" and not adjustment.replacement_exercise_revision_id:
         _add(errors, f"{path}.replacement_exercise_revision_id", "Cal indicar l'exercici substitutiu.")
     values = (
@@ -296,9 +450,10 @@ def _validate_adjustment(errors, path, adjustment: AthleteAdjustmentProposal, pa
         adjustment.load_value,
         adjustment.intensity_value,
         adjustment.rest_between_sets_seconds,
+        adjustment.station_remainder_action,
         adjustment.adaptation_notes.strip(),
     )
-    if adjustment.action != "skip" and not any(
+    if adjustment.action not in {"skip", "monitor"} and not any(
         value is not None and value != "" for value in values
     ):
         _add(errors, path, "L'ajustament no modifica cap element de la prescripció.")
@@ -336,7 +491,7 @@ def validate_block_generation_proposal(
         raise ValidationError("La proposta no compleix el contracte BlockGenerationProposal.")
     validate_block_generation_request(proposal.request, revision=revision)
     errors = {}
-    if proposal.contract_version not in {"1.0", "2.0", "3.0", "3.1"}:
+    if proposal.contract_version not in {"1.0", "2.0", "3.0", "3.1", "3.2", "3.3", "3.4", "3.5"}:
         _add(errors, "contract_version", "La versió del contracte no està suportada.")
     if not proposal.items:
         _add(errors, "items", "La proposta necessita almenys un ítem.")
@@ -447,6 +602,7 @@ def validate_block_generation_proposal(
         if set(assignment_ids) != expected_assignment_ids:
             _add(errors, "participants", "Les assignacions han de cobrir tot el bloc.")
     physical_item_count = 0
+    has_knowledge_hypothesis = False
     skipped_item_counts = {participant_id: 0 for participant_id in participants}
     adjusted_participant_ids = set()
     participant_reference = re.compile(
@@ -492,6 +648,86 @@ def validate_block_generation_proposal(
                 _validate_dose(errors, f"{path}.dose", item.dose)
             if not isinstance(item.selection_rationale, str) or not item.selection_rationale.strip():
                 _add(errors, f"{path}.selection_rationale", "Cal justificar la selecció de l'exercici.")
+            if proposal.contract_version in {"3.3", "3.4", "3.5"}:
+                support = item.knowledge_support
+                if not isinstance(support, ExerciseKnowledgeSupport):
+                    _add(
+                        errors,
+                        f"{path}.knowledge_support",
+                        "L'exercici necessita suport professional estructurat.",
+                    )
+                else:
+                    if support.status not in KNOWLEDGE_SUPPORT_STATUSES:
+                        _add(
+                            errors,
+                            f"{path}.knowledge_support.status",
+                            "L'estat del suport professional no és vàlid.",
+                        )
+                    if support.status == "hypothesis":
+                        has_knowledge_hypothesis = True
+                    if not support.summary.strip():
+                        _add(
+                            errors,
+                            f"{path}.knowledge_support.summary",
+                            "Cal resumir el fonament professional o el buit detectat.",
+                        )
+                    referenced_in_item = set()
+                    if item.dose:
+                        referenced_in_item.add(item.dose.exercise_revision_id)
+                    referenced_in_item.update(
+                        row.exercise_revision_id for row in item.alternatives
+                    )
+                    referenced_in_item.update(
+                        row.replacement_exercise_revision_id
+                        for row in item.athlete_adjustments
+                        if row.replacement_exercise_revision_id
+                    )
+                    claim_ids = []
+                    claim_exercise_ids = set()
+                    for claim_index, claim in enumerate(support.claims):
+                        claim_path = (
+                            f"{path}.knowledge_support.claims[{claim_index}]"
+                        )
+                        if not isinstance(claim, ProfessionalKnowledgeClaim):
+                            _add(errors, claim_path, "L'afirmació professional no és vàlida.")
+                            continue
+                        claim_ids.append(claim.claim_id)
+                        claim_exercise_ids.add(claim.exercise_revision_id)
+                        if not claim.claim_id.strip():
+                            _add(errors, f"{claim_path}.claim_id", "Falta l'identificador de l'afirmació.")
+                        if claim.exercise_revision_id not in referenced_in_item:
+                            _add(
+                                errors,
+                                f"{claim_path}.exercise_revision_id",
+                                "L'afirmació no correspon a cap exercici de l'ítem.",
+                            )
+                    if len(claim_ids) != len(set(claim_ids)):
+                        _add(
+                            errors,
+                            f"{path}.knowledge_support.claims",
+                            "No es poden repetir afirmacions professionals.",
+                        )
+                    if support.status == "grounded":
+                        if not support.claims:
+                            _add(
+                                errors,
+                                f"{path}.knowledge_support.claims",
+                                "Un suport fonamentat necessita almenys una afirmació recuperada.",
+                            )
+                        missing_support = referenced_in_item - claim_exercise_ids
+                        if missing_support:
+                            _add(
+                                errors,
+                                f"{path}.knowledge_support.claims",
+                                "Falta suport per als exercicis: "
+                                f"{sorted(missing_support)}.",
+                            )
+                    if support.status == "not_applicable" and support.claims:
+                        _add(
+                            errors,
+                            f"{path}.knowledge_support.claims",
+                            "Un suport no aplicable no ha de contenir afirmacions anatòmiques.",
+                        )
         elif item.dose or item.alternatives or item.athlete_adjustments:
             _add(errors, path, "Només un exercici físic pot tenir dosi, alternatives o ajustaments.")
 
@@ -518,6 +754,15 @@ def validate_block_generation_proposal(
             _add(errors, f"{path}.alternatives", "L'exercici principal no pot ser també una alternativa.")
 
         adjustment_participants = []
+        professional_claims = {
+            claim.claim_id: claim
+            for claim in (
+                item.knowledge_support.claims
+                if isinstance(item.knowledge_support, ExerciseKnowledgeSupport)
+                else ()
+            )
+            if isinstance(claim, ProfessionalKnowledgeClaim)
+        }
         for adjustment_index, adjustment in enumerate(item.athlete_adjustments):
             adjustment_path = f"{path}.athlete_adjustments[{adjustment_index}]"
             if isinstance(adjustment, AthleteAdjustmentProposal):
@@ -528,9 +773,76 @@ def validate_block_generation_proposal(
                     and adjustment.participant_plan_id in skipped_item_counts
                 ):
                     skipped_item_counts[adjustment.participant_plan_id] += 1
-            _validate_adjustment(errors, adjustment_path, adjustment, participants)
+            _validate_adjustment(
+                errors,
+                adjustment_path,
+                adjustment,
+                participants,
+                professional_claims=professional_claims,
+                base_exercise_revision_id=(
+                    item.dose.exercise_revision_id if item.dose else None
+                ),
+                require_professional=proposal.contract_version in {"3.4", "3.5"},
+            )
+            if (
+                isinstance(adjustment, AthleteAdjustmentProposal)
+                and isinstance(
+                    adjustment.professional_justification,
+                    IndividualAdjustmentSupport,
+                )
+                and adjustment.professional_justification.evidence_status
+                == "hypothesis"
+            ):
+                has_knowledge_hypothesis = True
+            if isinstance(adjustment, AthleteAdjustmentProposal) and item.dose:
+                base_duration = item.dose.duration_seconds
+                individual_duration = adjustment.duration_seconds
+                if (
+                    individual_duration is not None
+                    and base_duration is not None
+                    and individual_duration < base_duration
+                    and proposal.request.execution_mode in {
+                        "circuit", "stations", "parallel", "superset"
+                    }
+                    and adjustment.station_remainder_action not in {
+                        "rest", "reset", "monitor"
+                    }
+                ):
+                    _add(
+                        errors,
+                        f"{adjustment_path}.station_remainder_action",
+                        "Una dosi individual més curta ha d'explicar què fa la gimnasta "
+                        "durant la resta de l'estació.",
+                    )
+                if (
+                    individual_duration is not None
+                    and base_duration is not None
+                    and individual_duration > base_duration
+                    and proposal.request.execution_mode in {
+                        "circuit", "stations", "parallel", "superset"
+                    }
+                ):
+                    _add(
+                        errors,
+                        f"{adjustment_path}.duration_seconds",
+                        "La dosi individual no pot superar el temps compartit de l'estació.",
+                    )
         if len(adjustment_participants) != len(set(adjustment_participants)):
             _add(errors, f"{path}.athlete_adjustments", "Només hi pot haver un ajustament per gimnasta.")
+
+    if has_knowledge_hypothesis:
+        if not proposal.warnings:
+            _add(
+                errors,
+                "warnings",
+                "Una hipòtesi professional necessita un avís visible.",
+            )
+        if proposal.confidence is None:
+            _add(
+                errors,
+                "confidence",
+                "Una hipòtesi professional necessita una confiança explícita.",
+            )
 
     for participant_id, skipped_count in skipped_item_counts.items():
         if physical_item_count and skipped_count == physical_item_count:

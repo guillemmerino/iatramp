@@ -12,7 +12,10 @@ from .contracts import (
     BlockParticipantProposal,
     ExerciseAlternativeProposal,
     ExerciseDoseProposal,
+    ExerciseKnowledgeSupport,
+    IndividualAdjustmentSupport,
     ParticipantConditionDecision,
+    ProfessionalKnowledgeClaim,
 )
 
 
@@ -42,6 +45,7 @@ def proposal_payload_from_agent_output(
     excluded_participant_plan_ids,
     available_equipment_ids,
     generator_reference,
+    contract_version="3.4",
 ):
     """Map the public agent schema to the one canonical proposal contract."""
 
@@ -65,7 +69,7 @@ def proposal_payload_from_agent_output(
         "rounds": plan["rounds"],
         "rest_between_rounds_seconds": plan["rest_between_rounds_seconds"],
         "is_optional": False,
-        "contract_version": "3.1",
+        "contract_version": contract_version,
     }
     return {
         "request": request,
@@ -82,7 +86,7 @@ def proposal_payload_from_agent_output(
         "planning_summary": final["planning_summary"],
         "premise_effects": final["premise_effects"],
         "search_summary": final["search_summary"],
-        "contract_version": "3.1",
+        "contract_version": contract_version,
     }
 
 
@@ -160,6 +164,7 @@ def _alternative(payload):
 
 def _adjustment(payload):
     replacement = payload.get("replacement_exercise_revision_id")
+    support = payload.get("professional_justification")
     return AthleteAdjustmentProposal(
         participant_plan_id=int(payload["participant_plan_id"]),
         rationale=payload["rationale"],
@@ -173,7 +178,63 @@ def _adjustment(payload):
         intensity_metric=payload.get("intensity_metric", ""),
         intensity_value=_decimal(payload.get("intensity_value")),
         rest_between_sets_seconds=payload.get("rest_between_sets_seconds"),
+        station_remainder_action=payload.get("station_remainder_action", ""),
         adaptation_notes=payload.get("adaptation_notes", ""),
+        professional_justification=(
+            IndividualAdjustmentSupport(
+                condition_ids=tuple(
+                    int(value) for value in support.get("condition_ids", [])
+                ),
+                profile_factor_codes=tuple(
+                    support.get("profile_factor_codes", [])
+                ),
+                professional_claim_ids=tuple(
+                    support.get("professional_claim_ids", [])
+                ),
+                affected_phase_codes=tuple(
+                    support.get("affected_phase_codes", [])
+                ),
+                biomechanical_relevance=support.get(
+                    "biomechanical_relevance", ""
+                ),
+                adaptation_goal=support.get("adaptation_goal", ""),
+                monitoring_criteria=tuple(
+                    support.get("monitoring_criteria", [])
+                ),
+                stop_criteria=tuple(support.get("stop_criteria", [])),
+                evidence_status=support.get("evidence_status", "hypothesis"),
+            )
+            if isinstance(support, dict)
+            else None
+        ),
+    )
+
+
+def _knowledge_support(payload):
+    if payload is None:
+        return None
+    return ExerciseKnowledgeSupport(
+        status=payload.get("status", ""),
+        summary=payload.get("summary", ""),
+        claims=tuple(
+            ProfessionalKnowledgeClaim(
+                claim_id=row.get("claim_id", ""),
+                exercise_revision_id=int(row["exercise_revision_id"]),
+                phase_code=row.get("phase_code", ""),
+                claim_type=row.get("claim_type", ""),
+                action_code=row.get("action_code", ""),
+                muscle_code=row.get("muscle_code", ""),
+                basis_type=row.get("basis_type", ""),
+                basis_code=row.get("basis_code", ""),
+                expected_contraction=row.get(
+                    "expected_contraction", "not_applicable"
+                ),
+                verification_state=row.get("verification_state", ""),
+                evidence_codes=tuple(row.get("evidence_codes", [])),
+                limitations=tuple(row.get("limitations", [])),
+            )
+            for row in payload.get("claims", [])
+        ),
     )
 
 
@@ -191,6 +252,7 @@ def proposal_from_payload(payload):
                 planned_duration_seconds=row.get("planned_duration_seconds"),
                 rest_after_seconds=int(row.get("rest_after_seconds", 0)),
                 selection_rationale=row.get("selection_rationale", ""),
+                knowledge_support=_knowledge_support(row.get("knowledge_support")),
                 is_optional=bool(row.get("is_optional", False)),
                 dose=_dose(row.get("dose")),
                 alternatives=tuple(

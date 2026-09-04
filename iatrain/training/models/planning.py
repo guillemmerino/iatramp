@@ -222,6 +222,7 @@ class TrainingSessionItem(RevisionOwnedModel):
     )
     rest_after_seconds = models.PositiveSmallIntegerField(default=0)
     selection_rationale = models.TextField(blank=True, default="")
+    knowledge_support = models.JSONField(blank=True, default=dict)
     is_optional = models.BooleanField(default=False)
 
     class Meta:
@@ -234,6 +235,13 @@ class TrainingSessionItem(RevisionOwnedModel):
 
     def owning_revision(self):
         return self.block.session_revision if self.block_id else None
+
+    def clean(self):
+        super().clean()
+        if not isinstance(self.knowledge_support, dict):
+            raise ValidationError(
+                {"knowledge_support": "El suport professional ha de ser un objecte JSON."}
+            )
 
     def __str__(self):
         return f"{self.block} · {self.sequence_index}. {self.title}"
@@ -407,9 +415,15 @@ class SessionItemAlternative(RevisionOwnedModel):
 
 class SessionItemAthleteAdjustment(RevisionOwnedModel):
     class Action(models.TextChoices):
+        MONITOR = "monitor", "Monitorar sense canviar la dosi"
         MODIFY = "modify", "Modificar dosi"
         REPLACE = "replace", "Substituir exercici"
         SKIP = "skip", "No participa en l'ítem"
+
+    class StationRemainderAction(models.TextChoices):
+        REST = "rest", "Recuperació"
+        RESET = "reset", "Recol·locació tècnica"
+        MONITOR = "monitor", "Monitoratge"
 
     session_item = models.ForeignKey(
         TrainingSessionItem, on_delete=models.CASCADE, related_name="athlete_adjustments"
@@ -458,8 +472,15 @@ class SessionItemAthleteAdjustment(RevisionOwnedModel):
         validators=(MinValueValidator(0),),
     )
     rest_between_sets_seconds = models.PositiveSmallIntegerField(null=True, blank=True)
+    station_remainder_action = models.CharField(
+        max_length=20,
+        choices=StationRemainderAction.choices,
+        blank=True,
+        default="",
+    )
     adaptation_notes = models.TextField(blank=True, default="")
     rationale = models.TextField(blank=True, default="")
+    professional_justification = models.JSONField(blank=True, default=dict)
 
     class Meta:
         ordering = ("session_item_id", "participant_plan_id")
@@ -487,6 +508,10 @@ class SessionItemAthleteAdjustment(RevisionOwnedModel):
             errors["intensity_metric"] = "Cal indicar la mètrica d'intensitat."
         if self.action == self.Action.REPLACE and not self.replacement_exercise_revision_id:
             errors["replacement_exercise_revision"] = "La substitució necessita un exercici."
+        if not isinstance(self.professional_justification, dict):
+            errors["professional_justification"] = (
+                "La justificació professional ha de ser un objecte JSON."
+            )
         if self.action == self.Action.SKIP:
             has_prescription = any(
                 value is not None and value != ""
@@ -500,6 +525,7 @@ class SessionItemAthleteAdjustment(RevisionOwnedModel):
                     self.intensity_metric,
                     self.intensity_value,
                     self.rest_between_sets_seconds,
+                    self.station_remainder_action,
                 )
             )
             if has_prescription:

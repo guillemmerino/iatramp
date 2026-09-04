@@ -7,7 +7,11 @@ from django.test import TestCase
 
 from core.models import Person
 from core.services import merge_people
-from iatrain_motion.models import EditorialStatus, MotionConcept
+from iatrain_motion.models import EditorialStatus, MotionConcept, MotionRelation
+from iatrain_biomechanics.models import (
+    MuscleActionFunction,
+    MuscleStabilizationFunction,
+)
 
 from iatrain_exercises.checks import audit_exercise_catalog
 from iatrain_exercises.completeness import refresh_revision_gaps
@@ -22,6 +26,10 @@ from iatrain_exercises.models import (
     ExerciseRevision,
 )
 from iatrain_exercises.reasoning import build_exercise_context
+from iatrain_exercises.knowledge import (
+    build_exercise_knowledge_support,
+    search_professional_concepts,
+)
 from iatrain_exercises.vocabulary import EXERCISES
 
 
@@ -100,6 +108,52 @@ class PrivateExerciseSeedTests(SeededExerciseTestCase):
             build_exercise_context(owner=outsider, include_drafts=True)["exercises"],
             [],
         )
+
+    def test_professional_projection_supports_concentric_lower_limb_queries(self):
+        self.seed_exercises()
+        MotionConcept.objects.update(editorial_status=EditorialStatus.VALIDATED)
+        MotionRelation.objects.update(editorial_status=EditorialStatus.VALIDATED)
+        MuscleActionFunction.objects.update(editorial_status=EditorialStatus.VALIDATED)
+        MuscleStabilizationFunction.objects.update(
+            editorial_status=EditorialStatus.VALIDATED
+        )
+        concepts = search_professional_concepts(
+            query="extensió maluc gluti",
+            kinds=(
+                MotionConcept.Kind.JOINT_ACTION,
+                MotionConcept.Kind.MUSCLE,
+            ),
+        )
+        concept_codes = {row["concept_code"] for row in concepts["results"]}
+        self.assertIn("hip_extension", concept_codes)
+        self.assertIn("gluteus_maximus", concept_codes)
+        groups = search_professional_concepts(
+            query="extensors del genoll",
+            kinds=(MotionConcept.Kind.MUSCLE_GROUP,),
+        )
+        knee_extensors = next(
+            row for row in groups["results"] if row["concept_code"] == "knee_extensors"
+        )
+        self.assertTrue(
+            any(
+                relation["direction"] == "incoming"
+                and relation["source_code"] == "rectus_femoris"
+                for relation in knee_extensors["relations"]
+            )
+        )
+
+        revision = ExerciseRevision.objects.get(exercise__code="barbell_hip_thrust")
+        support = build_exercise_knowledge_support(revisions=[revision])
+        claims = support["results"][0]["claims"]
+        self.assertTrue(
+            any(
+                row["muscle_code"] == "gluteus_maximus"
+                and row["action_code"] == "hip_extension"
+                and row["expected_contraction"] == "concentric"
+                for row in claims
+            )
+        )
+        self.assertTrue(support["sources"])
 
     def test_draft_cannot_validate_until_professional_dependencies_are_validated(self):
         self.seed_exercises()

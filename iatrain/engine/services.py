@@ -37,6 +37,8 @@ def _progress(run, event):
         updates["response_ids"] = list(event["response_ids"])
     if "usage_payload" in event:
         updates["usage_payload"] = dict(event["usage_payload"])
+    if "planning_payload" in event:
+        updates["planning_payload"] = dict(event["planning_payload"])
     BlockGenerationRun.objects.filter(pk=run.pk).update(**updates)
     run.progress_payload = payload
     if "trace" in event:
@@ -45,6 +47,8 @@ def _progress(run, event):
         run.response_ids = list(event["response_ids"])
     if "usage_payload" in event:
         run.usage_payload = dict(event["usage_payload"])
+    if "planning_payload" in event:
+        run.planning_payload = dict(event["planning_payload"])
 
 
 def _complete_agent_run(
@@ -83,22 +87,45 @@ def _complete_agent_run(
         progress_callback=lambda event: _progress(run, event),
     )
     run.interpretation_payload = result.interpretation_payload
+    run.planning_payload = result.planning_payload
     run.request_payload = contract_to_payload(result.proposal.request)
     run.proposal_payload = contract_to_payload(result.proposal)
-    run.source_references = []
+    run.source_references = [
+        {
+            "code": row.get("code", ""),
+            "title": row.get("title", "Font professional"),
+            "url": row.get("url", ""),
+            "applicability": "Fonament anatòmic-biomecànic de la proposta",
+            "source_type": row.get("source_type", ""),
+            "identifier": row.get("identifier", ""),
+        }
+        for row in result.validation_payload.get("professional_knowledge", {}).get(
+            "sources", []
+        )
+    ]
     run.model_name = result.model_name
     run.agent_trace = list(result.tool_trace)
     run.response_ids = list(result.response_ids)
     run.usage_payload = result.usage_payload
-    run.validation_payload = result.validation_payload
+    run.validation_payload = dict(result.validation_payload)
+    run.validation_payload["review_required"] = bool(result.review_required)
+    run.validation_payload["review_issues"] = list(result.review_issues)
     run.progress_payload = {
         "stage": "completed",
-        "message": "Proposta preparada i validada.",
+        "message": (
+            "Proposta preparada; requereix revisió de l'entrenador."
+            if result.review_required
+            else "Proposta preparada i validada."
+        ),
         "round": len(result.response_ids),
         "tool_calls": len(result.tool_trace),
         "updated_at": timezone.now().isoformat(),
     }
-    run.status = BlockGenerationRun.Status.PROPOSED
+    run.status = (
+        BlockGenerationRun.Status.REVIEW_REQUIRED
+        if result.review_required
+        else BlockGenerationRun.Status.PROPOSED
+    )
     run.error_code = ""
     run.error_message = ""
     run.save()
@@ -120,7 +147,7 @@ def create_block_generation_run(
         refinement_instruction=refinement,
         prompt_version=AGENT_PROMPT_VERSION,
         engine_version=AGENT_ENGINE_VERSION,
-        contract_version="3.1",
+        contract_version="3.5",
         request_payload={
             "planned_duration_minutes": duration_minutes,
             "block_role": block_role,
@@ -160,7 +187,7 @@ def _mark_failed(run, error):
         pass
 
 
-def execute_block_generation_run(*, user, run):
+def execute_block_generation_run(*, user, run, context=None):
     """Execute an existing processing run; safe for Celery or synchronous callers."""
 
     with transaction.atomic():
@@ -185,7 +212,10 @@ def execute_block_generation_run(*, user, run):
     block_role = run.request_payload["block_role"]
     parent_run = run.parent_run
     try:
-        context = build_block_engine_context(user=user, revision=run.session_revision)
+        if context is None:
+            context = build_block_engine_context(user=user, revision=run.session_revision)
+        elif context.revision.pk != run.session_revision_id:
+            raise ValidationError("El context congelat no pertany a aquesta versió de sessió.")
         return _complete_agent_run(
             run=run,
             context=context,
@@ -309,15 +339,34 @@ def resume_generation_run(*, user, run, decisions=None):
 
 
 @transaction.atomic
-def apply_generation_run(*, user, run):
+def apply_generation_run(*, user, run, acknowledge_review=False):
     locked = BlockGenerationRun.objects.select_for_update().select_related(
         "session_revision__session"
     ).get(pk=run.pk)
-    if locked.status != BlockGenerationRun.Status.PROPOSED:
+    allowed_statuses = {
+        BlockGenerationRun.Status.PROPOSED,
+        BlockGenerationRun.Status.REVIEW_REQUIRED,
+    }
+    if locked.status not in allowed_statuses:
         raise ValidationError("Aquesta proposta ja no es pot aplicar.")
+    if (
+        locked.status == BlockGenerationRun.Status.REVIEW_REQUIRED
+        and not acknowledge_review
+    ):
+        raise ValidationError(
+            "Confirma la revisió abans d'afegir aquesta proposta com a esborrany editable."
+        )
     proposal = proposal_from_payload(locked.proposal_payload)
     block = apply_block_generation_proposal(user=user, proposal=proposal)
     locked.applied_block = block
+    if locked.status == BlockGenerationRun.Status.REVIEW_REQUIRED:
+        audit = dict(locked.validation_payload or {})
+        audit["human_review_acknowledgement"] = {
+            "person_id": getattr(person_for_user(user), "pk", None),
+            "acknowledged_at": timezone.now().isoformat(),
+            "action": "applied_as_editable_draft",
+        }
+        locked.validation_payload = audit
     locked.status = BlockGenerationRun.Status.APPLIED
     locked.save()
     return block
@@ -326,6 +375,7 @@ def apply_generation_run(*, user, run):
 def discard_generation_run(*, run):
     if run.status not in {
         BlockGenerationRun.Status.PROPOSED,
+        BlockGenerationRun.Status.REVIEW_REQUIRED,
         BlockGenerationRun.Status.AWAITING_DECISION,
     }:
         raise ValidationError("Aquesta proposta ja no es pot descartar.")

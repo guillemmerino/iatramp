@@ -5,6 +5,7 @@ from core.models import Person
 from iatrain.models import (
     PhysicalExercisePrescription,
     SessionGoal,
+    SessionItemAthleteAdjustment,
     TrainingBlock,
     TrainingSessionItem,
 )
@@ -158,4 +159,110 @@ class TrainingItemForm(forms.Form):
                 PhysicalExercisePrescription.DoseMode.HOLD,
             } and not cleaned.get("duration_seconds"):
                 self.add_error("duration_seconds", "Indica el temps de treball.")
+        return cleaned
+
+
+class SessionItemAthleteAdjustmentForm(forms.ModelForm):
+    replacement_exercise_revision = ExerciseRevisionChoiceField(
+        label="Exercici de substitució",
+        queryset=ExerciseRevision.objects.none(),
+        required=False,
+        empty_label="Mantén l’exercici compartit",
+    )
+
+    class Meta:
+        model = SessionItemAthleteAdjustment
+        fields = (
+            "action",
+            "replacement_exercise_revision",
+            "sets",
+            "repetitions",
+            "duration_seconds",
+            "load_value",
+            "load_unit",
+            "intensity_metric",
+            "intensity_value",
+            "rest_between_sets_seconds",
+            "station_remainder_action",
+            "adaptation_notes",
+            "rationale",
+        )
+        labels = {
+            "action": "Decisió",
+            "sets": "Sèries",
+            "repetitions": "Repeticions",
+            "duration_seconds": "Temps de treball individual (s)",
+            "load_value": "Càrrega",
+            "load_unit": "Unitat de càrrega",
+            "intensity_metric": "Mètrica d’intensitat",
+            "intensity_value": "Valor d’intensitat",
+            "rest_between_sets_seconds": "Descans entre sèries (s)",
+            "station_remainder_action": "Ús del temps restant de l’estació",
+            "adaptation_notes": "Indicacions d’adaptació",
+            "rationale": "Justificació",
+        }
+        widgets = {
+            "adaptation_notes": forms.Textarea(attrs={"rows": 3}),
+            "rationale": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, owner, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["replacement_exercise_revision"].queryset = (
+            ExerciseRevision.objects.filter(exercise__catalog__owner=owner)
+            .exclude(editorial_status=EditorialStatus.RETIRED)
+            .select_related("exercise")
+            .order_by("exercise__name", "-revision_number")
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        action = cleaned.get("action")
+        replacement = cleaned.get("replacement_exercise_revision")
+        if action == SessionItemAthleteAdjustment.Action.SKIP:
+            for field in (
+                "replacement_exercise_revision",
+                "sets",
+                "repetitions",
+                "duration_seconds",
+                "load_value",
+                "intensity_value",
+                "rest_between_sets_seconds",
+            ):
+                cleaned[field] = None
+            cleaned["load_unit"] = ""
+            cleaned["intensity_metric"] = ""
+            cleaned["station_remainder_action"] = ""
+            replacement = None
+        if action == SessionItemAthleteAdjustment.Action.REPLACE and not replacement:
+            self.add_error(
+                "replacement_exercise_revision",
+                "Selecciona l’exercici de substitució.",
+            )
+        item = self.instance.session_item
+        base_duration = None
+        if item_id := getattr(item, "pk", None):
+            try:
+                base_duration = item.physical_prescription.duration_seconds
+            except PhysicalExercisePrescription.DoesNotExist:
+                base_duration = None
+        duration = cleaned.get("duration_seconds")
+        remainder = cleaned.get("station_remainder_action")
+        circuit_modes = {
+            TrainingBlock.ExecutionMode.CIRCUIT,
+            TrainingBlock.ExecutionMode.STATIONS,
+            TrainingBlock.ExecutionMode.PARALLEL,
+            TrainingBlock.ExecutionMode.SUPERSET,
+        }
+        if item_id and base_duration and item.block.execution_mode in circuit_modes:
+            if duration and duration > base_duration:
+                self.add_error(
+                    "duration_seconds",
+                    "El temps individual no pot superar la durada compartida de l’estació.",
+                )
+            if duration and duration < base_duration and not remainder:
+                self.add_error(
+                    "station_remainder_action",
+                    "Indica què farà la participant durant el temps restant.",
+                )
         return cleaned

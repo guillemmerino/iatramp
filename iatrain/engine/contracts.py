@@ -11,7 +11,7 @@ from decimal import Decimal
 
 TARGET_INTENSITIES = ("low", "moderate", "high", "very_high")
 BLOCK_PARTICIPANT_MODES = ("shared", "personalized", "excluded")
-ATHLETE_ADJUSTMENT_ACTIONS = ("modify", "replace", "skip")
+ATHLETE_ADJUSTMENT_ACTIONS = ("monitor", "modify", "replace", "skip")
 CONDITION_DECISION_ACTIONS = (
     "not_applicable",
     "monitor",
@@ -19,6 +19,9 @@ CONDITION_DECISION_ACTIONS = (
     "replace",
     "skip",
 )
+STATION_REMAINDER_ACTIONS = ("", "rest", "reset", "monitor")
+KNOWLEDGE_SUPPORT_STATUSES = ("grounded", "hypothesis", "not_applicable")
+INDIVIDUAL_SUPPORT_STATUSES = ("grounded", "hypothesis")
 PHYSICAL_BLOCK_HARD_CONSTRAINTS = (
     "validated_only",
     "bodyweight_only",
@@ -92,6 +95,26 @@ class ExerciseAlternativeProposal:
 
 
 @dataclass(frozen=True, slots=True)
+class IndividualAdjustmentSupport:
+    """Auditable bridge between a profile condition and an individual change.
+
+    Professional claims ground facts about the exercise. The clinical relevance
+    remains an explicit, bounded inference rather than being attributed to the
+    anatomical-biomechanical source.
+    """
+
+    condition_ids: tuple[int, ...]
+    profile_factor_codes: tuple[str, ...]
+    professional_claim_ids: tuple[str, ...]
+    affected_phase_codes: tuple[str, ...]
+    biomechanical_relevance: str
+    adaptation_goal: str
+    monitoring_criteria: tuple[str, ...]
+    stop_criteria: tuple[str, ...]
+    evidence_status: str = "hypothesis"
+
+
+@dataclass(frozen=True, slots=True)
 class AthleteAdjustmentProposal:
     participant_plan_id: int
     rationale: str
@@ -105,7 +128,32 @@ class AthleteAdjustmentProposal:
     intensity_metric: str = ""
     intensity_value: Decimal | None = None
     rest_between_sets_seconds: int | None = None
+    station_remainder_action: str = ""
     adaptation_notes: str = ""
+    professional_justification: IndividualAdjustmentSupport | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProfessionalKnowledgeClaim:
+    claim_id: str
+    exercise_revision_id: int
+    phase_code: str = ""
+    claim_type: str = ""
+    action_code: str = ""
+    muscle_code: str = ""
+    basis_type: str = ""
+    basis_code: str = ""
+    expected_contraction: str = "not_applicable"
+    verification_state: str = ""
+    evidence_codes: tuple[str, ...] = field(default_factory=tuple)
+    limitations: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class ExerciseKnowledgeSupport:
+    status: str
+    summary: str
+    claims: tuple[ProfessionalKnowledgeClaim, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +167,7 @@ class BlockItemProposal:
     planned_duration_seconds: int | None = None
     rest_after_seconds: int = 0
     selection_rationale: str = ""
+    knowledge_support: ExerciseKnowledgeSupport | None = None
     is_optional: bool = False
     dose: ExerciseDoseProposal | None = None
     alternatives: tuple[ExerciseAlternativeProposal, ...] = field(default_factory=tuple)

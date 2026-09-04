@@ -43,6 +43,7 @@ urlpatterns = [
     path("sessions/<int:pk>/blocs/<int:block_pk>/editar/", views.session_block_edit, name="iatrain_session_block_edit"),
     path("sessions/<int:pk>/blocs/<int:block_pk>/items/afegir/", views.session_item_create, name="iatrain_session_item_create"),
     path("sessions/<int:pk>/items/<int:item_pk>/editar/", views.session_item_edit, name="iatrain_session_item_edit"),
+    path("sessions/<int:pk>/ajustaments/<int:adjustment_pk>/editar/", views.session_item_adjustment_edit, name="iatrain_session_item_adjustment_edit"),
     path("sessions/<int:pk>/items/<int:item_pk>/eliminar/", views.session_item_delete, name="iatrain_session_item_delete"),
     path("sessions/<int:pk>/versions/<int:revision_pk>/estat/", views.session_revision_transition, name="iatrain_session_revision_transition"),
     path("graf-coneixement/", views.knowledge_graph, name="iatrain_knowledge_graph"),

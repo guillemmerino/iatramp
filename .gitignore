@@ -21,3 +21,7 @@ media/
 /family-*-contact.webp
 /variants-*-contact.webp
 /variants-qa-*.webp
+
+# Resultats locals i tarifes introduïdes per als benchmarks LLM.
+/var/benchmarks/
+/benchmark_pricing.local.json

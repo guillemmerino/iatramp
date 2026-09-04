@@ -191,6 +191,15 @@ No s'ha d'executar sense haver sembrat abans `seed_motion_vocabulary` i `seed_fu
 
 En treball editorial es pot usar `include_drafts=True`. Un motor productiu no ho ha de fer.
 
+El motor agentiu `3.10` consumeix aquesta estructura mitjançant una projecció acotada. La
+cerca admet accions, músculs i contraccions previstes; els finalistes recuperen camins
+equivalents a `explanation_paths` com a claims auditables. Un exercici sense camí suficient
+no queda prohibit: només es pot presentar com a hipòtesi explícita.
+
+Els contractes `3.4` i `3.5` reutilitzen aquests claims dins de cada variant individual. La base
+fonamenta les fases i funcions de l'exercici; la relació amb una condició o factor del
+perfil queda separada com una inferència amb objectiu, monitoratge i criteris d'aturada.
+
 ## 8. Protocol obligatori per ampliar el catàleg
 
 Aquest apartat és la referència principal per a un agent futur que hagi de crear una bateria gran d'exercicis.

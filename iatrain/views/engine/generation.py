@@ -167,7 +167,10 @@ def block_generation_refine(request, pk, run_pk):
     session = _session_for(request.user, pk)
     parent = _run_for(session, run_pk)
     revision = parent.session_revision
-    refinable = parent.status == parent.Status.PROPOSED or (
+    refinable = parent.status in {
+        parent.Status.PROPOSED,
+        parent.Status.REVIEW_REQUIRED,
+    } or (
         parent.status == parent.Status.AWAITING_DECISION
         and parent.decision_payload.get("kind") == "intent_clarification"
     )
@@ -278,7 +281,11 @@ def block_generation_apply(request, pk, run_pk):
     session = _session_for(request.user, pk)
     run = _run_for(session, run_pk)
     try:
-        apply_generation_run(user=request.user, run=run)
+        apply_generation_run(
+            user=request.user,
+            run=run,
+            acknowledge_review=request.POST.get("acknowledge_review") == "yes",
+        )
     except ValidationError as error:
         messages.error(request, " ".join(error.messages))
         return redirect(_detail_url(session, run.session_revision, run))

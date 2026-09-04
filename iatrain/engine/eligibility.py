@@ -5,8 +5,8 @@ from dataclasses import dataclass, replace
 
 EXCLUDE_FROM_BLOCK = "exclude_from_block"
 ALLOW_AGENT_INTERPRETATION = "allow_agent_interpretation"
-# Kept for compatibility with historical decision payloads. Missing age is now
-# context for the planning agent, not a mandatory deterministic interruption.
+# Kept for compatibility with historical decision payloads. Missing profile data
+# is context for the planning agent, not a mandatory deterministic interruption.
 CONTINUE_CONSERVATIVELY = "continue_conservatively"
 
 
@@ -50,28 +50,25 @@ def analyze_participant_eligibility(*, context, decisions=None):
                 "Exclusió d’aquest bloc confirmada per l’entrenador."
             )
             continue
-        uncertain_conditions = [
+        scoped_conditions = [
             condition
             for condition in conditions
             if condition.get("training_impact") in {"avoid", "modify"}
-            and condition.get("applicability_scope", "unknown") == "unknown"
-            and not (condition.get("body_region") or {}).get("code")
         ]
-        uncertain_exclusion = next(
+        condition_exclusion = next(
             (
                 condition
-                for condition in uncertain_conditions
+                for condition in scoped_conditions
                 if decisions.get(f"condition_{condition.get('id')}")
                 == EXCLUDE_FROM_BLOCK
             ),
             None,
         )
-        if uncertain_exclusion:
+        if condition_exclusion:
             excluded.append(participant_id)
             exclusion_reasons[participant_id] = (
-                "Exclusió confirmada per l'entrenador davant una condició amb "
-                "abast pendent: "
-                + uncertain_exclusion.get("title", "condició activa")
+                "Exclusió confirmada per l'entrenador davant una condició activa: "
+                + condition_exclusion.get("title", "condició activa")
             )
             continue
         stop_conditions = [
@@ -99,36 +96,6 @@ def analyze_participant_eligibility(*, context, decisions=None):
                 }
             )
             continue
-
-        for condition in uncertain_conditions:
-            decision_key = f"condition_{condition.get('id')}"
-            if decisions.get(decision_key) == ALLOW_AGENT_INTERPRETATION:
-                condition["coach_scope_decision"] = ALLOW_AGENT_INTERPRETATION
-                continue
-            issues.append(
-                {
-                    "participant_plan_id": participant_id,
-                    "decision_key": decision_key,
-                    "reason_code": "condition_scope_unknown",
-                    "title": "Falta concretar l’abast d’una condició",
-                    "explanation": (
-                        f"«{condition.get('title', 'Condició activa')}» està marcada com "
-                        "a condició que obliga a evitar o modificar, però no indica una "
-                        "regió corporal ni un abast global."
-                    ),
-                    "choices": [
-                        {
-                            "value": ALLOW_AGENT_INTERPRETATION,
-                            "label": "Deixar que l’agent busqui adaptacions prudents",
-                        },
-                        {
-                            "value": EXCLUDE_FROM_BLOCK,
-                            "label": "Excloure-la només d’aquest bloc",
-                        },
-                    ],
-                    "profile_review_available": True,
-                }
-            )
 
         active.append(participant_id)
 

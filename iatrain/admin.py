@@ -69,6 +69,7 @@ class BlockGenerationRunAdmin(admin.ModelAdmin):
     autocomplete_fields = ("session_revision", "created_by", "parent_run", "applied_block")
     readonly_fields = (
         "interpretation_payload",
+        "planning_payload",
         "request_payload",
         "proposal_payload",
         "decision_payload",

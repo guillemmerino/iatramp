@@ -17,6 +17,9 @@ from .contracts import (
     ParticipantConditionDecision,
     ExerciseAlternativeProposal,
     ExerciseDoseProposal,
+    ExerciseKnowledgeSupport,
+    IndividualAdjustmentSupport,
+    ProfessionalKnowledgeClaim,
 )
 from .selection import TrainingSelection, build_training_selection
 from .context import BlockEngineContext, build_block_engine_context
@@ -46,6 +49,9 @@ __all__ = (
     "ParticipantConditionDecision",
     "ExerciseAlternativeProposal",
     "ExerciseDoseProposal",
+    "ExerciseKnowledgeSupport",
+    "IndividualAdjustmentSupport",
+    "ProfessionalKnowledgeClaim",
     "TrainingSelection",
     "apply_block_generation_proposal",
     "build_training_selection",

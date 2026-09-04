@@ -11,6 +11,7 @@ class BlockGenerationRun(CleanOnSaveModel):
         PROCESSING = "processing", "Generant"
         AWAITING_DECISION = "awaiting_decision", "Esperant decisió"
         PROPOSED = "proposed", "Proposta preparada"
+        REVIEW_REQUIRED = "review_required", "Requereix revisió"
         APPLIED = "applied", "Afegida a la sessió"
         DISCARDED = "discarded", "Descartada"
         FAILED = "failed", "No completada"
@@ -47,6 +48,7 @@ class BlockGenerationRun(CleanOnSaveModel):
     prompt = models.TextField()
     refinement_instruction = models.TextField(blank=True, default="")
     interpretation_payload = models.JSONField(blank=True, default=dict)
+    planning_payload = models.JSONField(blank=True, default=dict)
     request_payload = models.JSONField(blank=True, default=dict)
     proposal_payload = models.JSONField(blank=True, default=dict)
     decision_payload = models.JSONField(blank=True, default=dict)
@@ -89,6 +91,7 @@ class BlockGenerationRun(CleanOnSaveModel):
                 errors["status"] = "Una proposta amb bloc aplicat ha d'estar marcada com aplicada."
         for field_name in (
             "interpretation_payload",
+            "planning_payload",
             "request_payload",
             "proposal_payload",
             "decision_payload",

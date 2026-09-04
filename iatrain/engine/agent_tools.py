@@ -11,9 +11,16 @@ from iatrain_exercises.models import (
     ExerciseObjective,
     ExerciseRevision,
 )
+from iatrain_exercises.knowledge import (
+    PROFESSIONAL_CONCEPT_KINDS,
+    build_exercise_knowledge_support,
+    search_professional_concepts,
+)
 from iatrain_motion.models import EditorialStatus
 
 from .guidelines import resolve_guideline
+from .context import build_group_engine_summary
+from .planning import planning_brief_schema, validate_planning_brief
 from .scoring import (
     OBJECTIVE_MODALITIES,
     PATTERN_REGIONS,
@@ -24,7 +31,7 @@ from .serialization import proposal_from_payload, proposal_payload_from_agent_ou
 from .validation import validate_block_generation_proposal
 
 
-TOOL_VERSION = "training-agent-tools-1.3"
+TOOL_VERSION = "training-agent-tools-1.9"
 
 
 def _nullable(type_name):
@@ -44,6 +51,78 @@ def tool_definitions():
     """Return strict Responses API function definitions."""
 
     return [
+        {
+            "type": "function",
+            "name": "submit_block_planning_brief",
+            "description": (
+                "Registra el pla de resultats abans de consultar el catàleg. No incloguis "
+                "exercicis ni identificadors de revisions: defineix objectiu, cobertura, "
+                "càrrega, temps, abast de restriccions i estratègia de cerca."
+            ),
+            "strict": True,
+            "parameters": planning_brief_schema(),
+        },
+        {
+            "type": "function",
+            "name": "get_participant_context",
+            "description": (
+                "Amplia sota demanda el context d'una participant activa. Usa-la només "
+                "quan el resum inicial no sigui suficient per personalitzar o dosificar."
+            ),
+            "strict": True,
+            "parameters": _object(
+                {
+                    "participant_plan_id": {"type": "integer"},
+                    "sections": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": [
+                                "sport_profiles",
+                                "conditions",
+                                "observations",
+                                "training_responses",
+                                "measurements",
+                                "insights",
+                            ],
+                        },
+                    },
+                }
+            ),
+        },
+        {
+            "type": "function",
+            "name": "get_group_training_summary",
+            "description": (
+                "Recupera de nou el resum factual del grup actiu: heterogeneïtat, "
+                "condicions, disponibilitat de salut i activitat recent."
+            ),
+            "strict": True,
+            "parameters": _object({}),
+        },
+        {
+            "type": "function",
+            "name": "search_professional_concepts",
+            "description": (
+                "Resol objectius anatòmics o biomecànics en conceptes validats de la "
+                "base professional. Usa-la per peticions sobre moviments, articulacions, "
+                "músculs, grups musculars o tipus de contracció abans de filtrar exercicis."
+            ),
+            "strict": True,
+            "parameters": _object(
+                {
+                    "query": {"type": "string"},
+                    "kinds": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": list(PROFESSIONAL_CONCEPT_KINDS),
+                        },
+                    },
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 30},
+                }
+            ),
+        },
         {
             "type": "function",
             "name": "search_exercises",
@@ -80,6 +159,24 @@ def tool_definitions():
                             "enum": list(ExerciseRevision.Difficulty.values),
                         },
                     },
+                    "action_codes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "muscle_codes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "expected_contractions": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": [
+                                "concentric", "eccentric", "isometric",
+                                "variable", "indeterminate",
+                            ],
+                        },
+                    },
                     "equipment_mode": {
                         "type": "string",
                         "enum": ["available_only", "bodyweight_only", "any"],
@@ -97,7 +194,30 @@ def tool_definitions():
         {
             "type": "function",
             "name": "get_exercise_details",
-            "description": "Obté descripció, execució, seguretat, objectius i restriccions de candidats ja retornats.",
+            "description": (
+                "Obté descripció, execució, seguretat, objectius i restriccions dels "
+                "candidats retornats. És compacte i no repeteix els claims professionals."
+            ),
+            "strict": True,
+            "parameters": _object(
+                {
+                    "exercise_revision_ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "minItems": 1,
+                        "maxItems": 8,
+                    }
+                }
+            ),
+        },
+        {
+            "type": "function",
+            "name": "get_exercise_knowledge_support",
+            "description": (
+                "Recupera de nou, de manera explícita, els camins professionals validats "
+                "d'exercicis ja retornats: fase, acció, múscul, funció, contracció, "
+                "verificació, fonts i limitacions. Crida-la una sola vegada per finalista."
+            ),
             "strict": True,
             "parameters": _object(
                 {
@@ -171,8 +291,9 @@ def tool_definitions():
             "name": "find_compatible_alternatives",
             "description": (
                 "Busca substitucions reals per a un exercici i una participant concreta. "
-                "Conserva opcionalment el patró, respecta material i condicions aplicables, "
-                "i explica els descartes. Cal usar-la abans de proposar skip."
+                "Conserva sempre la regió corporal, prioritza el patró i l'objectiu, "
+                "respecta material i condicions aplicables, i explica els descartes. "
+                "Cal usar-la abans de proposar skip."
             ),
             "strict": True,
             "parameters": _object(
@@ -281,12 +402,14 @@ class AgentToolExecutor:
         max_results=20,
         max_unique_candidates=100,
         allow_drafts=False,
+        require_planning=False,
     ):
         self.context = context
         self.request_hint = request_hint
         self.max_results = max(1, min(int(max_results), 30))
         self.max_unique_candidates = max(1, int(max_unique_candidates))
         self.allow_drafts = bool(allow_drafts)
+        self.require_planning = bool(require_planning)
         self.allowed_exercise_ids = set()
         self.trace = []
         self.last_timing = None
@@ -298,6 +421,17 @@ class AgentToolExecutor:
         self.detail_exercise_ids = set()
         self.guidance_pairs = set()
         self.compatibility_pairs = set()
+        self.allowed_professional_codes = set()
+        self.professional_concept_calls = 0
+        self.knowledge_exercise_ids = set()
+        self.knowledge_claim_ids = {}
+        self.knowledge_claims = {}
+        self.knowledge_sources = {}
+        self.planning_brief = None
+        self.participant_context_calls = set()
+        self.group_context_calls = 0
+        self.guidance_packets = []
+        self.compatibility_packets = []
 
     @property
     def participant_ids(self):
@@ -310,8 +444,13 @@ class AgentToolExecutor:
 
     def execute(self, name, arguments):
         handlers = {
+            "submit_block_planning_brief": self._submit_block_planning_brief,
+            "get_participant_context": self._get_participant_context,
+            "get_group_training_summary": self._get_group_training_summary,
+            "search_professional_concepts": self._search_professional_concepts,
             "search_exercises": self._search_exercises,
             "get_exercise_details": self._get_exercise_details,
+            "get_exercise_knowledge_support": self._get_exercise_knowledge_support,
             "get_prescription_guidance": self._get_prescription_guidance,
             "check_participant_compatibility": self._check_participant_compatibility,
             "find_compatible_alternatives": self._find_compatible_alternatives,
@@ -320,6 +459,22 @@ class AgentToolExecutor:
         }
         if name not in handlers:
             raise ValidationError("L'agent ha demanat una eina desconeguda.")
+        if (
+            self.require_planning
+            and name != "submit_block_planning_brief"
+            and self.planning_brief is None
+        ):
+            raise ValidationError(
+                "Primer cal registrar un pla previ vàlid amb "
+                "submit_block_planning_brief."
+            )
+        if (
+            name == "submit_block_planning_brief"
+            and self.planning_brief is not None
+        ):
+            raise ValidationError(
+                "El pla previ ja està acceptat; conserva'l durant aquesta generació."
+            )
         if name == "audit_block_draft":
             self.audit_calls += 1
         result = handlers[name](arguments)
@@ -343,7 +498,13 @@ class AgentToolExecutor:
             ),
             "exercise_revision_ids": sorted(result_ids),
             "status": "ok",
+            "result_bytes": len(
+                json.dumps(result, ensure_ascii=False, default=str).encode("utf-8")
+            ),
         }
+        if name == "submit_block_planning_brief":
+            trace_row["planning_contract_version"] = result.get("contract_version")
+            trace_row["coverage_mode"] = result.get("coverage_mode")
         if name in {"search_exercises", "find_compatible_alternatives"}:
             trace_row["requested_validated_only"] = result.get(
                 "requested_validated_only"
@@ -363,8 +524,136 @@ class AgentToolExecutor:
         if name == "calculate_block_timing":
             trace_row["total_seconds"] = result.get("total_seconds")
             trace_row["fits_budget"] = result.get("fits_budget")
+        if name == "search_professional_concepts":
+            trace_row["professional_concept_codes"] = sorted(
+                row.get("concept_code", "")
+                for row in result.get("results", [])
+                if row.get("concept_code")
+            )
+        if name == "get_exercise_knowledge_support":
+            knowledge_rows = result.get("results", [])
+            trace_row["knowledge_claim_ids"] = sorted(
+                claim["claim_id"]
+                for row in knowledge_rows
+                for claim in row.get("claims", [])
+            )
         self.trace.append(trace_row)
         return result
+
+    def _submit_block_planning_brief(self, arguments):
+        brief = dict(arguments)
+        validate_planning_brief(
+            brief,
+            context=self.context,
+            request_hint=self.request_hint,
+        )
+        self.planning_brief = brief
+        return {"accepted": True, **brief}
+
+    def _get_participant_context(self, arguments):
+        participant_id = int(arguments["participant_plan_id"])
+        if participant_id not in self.participant_ids:
+            raise ValidationError("Només es pot ampliar el context d'una participant activa.")
+        athlete = next(
+            (
+                row
+                for row in self.context.athletes
+                if row.participant_plan_id == participant_id
+            ),
+            None,
+        )
+        if athlete is None:
+            raise ValidationError("La participant no pertany al context congelat.")
+        payload = athlete.payload
+        sections = list(dict.fromkeys(arguments.get("sections", [])))
+        if not sections:
+            raise ValidationError("Cal indicar almenys una secció de context.")
+        mapping = {
+            "sport_profiles": payload.get("sport_profiles", []),
+            "conditions": payload.get("active_conditions", []),
+            "observations": payload.get("current_observations", [])[:20],
+            "training_responses": payload.get("recent_training_responses", [])[:30],
+            "measurements": {
+                "latest": payload.get("latest_measurements", []),
+                "history": payload.get("measurement_history", []),
+            },
+            "insights": {
+                "confirmed": payload.get("confirmed_insights", []),
+                "proposed": payload.get("proposed_insights", []),
+            },
+        }
+        self.participant_context_calls.add(participant_id)
+        return {
+            "participant_plan_id": participant_id,
+            "as_of": payload.get("as_of"),
+            "health_data_available": payload.get("scope", {}).get(
+                "health_data_available", False
+            ),
+            "sections": {name: mapping[name] for name in sections},
+        }
+
+    def _get_group_training_summary(self, arguments):
+        self.group_context_calls += 1
+        return build_group_engine_summary(self.context, self.participant_ids)
+
+    def _search_professional_concepts(self, arguments):
+        self.professional_concept_calls += 1
+        result = search_professional_concepts(
+            query=arguments["query"],
+            kinds=arguments["kinds"],
+            limit=arguments["limit"],
+        )
+        for row in result["results"]:
+            self.allowed_professional_codes.add(row["concept_code"])
+            for relation in row.get("relations", []):
+                self.allowed_professional_codes.update(
+                    value
+                    for value in (
+                        relation.get("source_code"),
+                        relation.get("target_code"),
+                    )
+                    if value
+                )
+        return {
+            "query": result.get("query", ""),
+            "results": [
+                {
+                    "concept_code": row.get("concept_code", ""),
+                    "name": row.get("name", ""),
+                    "kind": row.get("kind", ""),
+                    "relations": [
+                        {
+                            key: relation.get(key, "")
+                            for key in (
+                                "direction",
+                                "relation_type",
+                                "source_code",
+                                "source_kind",
+                                "target_code",
+                                "target_kind",
+                            )
+                        }
+                        for relation in row.get("relations", [])
+                    ],
+                }
+                for row in result.get("results", [])
+            ],
+            "policy": result.get("policy", {}),
+        }
+
+    def _record_knowledge(self, payload):
+        for row in payload.get("results", []):
+            exercise_id = int(row["exercise_revision_id"])
+            self.knowledge_exercise_ids.add(exercise_id)
+            self.knowledge_claim_ids.setdefault(exercise_id, set()).update(
+                claim["claim_id"] for claim in row.get("claims", [])
+            )
+            self.knowledge_claims.update(
+                {claim["claim_id"]: claim for claim in row.get("claims", [])}
+            )
+        for source in payload.get("sources", []):
+            self.knowledge_sources[source["code"]] = source
+        return payload
 
     def _queryset(self):
         return (
@@ -470,8 +759,10 @@ class AgentToolExecutor:
                 for row in conditions
                 if row["applicability"] == "applies"
             }
-            if applicable_impacts & {"stop", "avoid"}:
+            if "stop" in applicable_impacts:
                 compatibility = "incompatible"
+            elif "avoid" in applicable_impacts:
+                compatibility = "requires_risk_resolution"
             elif "modify" in applicable_impacts:
                 compatibility = "requires_modification"
             elif any(row["applicability"] == "uncertain" for row in conditions):
@@ -500,6 +791,19 @@ class AgentToolExecutor:
 
     def _summary(self, revision, athletes, *, compact=False):
         required, optional = self._equipment(revision)
+        considerations = self._considerations(
+            revision, athletes, compact=compact
+        )
+        visible_considerations = considerations
+        compatible_count = 0
+        if compact:
+            compatible_count = sum(
+                row["compatibility"] == "compatible" for row in considerations
+            )
+            visible_considerations = [
+                row for row in considerations
+                if row["compatibility"] != "compatible"
+            ]
         return {
             "exercise_revision_id": revision.pk,
             "exercise_code": revision.exercise.code,
@@ -518,14 +822,24 @@ class AgentToolExecutor:
                 for row in revision.objectives.all()
             ],
             "safety_notes": "" if compact else revision.safety_notes,
-            "participant_considerations": self._considerations(
-                revision, athletes, compact=compact
-            ),
+            "compatible_participant_count": compatible_count if compact else None,
+            "participant_considerations": visible_considerations,
         }
 
     def _search_exercises(self, arguments):
         athletes = self._participants(arguments["participant_plan_ids"])
         queryset = self._queryset()
+        requested_professional_codes = set(arguments.get("action_codes", [])) | set(
+            arguments.get("muscle_codes", [])
+        )
+        if not requested_professional_codes.issubset(self.allowed_professional_codes):
+            unknown = sorted(
+                requested_professional_codes - self.allowed_professional_codes
+            )
+            raise ValidationError(
+                "Primer cal resoldre els codis professionals mitjançant "
+                f"search_professional_concepts: {unknown}."
+            )
         tokens = [part for part in arguments["query"].split() if len(part) >= 3][:8]
         if tokens:
             query_filter = Q()
@@ -544,6 +858,20 @@ class AgentToolExecutor:
             queryset = queryset.filter(modality__in=arguments["modalities"])
         if arguments["difficulties"]:
             queryset = queryset.filter(difficulty__in=arguments["difficulties"])
+        if arguments.get("action_codes"):
+            queryset = queryset.filter(
+                phases__actions__action__code__in=arguments["action_codes"]
+            )
+        if arguments.get("muscle_codes"):
+            queryset = queryset.filter(
+                phases__muscle_roles__muscle__code__in=arguments["muscle_codes"]
+            )
+        if arguments.get("expected_contractions"):
+            queryset = queryset.filter(
+                phases__muscle_roles__expected_contraction__in=arguments[
+                    "expected_contractions"
+                ]
+            )
         objective = arguments["objective"]
         if objective:
             queryset = queryset.filter(
@@ -635,6 +963,11 @@ class AgentToolExecutor:
     def _get_exercise_details(self, arguments):
         revisions = self._allowed_revisions(arguments["exercise_revision_ids"])
         self.detail_exercise_ids.update(row.pk for row in revisions)
+        compatibility_knowledge = None
+        if not self.require_planning:
+            compatibility_knowledge = self._record_knowledge(
+                build_exercise_knowledge_support(revisions=revisions)
+            )
         athletes = list(self.context.athletes)
         results = []
         for revision in revisions:
@@ -655,11 +988,41 @@ class AgentToolExecutor:
                         }
                         for item in revision.constraints.all()
                     ],
-                    "provenance": revision.provenance,
                 }
             )
             results.append(row)
-        return {"results": results}
+        payload = {
+            "results": results,
+            "knowledge_note": (
+                "Els claims no s'inclouen aquí; recupera'ls una vegada amb "
+                "get_exercise_knowledge_support només per als finalistes."
+            ),
+        }
+        if compatibility_knowledge is not None:
+            payload["knowledge_support"] = compatibility_knowledge
+        return payload
+
+    def _get_exercise_knowledge_support(self, arguments):
+        revisions = self._allowed_revisions(arguments["exercise_revision_ids"])
+        already_loaded = sorted(
+            row.pk for row in revisions if row.pk in self.knowledge_exercise_ids
+        )
+        pending = [
+            row for row in revisions if row.pk not in self.knowledge_exercise_ids
+        ]
+        payload = (
+            self._record_knowledge(
+                build_exercise_knowledge_support(revisions=pending)
+            )
+            if pending
+            else {"results": [], "sources": []}
+        )
+        payload["already_loaded_exercise_revision_ids"] = already_loaded
+        if already_loaded:
+            payload["retrieval_note"] = (
+                "El servidor ja conserva aquests claims; no es tornen a enviar."
+            )
+        return payload
 
     def _get_prescription_guidance(self, arguments):
         revisions = self._allowed_revisions(arguments["exercise_revision_ids"])
@@ -669,7 +1032,7 @@ class AgentToolExecutor:
             for revision in revisions
             for athlete in athletes
         )
-        results = []
+        grouped = {}
         sources = {}
         for revision in revisions:
             for athlete in athletes:
@@ -686,16 +1049,47 @@ class AgentToolExecutor:
                         "source": source_key[0],
                         "source_url": source_key[1],
                     }
-                results.append(
+                key = (revision.pk, json.dumps(guidance, sort_keys=True, default=str))
+                row = grouped.setdefault(
+                    key,
                     {
                         "exercise_revision_id": revision.pk,
-                        "participant_plan_id": athlete.participant_plan_id,
-                        "population_stage": athlete.prescription_profile.population_stage,
-                        "experience_level": athlete.prescription_profile.experience_level,
+                        "participant_plan_ids": [],
+                        "profiles": [],
                         "guidance": guidance,
-                    }
+                    },
                 )
-        return {"results": results, "sources": list(sources.values())}
+                row["participant_plan_ids"].append(athlete.participant_plan_id)
+                profile = {
+                    "population_stage": athlete.prescription_profile.population_stage,
+                    "experience_level": athlete.prescription_profile.experience_level,
+                }
+                if profile not in row["profiles"]:
+                    row["profiles"].append(profile)
+        packet = {"results": list(grouped.values()), "sources": list(sources.values())}
+        accumulated = {}
+        for row in [*self.guidance_packets, *packet["results"]]:
+            key = (
+                row["exercise_revision_id"],
+                json.dumps(row["guidance"], sort_keys=True, default=str),
+            )
+            merged = accumulated.setdefault(
+                key,
+                {
+                    "exercise_revision_id": row["exercise_revision_id"],
+                    "participant_plan_ids": [],
+                    "profiles": [],
+                    "guidance": row["guidance"],
+                },
+            )
+            for participant_plan_id in row["participant_plan_ids"]:
+                if participant_plan_id not in merged["participant_plan_ids"]:
+                    merged["participant_plan_ids"].append(participant_plan_id)
+            for profile in row["profiles"]:
+                if profile not in merged["profiles"]:
+                    merged["profiles"].append(profile)
+        self.guidance_packets = list(accumulated.values())
+        return packet
 
     def _check_participant_compatibility(self, arguments):
         revisions = self._allowed_revisions(arguments["exercise_revision_ids"])
@@ -705,15 +1099,53 @@ class AgentToolExecutor:
             for revision in revisions
             for athlete in athletes
         )
-        return {
-            "results": [
+        results = []
+        for revision in revisions:
+            considerations = self._considerations(revision, athletes)
+            results.append(
                 {
                     "exercise_revision_id": revision.pk,
-                    "participants": self._considerations(revision, athletes),
+                    "compatible_participant_plan_ids": [
+                        row["participant_plan_id"]
+                        for row in considerations
+                        if row["compatibility"] == "compatible"
+                    ],
+                    "participants": [
+                        row for row in considerations
+                        if row["compatibility"] != "compatible"
+                        or row.get("recent_responses")
+                    ],
                 }
-                for revision in revisions
-            ]
+            )
+        accumulated = {
+            row["exercise_revision_id"]: row for row in self.compatibility_packets
         }
+        for row in results:
+            existing = accumulated.setdefault(
+                row["exercise_revision_id"],
+                {
+                    "exercise_revision_id": row["exercise_revision_id"],
+                    "compatible_participant_plan_ids": [],
+                    "participants": [],
+                },
+            )
+            existing["compatible_participant_plan_ids"] = sorted(
+                set(existing["compatible_participant_plan_ids"])
+                | set(row["compatible_participant_plan_ids"])
+            )
+            participants = {
+                participant["participant_plan_id"]: participant
+                for participant in existing["participants"]
+            }
+            participants.update(
+                {
+                    participant["participant_plan_id"]: participant
+                    for participant in row["participants"]
+                }
+            )
+            existing["participants"] = list(participants.values())
+        self.compatibility_packets = list(accumulated.values())
+        return {"results": results}
 
     def _find_compatible_alternatives(self, arguments):
         base = self._allowed_revisions([arguments["exercise_revision_id"]])[0]
@@ -734,15 +1166,19 @@ class AgentToolExecutor:
                 )
             )
         rows = []
-        rejected = {"equipment": 0, "incompatible": 0}
+        rejected = {"equipment": 0, "incompatible": 0, "semantic": 0}
+        base_regions = PATTERN_REGIONS.get(base.movement_pattern, set())
         for revision in queryset.distinct():
             required, _ = self._equipment(revision)
             if not set(required).issubset(self.context.available_equipment_codes):
                 rejected["equipment"] += 1
                 continue
             regions = PATTERN_REGIONS.get(revision.movement_pattern, set())
+            if base_regions and not base_regions.intersection(regions):
+                rejected["semantic"] += 1
+                continue
             incompatible = any(
-                condition.get("training_impact") in {"stop", "avoid"}
+                condition.get("training_impact") == "stop"
                 and condition_applies(condition, regions)
                 for condition in athlete.payload.get("active_conditions", [])
             )
@@ -776,7 +1212,22 @@ class AgentToolExecutor:
             "returned": len(page),
             "total_compatible": len(rows),
             "rejected": rejected,
-            "results": [self._summary(row, [athlete]) for row in page],
+            "results": [
+                {
+                    **self._summary(row, [athlete]),
+                    "equivalence": {
+                        "base_pattern": base.movement_pattern,
+                        "same_pattern": row.movement_pattern == base.movement_pattern,
+                        "shared_body_regions": sorted(
+                            base_regions.intersection(
+                                PATTERN_REGIONS.get(row.movement_pattern, set())
+                            )
+                        ),
+                        "objective_filter": arguments["objective"],
+                    },
+                }
+                for row in page
+            ],
             "requested_validated_only": bool(arguments["validated_only"]),
             "effective_validated_only": bool(arguments["validated_only"])
             and not self.allow_drafts,

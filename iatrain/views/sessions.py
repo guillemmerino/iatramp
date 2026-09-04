@@ -15,6 +15,7 @@ from iatrain.models import (
     BlockGenerationRun,
     PhysicalExercisePrescription,
     SessionGoal,
+    SessionItemAthleteAdjustment,
     SessionParticipantPlan,
     TrainingBlock,
     TrainingSession,
@@ -25,6 +26,7 @@ from iatrain.engine.forms import BlockGenerationForm
 from iatrain.services import organizations_available_to_coach, person_for_user
 from iatrain.training.forms import (
     SessionGoalForm,
+    SessionItemAthleteAdjustmentForm,
     SessionParticipantForm,
     TrainingBlockForm,
     TrainingItemForm,
@@ -150,6 +152,11 @@ def _generation_preview(run, revision):
             adjustment["replacement_exercise_name"] = exercise_labels.get(
                 adjustment.get("replacement_exercise_revision_id"), ""
             )
+            adjustment["station_remainder_label"] = {
+                "rest": "recuperació",
+                "reset": "recol·locació tècnica",
+                "monitor": "monitoratge",
+            }.get(adjustment.get("station_remainder_action"), "")
     seconds = payload.get("estimated_duration_seconds", 0)
     payload["estimated_duration_label"] = f"{seconds / 60:.1f}".replace(".0", "") + " min"
     try:
@@ -186,7 +193,28 @@ def _generation_preview(run, revision):
             for row in trace
         ),
         "review": (run.validation_payload or {}).get("independent_review"),
+        "context_metrics": (run.validation_payload or {}).get("context_metrics", {}),
     }
+    payload["planning_brief"] = deepcopy(run.planning_payload or {})
+    payload["review_required"] = bool(
+        (run.validation_payload or {}).get("review_required")
+    )
+    payload["review_issues"] = deepcopy(
+        (run.validation_payload or {}).get("review_issues", [])
+    )
+    item_labels = {
+        int(item.get("sequence_index", 0)): item.get("title", "Ítem")
+        for item in payload.get("items", [])
+    }
+    for issue in payload["review_issues"]:
+        issue["participant_names"] = [
+            participant_labels.get(int(value), f"Participant {value}")
+            for value in issue.get("participant_plan_ids", [])
+        ]
+        issue["item_names"] = [
+            item_labels.get(int(value), f"Ítem {value}")
+            for value in issue.get("sequence_indices", [])
+        ]
     return payload
 
 
@@ -421,12 +449,15 @@ def _save_item_form(form, *, block, item=None):
         )
     }
     with transaction.atomic():
+        is_manual_edit = item is not None
         if item is None:
             item = TrainingSessionItem(block=block)
         for field, value in values.items():
             if field == "setup_seconds":
                 value = value or 0
             setattr(item, field, value)
+        if is_manual_edit:
+            item.knowledge_support = {}
         item.save()
         if item.item_type == TrainingSessionItem.ItemType.PHYSICAL_EXERCISE:
             try:
@@ -540,6 +571,62 @@ def session_item_edit(request, pk, item_pk):
     context = base_context(request)
     context.update(
         {"form": form, "form_title": "Editar ítem", "submit_label": "Desar ítem"}
+    )
+    return render(request, "iatrain/components/form.html", context)
+
+
+@login_required
+def session_item_adjustment_edit(request, pk, adjustment_pk):
+    require_coach(request)
+    session = _session_for(request.user, pk)
+    adjustment = get_object_or_404(
+        SessionItemAthleteAdjustment.objects.select_related(
+            "session_item__block__session_revision",
+            "participant_plan__athlete_profile__person",
+            "replacement_exercise_revision__exercise",
+        ),
+        pk=adjustment_pk,
+        session_item__block__session_revision__session=session,
+    )
+    revision = adjustment.session_item.block.session_revision
+    if revision.status != TrainingSessionRevision.Status.DRAFT:
+        raise PermissionDenied("Aquesta versió ja no es pot editar.")
+    form = SessionItemAthleteAdjustmentForm(
+        request.POST or None,
+        instance=adjustment,
+        owner=person_for_user(request.user),
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            with transaction.atomic():
+                updated = form.save(commit=False)
+                if updated.action != SessionItemAthleteAdjustment.Action.REPLACE:
+                    updated.replacement_exercise_revision = None
+                if updated.action == SessionItemAthleteAdjustment.Action.SKIP:
+                    for field in (
+                        "sets", "repetitions", "duration_seconds", "load_value",
+                        "intensity_value", "rest_between_sets_seconds",
+                    ):
+                        setattr(updated, field, None)
+                    updated.load_unit = ""
+                    updated.intensity_metric = ""
+                    updated.station_remainder_action = ""
+                updated.professional_justification = {}
+                updated.full_clean()
+                updated.save()
+        except (ValidationError, IntegrityError) as error:
+            form.add_error(None, error)
+        else:
+            messages.success(request, "Adaptació individual actualitzada.")
+            return redirect(_revision_url(session, revision))
+    participant_name = adjustment.participant_plan.athlete_profile.person.display_name
+    context = base_context(request)
+    context.update(
+        {
+            "form": form,
+            "form_title": f"Editar adaptació · {participant_name}",
+            "submit_label": "Desar adaptació",
+        }
     )
     return render(request, "iatrain/components/form.html", context)
 
